@@ -1,0 +1,66 @@
+import { useEffect, useRef } from 'react';
+import { useLocation } from 'react-router-dom';
+import * as D from './data';
+import { parseRoute } from './routes';
+import { useStore } from './store';
+import { Sidebar } from './components/Sidebar';
+import { Header } from './components/Header';
+import { RightPane } from './components/RightPane';
+import { Modal } from './components/Modal';
+import { MissionView } from './views/MissionView';
+import { ProjectView } from './views/ProjectView';
+import { TaskView } from './views/TaskView';
+import { RunView } from './views/RunView';
+import { PodView } from './views/PodView';
+import { ReviewView } from './views/ReviewView';
+import { ArtifactsView, ConnectorsView, InboxView, RoutinesView, SkillsView } from './views/WorkspaceViews';
+
+function View() {
+  const r = parseRoute(useLocation().pathname);
+  switch (r.v) {
+    case 'mission': return <MissionView />;
+    case 'project': return <ProjectView id={r.id as D.ProjectId} />;
+    case 'task': return <TaskView id={r.id!} />;
+    case 'run': return <RunView id={r.id!} />;
+    case 'pod': return <PodView name={r.id!} />;
+    case 'review': return <ReviewView />;
+    case 'inbox': return <InboxView />;
+    case 'routines': return <RoutinesView />;
+    case 'artifacts': return <ArtifactsView />;
+    case 'skills': return <SkillsView />;
+    case 'connectors': return <ConnectorsView />;
+    default: return (
+      <div className="page" style={{ maxWidth: 920, gap: 12 }}>
+        <div className="eyebrow">NOT FOUND</div>
+        <h1 className="h1">Nothing lives at this address</h1>
+      </div>
+    );
+  }
+}
+
+export function App() {
+  const { state } = useStore();
+  const { pathname } = useLocation();
+  const mainRef = useRef<HTMLElement>(null);
+
+  // Each new page starts at the top.
+  useEffect(() => { mainRef.current?.scrollTo(0, 0); }, [pathname]);
+
+  return (
+    <div className="app">
+      <Sidebar />
+      <div className="main-col">
+        <Header />
+        <main ref={mainRef} className="main-scroll">
+          {/* keyed on the path so each page change replays the enter animation and resets local view state */}
+          <div key={pathname} className="route-enter"><View /></div>
+        </main>
+      </div>
+      {state.pane.open && <RightPane />}
+      {state.modal && <Modal kind={state.modal} />}
+      {state.toast && (
+        <div className="toast" role="status"><div style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--acc)' }} />{state.toast}</div>
+      )}
+    </div>
+  );
+}
