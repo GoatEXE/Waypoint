@@ -148,6 +148,7 @@ test('recipient prompts use an inbox id, keep peer text out of instructions, and
     assert.equal(calls[0].seat.task.id, `task_${seatMessage.id.slice(4)}`);
     assert.equal(calls[0].seat.prompt.includes(hostile), false);
     assert.deepEqual(calls[0].seat.turnLimits, { turnTimeoutMs: 60000, maxTurns: 8 });
+    assert.equal(calls[0].seat.guardHostDisconnect, true);
     const ceoMessage = await f.messaging.send(LEAD, { to: 'ceo', text: hostile });
     await wakes.deliverMessage(ceoMessage);
     assert.deepEqual(calls[1].ceo, [ceoMessage.id, LEAD]);

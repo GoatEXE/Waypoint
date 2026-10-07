@@ -54,6 +54,7 @@ All of these are host-control routes; contracts are in `../docs/api.md`.
 - **CEO pod creation**: the CEO bridge can create a template, clone it, and start the pod on this Docker host. `pod_start` captures the CEO's current model as the pod default when none was chosen, prepares all seats, and returns readiness. Explicit seat and template models take priority; shared provider auth supplies the connection.
 - **Task runs**: `POST /tasks/:taskId/run` (and the CEO bridge `run_task` tool) runs one bounded Hermes turn on the task's seat. Run records and sanitized evidence are stored host-side and read with `GET /tasks/:taskId`.
 - **Organization and messages**: the CEO and every stored pod seat have stable addresses. Both can search the org chart and exchange durable messages through scoped tools on `POST /bridge/tools`. Provisioning installs each seat's messaging client and credential in its own profile. A new message starts one bounded recipient turn when ready; stopped seats keep queued mail. Replies are capped to prevent automatic loops. See `../docs/api.md`.
+  - Mailbox turns keep their Docker exec input open while Hermes runs. If the host client disconnects, an in-container wrapper stops the model process group. An interrupted delivery remains uncertain and is never replayed automatically.
   - Runs start only by explicit action, and only one run per seat at a time.
   - A `failed` or `outcome_unknown` run requires manual review. There is no automatic retry.
 

@@ -132,6 +132,23 @@ test('explicit prompt overrides the summary and is passed only on stdin', async 
   assert.ok(!chatCall.args.includes(prompt));
 });
 
+test('mailbox turns keep Docker stdin open and guard the model process on disconnect', async () => {
+  const h = harness();
+  await h.executor.execute({ task: task(), pod: pod(), guardHostDisconnect: true });
+  const call = h.chatCalls()[0];
+  assert.equal(call.args[5], 'python3');
+  assert.equal(call.options.keepStdinOpen, true);
+  assert.deepEqual(JSON.parse(call.options.input), { prompt: 'Write hello.txt' });
+  assert.equal(call.args.includes('Write hello.txt'), false);
+});
+
+test('tailRunner keeps stdin open until a guarded child exits', async () => {
+  const script = 'let ended=false;process.stdin.on("end",()=>ended=true);process.stdin.once("data",()=>setTimeout(()=>{process.stdout.write(ended?"closed":"open");process.exit(0)},80))';
+  const result = await tailRunner(process.execPath, ['-e', script], { input: 'start\n', keepStdinOpen: true, timeoutMs: 2000, outputLimitBytes: 100 });
+  assert.equal(result.code, 0);
+  assert.equal(result.stdout, 'open');
+});
+
 test('refuses unowned, foreign-container, stopped, or failing readiness before workspace or model call', async () => {
   const cases = [
     [readyStatus({ owned: false }), 422, /ownership/],

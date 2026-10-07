@@ -348,6 +348,8 @@ test('CEO mailbox turn is bounded, isolated from user conversation, and carries 
   const turn = hermes.runMailboxTurn(messageId, 'pod_22222222-2222-4222-8222-222222222222/lead');
   await waitFor(() => spawns.length === 1);
   const args = spawns[0];
+  assert.equal(args[5], 'python3');
+  assert.equal(child.stdin.writableEnded, false);
   assert.equal(args[args.indexOf('--continue') + 1], `waypoint-ceo-mailbox-${messageId.slice(4)}`);
   assert.equal(args[args.indexOf('--max-turns') + 1], '8');
   assert.equal(args[args.indexOf('--run-budget') + 1], '45');
