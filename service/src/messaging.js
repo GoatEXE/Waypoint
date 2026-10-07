@@ -57,6 +57,7 @@ export class MessagingService {
     this.queues = new Map();
     this.onMessage = null;
     this.activeWakeDepth = new Map();
+    this.organization = null;
   }
 
   static async create({ config, store }) {
@@ -99,7 +100,8 @@ export class MessagingService {
   async listOrg(query = '') {
     if (typeof query !== 'string' || query.length > 80 || /[\x00-\x1f\x7f]/.test(query)) throw badRequest('query must be at most 80 visible characters');
     const needle = query.trim().toLocaleLowerCase();
-    const ceo = { address: 'ceo', name: 'CEO', role: 'CEO' };
+    const ceoName = (await this.organization?.get())?.ceoName || 'CEO';
+    const ceo = { address: 'ceo', name: ceoName, role: 'CEO' };
     const pods = [];
     const root = path.join(this.config.dataDir, 'instances');
     for (const name of await readDirectory(root)) {
@@ -115,7 +117,7 @@ export class MessagingService {
       if (!needle || podMatches || matchingSeats.length) pods.push({ podId: name, name: instance.podName, state: instance.state, seats: matchingSeats });
     }
     pods.sort((a, b) => a.name.localeCompare(b.name) || a.podId.localeCompare(b.podId));
-    return { ceo: !needle || ['ceo', 'chief executive'].some((value) => value.includes(needle)) ? ceo : null, pods };
+    return { ceo: !needle || ['ceo', 'chief executive', ceoName.toLocaleLowerCase()].some((value) => value.includes(needle)) ? ceo : null, pods };
   }
 
   async assertExistingAddress(address) {

@@ -5,10 +5,10 @@ import { normalizeSeatModel, publicSeatsResult } from './podSeats.js';
 
 const NOT_FOUND = { status: 404, body: { error: { code: 'not_found', message: 'Route not found' } } };
 
-export function createHandler({ config, store, docker, hermes, podSeats, podSeatAuth, taskRuns, messaging, logger }) {
+export function createHandler({ config, store, organization, docker, hermes, podSeats, podSeatAuth, taskRuns, messaging, logger }) {
   return createJsonHandler(logger, (request, url) => {
     assertMutationSafety(request);
-    return route(request, url, { config, store, docker, hermes, podSeats, podSeatAuth, taskRuns, messaging });
+    return route(request, url, { config, store, organization, docker, hermes, podSeats, podSeatAuth, taskRuns, messaging, logger });
   });
 }
 
@@ -35,9 +35,15 @@ function createJsonHandler(logger, dispatch) {
     }
   };
 }
-async function route(request, url, { config, store, docker, hermes, podSeats, podSeatAuth, taskRuns, messaging }) {
+async function route(request, url, { config, store, organization, docker, hermes, podSeats, podSeatAuth, taskRuns, messaging, logger }) {
   if (request.method === 'GET' && url.pathname === '/healthz') return { body: { ok: true, service: config.serviceName, dryRun: config.dryRun, uptimeSeconds: Math.round(process.uptime()) } };
   if (request.method === 'GET' && url.pathname === '/config') return { body: publicConfig(config) };
+  if (request.method === 'GET' && url.pathname === '/organization') return { body: await organization.describe() };
+  if (request.method === 'PUT' && url.pathname === '/organization') {
+    const { organization: saved, identityChanged } = await organization.update(await readBody(request));
+    if (identityChanged) void hermes.refreshCeoIdentity().catch((error) => logger.warn('ceo_identity_refresh_failed', { message: error.message }));
+    return { body: { configured: true, organization: saved } };
+  }
   if (request.method === 'GET' && url.pathname === '/org-chart') return { body: await messaging.listOrg(url.searchParams.get('query') || '') };
   if (request.method === 'GET' && url.pathname === '/messages') return { body: await messaging.inbox('ceo', { limit: Number(url.searchParams.get('limit') || 50), includeRead: url.searchParams.get('includeRead') === 'true' }) };
   if (request.method === 'POST' && url.pathname === '/messages') return { status: 201, body: await messaging.send('ceo', await readBody(request)) };

@@ -116,6 +116,8 @@ async function json<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   config: () => json<AppConfig>('/config'),
+  organization: () => json<OrganizationState>('/organization'),
+  saveOrganization: (body: OrganizationInput) => json<OrganizationState>('/organization', { method: 'PUT', body: JSON.stringify(body) }),
   hermesStatus: (options: { freshAuth?: boolean } = {}) => json<HermesStatus>(`/hermes/status${options.freshAuth ? '?nativeAuth=fresh' : ''}`),
   hermesModelCatalog: (provider?: string, options: { refresh?: boolean } = {}) => {
     const params = new URLSearchParams();
@@ -163,6 +165,9 @@ export const api = {
   retryTaskAfterReview: (id: string) => json<TaskRunStartResponse>(`/tasks/${encodeURIComponent(id)}/manual-retry`, { method: 'POST', body: JSON.stringify({ reviewed: true }) }),
 };
 
+export interface Organization { name: string; key: string; ceoName: string; logo: string | null; createdAt: string; updatedAt: string }
+export interface OrganizationState { configured: boolean; organization: Organization | null }
+export type OrganizationInput = Partial<Pick<Organization, 'name' | 'key' | 'ceoName' | 'logo'>>
 export interface AppConfig { dryRun: boolean; serviceName?: string; sharedAuth?: { enabled: boolean }; docker?: { imageConfigured?: boolean; imagePinned?: boolean }; hermes?: { imagePinned?: boolean } }
 export interface MissionEvidence { type: string; message: string; at: string }
 export interface MissionPod { id: string; podName: string; templateId: string; state: string; seats: { id: string; role: string }[] }

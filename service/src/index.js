@@ -11,6 +11,7 @@ import { PodSeatAuth } from './podSeatAuth.js';
 import { PodTaskExecutor, podSeatsReadiness } from './podTaskExecutor.js';
 import { TaskRunService } from './taskRuns.js';
 import { MessagingService } from './messaging.js';
+import { OrganizationStore } from './organization.js';
 import { MessageWakeService } from './messageWakes.js';
 import { createBridgeHandler, createHandler } from './routes.js';
 import { listenControl } from './controlChannel.js';
@@ -20,12 +21,15 @@ export async function createApp(env = process.env) {
   const logger = createLogger({ serviceName: config.serviceName, level: config.logLevel });
   const store = new PodStore(config.dataDir);
   await store.ensure();
+  const organization = new OrganizationStore(config.dataDir);
   const messaging = await MessagingService.create({ config, store });
+  messaging.organization = organization;
 
   const interrupted = await store.markInterruptedTaskRuns();
   if (interrupted.length) logger.warn('task_runs_interrupted', { count: interrupted.length, taskIds: interrupted.map((item) => item.taskId) });
   const docker = new DockerAdapter(config, logger);
   const hermes = new HermesRuntime(config, logger);
+  hermes.organization = organization;
   const podSeats = new PodSeats({ config, docker, logger });
   const podSeatAuth = new PodSeatAuth({ config, docker, podSeats, logger });
 
@@ -38,9 +42,9 @@ export async function createApp(env = process.env) {
       .catch((error) => logger.warn('hermes_reconcile_skipped', { message: error.message }));
   }
 
-  const server = http.createServer(createHandler({ config, store, docker, hermes, podSeats, podSeatAuth, taskRuns, messaging, logger }));
+  const server = http.createServer(createHandler({ config, store, organization, docker, hermes, podSeats, podSeatAuth, taskRuns, messaging, logger }));
   const bridgeServer = http.createServer(createBridgeHandler({ config, store, docker, hermes, podSeats, taskRuns, messaging, logger }));
-  return { config, logger, store, docker, hermes, podSeats, podSeatAuth, taskExecutor, taskRuns, messaging, messageWakes, server, bridgeServer };
+  return { config, logger, store, organization, docker, hermes, podSeats, podSeatAuth, taskExecutor, taskRuns, messaging, messageWakes, server, bridgeServer };
 }
 export async function main() {
   const { server, bridgeServer, config, logger, messageWakes } = await createApp();

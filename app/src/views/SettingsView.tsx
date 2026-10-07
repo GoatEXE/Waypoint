@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, type HermesModelCatalog, type HermesModelOption, type HermesModelProviderCatalog, type HermesStatus } from '../api';
 import { OnDot, WorkspaceHead } from '../components/ui';
+import { OrganizationSettings } from './OrganizationSettings';
 import { PROVIDERS, RECOMMENDED_MODELS, authForProvider } from '../providerConfig';
 import { applySavedModelIfClean, DEFAULTS, defaultModelForProvider as defaultCatalogModelForProvider, type ModelState, type Provider } from '../settingsModel';
 
@@ -120,8 +121,10 @@ export function SettingsView() {
 
   return (
     <div className="page" style={{ maxWidth: 1040, gap: 20 }}>
-      <WorkspaceHead title="Settings" lede="Runtime and model selection." />
+      <WorkspaceHead title="Settings" lede="Organization, runtime, and model selection." />
       {error && <div className="card" role="alert" style={{ padding: 12, borderColor: 'var(--border-6)', color: 'var(--text)' }}>{error}</div>}
+
+      <OrganizationSettings />
 
       <div className="settings-grid">
         <section className="card stack" style={{ padding: 16, gap: 14 }} aria-label="CEO runtime">

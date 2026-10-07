@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { api, type MissionInput } from './api';
+import { api, type MissionInput, type OrganizationInput, type OrganizationState } from './api';
 import { ceoLoadFailed, ceoLoadStarted, ceoLoadSucceeded, ceoSendFailed, ceoSendStarted, ceoSendSucceeded, cleanCeoMessage, emptyCeoState, type CeoState } from './ceoConversation';
 import type { LessonPick } from './data';
 import { liveTasks, pendingInbox, type Resolved } from './model';
@@ -19,6 +19,7 @@ export interface AppState {
   connected: Record<string, boolean>;
   ceo: CeoState;
   missions: MissionsState;
+  org: OrganizationState & { loaded: boolean; error?: string };
   modal: ModalKind | null;
   toast: string | null;
 }
@@ -39,7 +40,7 @@ function initialState(): AppState {
   return {
     pane: cleanPane(saved),
     resolved: {}, picks: {}, seat: '', podStopped: false, missionOpen: Boolean(saved.missionOpen), routinesOff: {}, connected: {},
-    ceo: emptyCeoState, missions: initialMissionsState, modal: null, toast: null,
+    ceo: emptyCeoState, missions: initialMissionsState, org: { loaded: false, configured: false, organization: null }, modal: null, toast: null,
   };
 }
 
@@ -68,6 +69,19 @@ function useAppStore() {
       set({ toast: msg });
       window.clearTimeout(toastTimer.current);
       toastTimer.current = window.setTimeout(() => set({ toast: null }), 2600);
+    },
+    loadOrganization: async () => {
+      try {
+        const org = await api.organization();
+        set({ org: { ...org, loaded: true } });
+      } catch (err) {
+        set(s => ({ org: { ...s.org, loaded: true, error: err instanceof Error ? err.message : String(err) } }));
+      }
+    },
+    saveOrganization: async (input: OrganizationInput) => {
+      const org = await api.saveOrganization(input);
+      set({ org: { ...org, loaded: true } });
+      return org;
     },
     loadMissions: async () => {
       set(s => ({ missions: missionsLoadStarted(s.missions) }));
@@ -127,7 +141,7 @@ function useAppStore() {
     },
   }), [set]);
 
-  useEffect(() => { void actions.loadMissions(); }, [actions]);
+  useEffect(() => { void actions.loadMissions(); void actions.loadOrganization(); }, [actions]);
 
   const derived = useMemo(() => ({
     tasks: liveTasks(state.resolved),

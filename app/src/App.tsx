@@ -18,6 +18,7 @@ import { MessageInboxView } from './views/MessageInboxView';
 import { SkillsView } from './views/SkillsView';
 import { ConnectorsView } from './views/ConnectorsView';
 import { SettingsView } from './views/SettingsView';
+import { OrgSetupView } from './views/OrgSetupView';
 
 function View() {
   const r = parseRoute(useLocation().pathname);
@@ -49,6 +50,9 @@ export function App() {
   const mainRef = useRef<HTMLElement>(null);
 
   useEffect(() => { mainRef.current?.scrollTo(0, 0); }, [pathname]);
+
+  if (!state.org.loaded) return null;
+  if (!state.org.configured && !state.org.error) return <OrgSetupView />;
 
   return (
     <div className="app">
