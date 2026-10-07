@@ -4,6 +4,9 @@ import { api, isNotFoundError, type PodInstance, type TaskRecord, type TaskRunRe
 import { podStateLabel, shortDate, taskStateLabel } from '../missionsModel';
 import { OnDot } from '../components/ui';
 import { useSplitCols } from '../components/layout';
+import { TaskFields, draftFromTask, draftToInput, useQueueData } from '../components/TaskFields';
+import { relations, statusLabel, taskLabel } from '../taskQueueModel';
+import type { TaskSummary } from '../api';
 
 type LoadState =
   | { status: 'loading'; task: null; pod: null; podError: null; error: null }
@@ -27,7 +30,7 @@ function taskStatusOn(state: string): boolean {
 }
 
 function taskStatusSentence(task: TaskRecord): string {
-  if (task.state === 'delegated') return `Not started. Assigned to the ${task.seatId} seat.`;
+  if (task.state === 'delegated') return task.seatId ? `Not started. Assigned to the ${task.seatId} seat.` : task.podId ? 'Not started. Assigned to a pod; choose a seat to run it.' : 'Not started. No pod is assigned.';
   if (task.state === 'running') return 'Running. Checking for updates.';
   if (task.state === 'completed') return 'Completed.';
   if (task.state === 'failed') return 'Run failed. Manual review required before another run.';
@@ -153,10 +156,76 @@ function runNoticeFromStart(response: TaskRunStartResponse): RunNotice {
   return { kind: 'status', text: response.message || 'Run request accepted.' };
 }
 
+function TaskDetails({ task, queue, onSaved }: { task: TaskRecord; queue: ReturnType<typeof useQueueData>; onSaved: () => void }) {
+  const [draft, setDraft] = useState(() => draftFromTask(task));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const saved = draftFromTask(task);
+  useEffect(() => { setDraft(draftFromTask(task)); }, [task.updatedAt]);
+  const dirty = JSON.stringify(draft) !== JSON.stringify(saved);
+
+  const save = async () => {
+    setBusy(true); setError('');
+    try {
+      await api.updateTask(task.id, draftToInput(draft));
+      onSaved();
+      void queue.reload();
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <div className="stack" style={{ gap: 12 }}>
+      <div className="section-title">Details</div>
+      <TaskFields draft={draft} onChange={setDraft} tasks={queue.tasks} projects={queue.projects} pods={queue.pods} selfId={task.id}
+        onProjectCreated={p => queue.setProjects(ps => [...ps, p])} disabled={busy} />
+      {task.state === 'running' && <div style={{ fontSize: 12, color: 'var(--faint)' }}>A running task keeps its assignee until the run ends.</div>}
+      {error && <div role="alert" style={{ fontSize: 12.5, color: 'var(--text)' }}>{error}</div>}
+      {dirty && <div style={{ display: 'flex', gap: 8 }}>
+        <button className="btn btn-primary" disabled={busy || !draft.summary.trim()} onClick={() => void save()}>{busy ? 'Saving…' : 'Save changes'}</button>
+        <button className="btn btn-ghost" disabled={busy} onClick={() => setDraft(saved)}>Discard</button>
+      </div>}
+    </div>
+  );
+}
+
+function TaskLinks({ title, tasks }: { title: string; tasks: TaskSummary[] }) {
+  const nav = useNavigate();
+  if (!tasks.length) return null;
+  return (
+    <div className="stack" style={{ gap: 6 }}>
+      <div style={{ fontSize: 11.5, color: 'var(--faint)' }}>{title}</div>
+      {tasks.map(t => (
+        <button key={t.id} type="button" className="task-row" style={{ borderRadius: 8, border: '1px solid var(--border)' }} onClick={() => nav('/tasks/' + encodeURIComponent(t.ref || t.id))}>
+          <span className="task-ref">{taskLabel(t)}</span>
+          <span className="task-title">{t.summary}</span>
+          <span className="task-pill">{statusLabel(t.status)}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function TaskRelations({ task, tasks }: { task: TaskRecord; tasks: TaskSummary[] }) {
+  const rel = relations(task, tasks);
+  const empty = !rel.parent && !rel.subtasks.length && !rel.blockedBy.length && !rel.blocking.length;
+  return (
+    <div className="stack" style={{ gap: 10 }}>
+      <div className="section-title">Relationships</div>
+      {empty && <div className="empty">No parent, subtasks, or blockers.</div>}
+      <TaskLinks title="Parent" tasks={rel.parent ? [rel.parent] : []} />
+      <TaskLinks title="Subtasks" tasks={rel.subtasks} />
+      <TaskLinks title="Blocked by" tasks={rel.blockedBy} />
+      <TaskLinks title="Blocking" tasks={rel.blocking} />
+    </div>
+  );
+}
+
 export function TaskView({ id }: { id: string }) {
   const nav = useNavigate();
   const splitCols = useSplitCols();
   const [load, setLoad] = useState<LoadState>(initialLoad);
+  const queue = useQueueData();
   const [refreshing, setRefreshing] = useState(false);
   const [startingRun, setStartingRun] = useState(false);
   const [retryReviewed, setRetryReviewed] = useState(false);
@@ -175,10 +244,12 @@ export function TaskView({ id }: { id: string }) {
       const task = await api.task(id);
       let pod: PodInstance | null = null;
       let podError: string | null = null;
-      try {
-        pod = await api.podInstance(task.podId);
-      } catch (error) {
-        podError = isNotFoundError(error) ? 'Linked pod record was not found.' : error instanceof Error ? error.message : String(error);
+      if (task.podId) {
+        try {
+          pod = await api.podInstance(task.podId);
+        } catch (error) {
+          podError = isNotFoundError(error) ? 'Linked pod record was not found.' : error instanceof Error ? error.message : String(error);
+        }
       }
       setLoad({ status: 'ready', task, pod, podError, error: null });
       return task;
@@ -253,24 +324,24 @@ export function TaskView({ id }: { id: string }) {
 
   const { task, pod, podError } = load;
   const startDisabledReason = task.state === 'delegated'
-    ? (pod?.state === 'running' ? '' : 'Start and prepare the pod first.')
+    ? (!task.seatId ? 'Assign a pod seat to run this task.' : pod?.state === 'running' ? '' : 'Start and prepare the pod first.')
     : task.state === 'running' ? 'A run is already in progress.' : 'Manual review is required before another run.';
 
   return (
     <div className="page" style={{ maxWidth: 1040, gap: 32 }}>
       <div style={{ display: 'flex', alignItems: 'flex-end', gap: 20, flexWrap: 'wrap' }}>
         <div className="page-head">
-          <div className="eyebrow-row"><span>TASK</span><span className="sep">·</span><span>{task.id}</span></div>
+          <div className="eyebrow-row"><span>TASK</span><span className="sep">·</span><span>{taskLabel(task)}</span><span className="sep">·</span><span>{statusLabel(task.status).toUpperCase()}</span></div>
           <h1 className="h1">{task.summary}</h1>
           <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '10px 20px', fontSize: 12.5, color: 'var(--muted)' }}>
             <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}><OnDot on={taskStatusOn(task.state)} /><span style={{ color: 'var(--text)' }}>{taskStateLabel(task.state)}</span></span>
-            <span>Seat <span className="v mono">{task.seatId}</span></span>
-            <span>Pod <button type="button" className="ul mono" style={{ border: 0, background: 'transparent', padding: 0, color: 'inherit', font: 'inherit', cursor: 'pointer' }} onClick={() => nav('/pods/' + task.podId)}>{pod?.podName || task.podId}</button></span>
+            {task.seatId && <span>Seat <span className="v mono">{task.seatId}</span></span>}
+            {task.podId && <span>Pod <button type="button" className="ul mono" style={{ border: 0, background: 'transparent', padding: 0, color: 'inherit', font: 'inherit', cursor: 'pointer' }} onClick={() => nav('/pods/' + task.podId)}>{pod?.podName || task.podId}</button></span>}
             <span>Updated <span className="v">{shortDate(task.updatedAt)}</span></span>
           </div>
         </div>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-          {task.state === 'delegated' && <button className="btn lg btn-primary" onClick={() => void startRun()} disabled={!canStartRun(task, startingRun, pod)}>{runButtonLabel(task, startingRun)}</button>}
+          {task.state === 'delegated' && task.seatId && <button className="btn lg btn-primary" onClick={() => void startRun()} disabled={!canStartRun(task, startingRun, pod)}>{runButtonLabel(task, startingRun)}</button>}
           <RefreshButton loading={refreshing} onClick={() => void loadTask('refresh')} />
         </div>
       </div>
@@ -299,6 +370,7 @@ export function TaskView({ id }: { id: string }) {
 
       <div className="split" style={{ gridTemplateColumns: splitCols, gap: 36 }}>
         <div className="stack" style={{ gap: 28 }}>
+          <TaskDetails task={task} queue={queue} onSaved={() => void loadTask('poll')} />
           <EvidenceList task={task} />
 
           <div className="stack" style={{ gap: 12 }}>
@@ -308,13 +380,14 @@ export function TaskView({ id }: { id: string }) {
         </div>
 
         <div className="stack" style={{ gap: 28 }}>
+          <TaskRelations task={task} tasks={queue.tasks} />
           <div className="stack" style={{ gap: 10 }}>
             <div className="section-title">Assignment</div>
             <div className="kv-grid" style={{ display: 'flex', flexDirection: 'column' }}>
               {[
                 ['Task state', taskStateLabel(task.state)],
-                ['Assigned seat', task.seatId],
-                ['Pod record', pod ? `${pod.podName} · ${podStateLabel(pod.state)}` : (podError || 'Unavailable')],
+                ['Assigned seat', task.seatId || 'None'],
+                ['Pod record', !task.podId ? 'Unassigned' : pod ? `${pod.podName} · ${podStateLabel(pod.state)}` : (podError || 'Unavailable')],
                 ['Created', shortDate(task.createdAt)],
               ].map(([k, v]) => (
                 <div key={k} className="kv" style={{ padding: '10px 12px', gap: 2 }}><span className="k">{k}</span><span className="v" style={{ fontSize: 12 }}>{v}</span></div>
@@ -339,7 +412,7 @@ export function TaskView({ id }: { id: string }) {
             })}
           </div>
 
-          <button className="btn btn-ghost" style={{ alignSelf: 'flex-start', padding: '7px 12px', color: 'var(--text)' }} onClick={() => nav('/pods/' + task.podId)}>Open pod →</button>
+          {task.podId && <button className="btn btn-ghost" style={{ alignSelf: 'flex-start', padding: '7px 12px', color: 'var(--text)' }} onClick={() => nav('/pods/' + task.podId)}>Open pod →</button>}
         </div>
       </div>
     </div>

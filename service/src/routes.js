@@ -135,18 +135,21 @@ async function route(request, url, { config, store, organization, docker, hermes
   if (request.method === 'POST' && match) return { body: await store.linkMission(match[1], await readBody(request)) };
   if (request.method === 'POST' && url.pathname === '/tasks') return { status: 201, body: await store.createTask(await readBody(request)) };
   if (request.method === 'GET' && url.pathname === '/tasks') return { body: { tasks: await store.listTasks() } };
+  if (request.method === 'GET' && url.pathname === '/projects') return { body: { projects: await store.listProjects() } };
+  if (request.method === 'POST' && url.pathname === '/projects') return { status: 201, body: await store.createProject(await readBody(request)) };
   match = url.pathname.match(/^\/tasks\/([^/]+)$/);
-  if (request.method === 'GET' && match) return { body: await store.getTask(match[1]) };
+  if (request.method === 'GET' && match) return { body: await store.getTaskView(decodeRouteParam(match[1])) };
+  if (request.method === 'PATCH' && match) return { body: await store.updateTask(decodeRouteParam(match[1]), await readBody(request)) };
   match = url.pathname.match(/^\/tasks\/([^/]+)\/run$/);
   if (request.method === 'POST' && match) {
-    const result = await taskRuns.start(match[1], await readBody(request));
+    const result = await taskRuns.start(await store.resolveTaskId(decodeRouteParam(match[1])), await readBody(request));
     return { status: result.dryRun ? 200 : 202, body: result };
   }
   match = url.pathname.match(/^\/tasks\/([^/]+)\/manual-retry$/);
   if (request.method === 'POST' && match) {
     const body = await readBody(request);
     if (!body || typeof body !== 'object' || Array.isArray(body) || body.reviewed !== true || Object.keys(body).some((key) => key !== 'reviewed')) throw badRequest('manual retry requires { reviewed: true }');
-    const result = await taskRuns.start(match[1], {}, { manualRetry: true });
+    const result = await taskRuns.start(await store.resolveTaskId(decodeRouteParam(match[1])), {}, { manualRetry: true });
     return { status: result.dryRun ? 200 : 202, body: result };
   }
   return NOT_FOUND;
@@ -184,15 +187,23 @@ async function bridgeTool(request, { config, store, docker, hermes, podSeats, ta
   if (tool === 'pod_start') return bridgePodLifecycle(config, store, docker, hermes, podSeats, messaging, String(args.podId || ''), 'start');
   if (tool === 'pod_stop') return bridgePodLifecycle(config, store, docker, hermes, podSeats, messaging, String(args.podId || ''), 'stop');
   if (tool === 'create_task') return store.createTask(args);
+  if (tool === 'update_task') {
+    if (!args || typeof args !== 'object' || Array.isArray(args)) throw badRequest('args must be an object');
+    const { taskId, ...fields } = args;
+    return store.updateTask(String(taskId || ''), fields);
+  }
+  if (tool === 'list_tasks') return { tasks: await store.listTasks() };
+  if (tool === 'list_projects') return { projects: await store.listProjects() };
+  if (tool === 'create_project') return store.createProject(args);
   if (tool === 'create_mission') return store.createMission(args, { source: 'ceo' });
   if (tool === 'link_mission') return store.linkMission(String(args.missionId || ''), args);
   if (tool === 'list_missions') return { missions: await store.listMissions() };
   if (tool === 'run_task') {
 
-    const { plan: _plan, ...summary } = await taskRuns.start(bridgeTaskId(args), {});
+    const { plan: _plan, ...summary } = await taskRuns.start(await store.resolveTaskId(bridgeTaskId(args)), {});
     return summary;
   }
-  if (tool === 'task_status') return taskRuns.status(bridgeTaskId(args));
+  if (tool === 'task_status') return taskRuns.status(await store.resolveTaskId(bridgeTaskId(args)));
   throw badRequest('unsupported bridge tool', { tool });
 }
 function assertBridgeFields(args, allowed) {
