@@ -4,6 +4,7 @@ import { OnDot, WorkspaceHead } from '../components/ui';
 import { isActiveLogin, isMissingLoginError, shouldApplyMissingLoginRecovery, shouldClearLoginPrompt, shouldShowLoginPromptMaterial, statusHasUncheckedNativeAuth, toConnectorProvider } from '../connectorsModel';
 import { providerReadiness } from '../providerConfig';
 import type { Provider } from '../settingsModel';
+import { GitHubCard } from './GitHubConnector';
 
 type ProviderGroupId = 'openai' | 'anthropic';
 type Method = 'subscription' | 'api_key';
@@ -148,7 +149,7 @@ export function ConnectorsView() {
 
   return (
     <div className="page" style={{ maxWidth: 1040, gap: 20 }}>
-      <WorkspaceHead title="Connectors" lede="Provider accounts for Waypoint." />
+      <WorkspaceHead title="Connectors" lede="Provider accounts and GitHub access for Waypoint." />
       {error && <div className="card" role="alert" style={{ padding: 12, borderColor: 'var(--border-6)', color: 'var(--text)' }}>{error}</div>}
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
@@ -230,6 +231,8 @@ export function ConnectorsView() {
           {(login.state === 'failed' || login.state === 'cancelled') && <button className="btn btn-primary" disabled={!!busy || !runtimeRunning} onClick={() => startLoginForProvider(login.provider)}>Try again</button>}
         </div>
       </section>}
+
+      <GitHubCard />
     </div>
   );
 }
