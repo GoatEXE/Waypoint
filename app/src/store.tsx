@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { api, type MissionInput, type OrganizationInput, type OrganizationState } from './api';
-import { ceoLoadFailed, ceoLoadStarted, ceoLoadSucceeded, ceoSendFailed, ceoSendStarted, ceoSendSucceeded, cleanCeoMessage, emptyCeoState, type CeoState } from './ceoConversation';
+import { ceoLiveUpdated, ceoLoadFailed, ceoLoadStarted, ceoLoadSucceeded, ceoSendFailed, ceoSendStarted, ceoSendSucceeded, cleanCeoMessage, emptyCeoState, type CeoState } from './ceoConversation';
 import type { LessonPick } from './data';
 import { liveTasks, pendingInbox, type Resolved } from './model';
 import { initialMissionsState, missionsLoadFailed, missionsLoadStarted, missionsLoadSucceeded, type MissionsState } from './missionsModel';
@@ -18,6 +18,7 @@ export interface AppState {
   routinesOff: Record<string, boolean>;
   connected: Record<string, boolean>;
   ceo: CeoState;
+  ceoThread: string;
   missions: MissionsState;
   org: OrganizationState & { loaded: boolean; error?: string };
   modal: ModalKind | null;
@@ -25,7 +26,7 @@ export interface AppState {
 }
 
 const STORAGE_KEY = 'waypoint-web';
-const PERSISTED = ['pane', 'missionOpen'] as const;
+const PERSISTED = ['pane', 'missionOpen', 'ceoThread'] as const;
 
 function cleanPane(saved: Partial<AppState>): AppState['pane'] {
   const fallback: AppState['pane'] = { open: window.innerWidth >= 1280, tab: 'ceo', item: null };
@@ -40,7 +41,7 @@ function initialState(): AppState {
   return {
     pane: cleanPane(saved),
     resolved: {}, picks: {}, seat: '', podStopped: false, missionOpen: Boolean(saved.missionOpen), routinesOff: {}, connected: {},
-    ceo: emptyCeoState, missions: initialMissionsState, org: { loaded: false, configured: false, organization: null }, modal: null, toast: null,
+    ceo: emptyCeoState, ceoThread: typeof saved.ceoThread === 'string' && saved.ceoThread ? saved.ceoThread : 'general', missions: initialMissionsState, org: { loaded: false, configured: false, organization: null }, modal: null, toast: null,
   };
 }
 
@@ -59,6 +60,8 @@ function useAppStore() {
   const toastTimer = useRef<number>();
   const ceoSendingRef = useRef(false);
   const ceoSendVersionRef = useRef(0);
+  const ceoThreadRef = useRef(state.ceoThread);
+  ceoThreadRef.current = state.ceoThread;
   const actions = useMemo(() => ({
     set,
     setPane: (p: Partial<AppState['pane']>) => set(s => ({ pane: { ...s.pane, ...p } })),
@@ -109,13 +112,24 @@ function useAppStore() {
     },
     loadCeoConversation: async () => {
       const sendVersion = ceoSendVersionRef.current;
+      const thread = ceoThreadRef.current;
       set(s => ({ ceo: ceoLoadStarted(s.ceo) }));
       try {
-        const conversation = await api.ceoConversation();
-        set(s => ceoSendVersionRef.current === sendVersion ? { ceo: ceoLoadSucceeded(s.ceo, conversation) } : {});
+        const conversation = await api.ceoConversation(thread);
+        set(s => ceoSendVersionRef.current === sendVersion && s.ceoThread === thread ? { ceo: ceoLoadSucceeded(s.ceo, conversation) } : {});
       } catch (err) {
-        set(s => ceoSendVersionRef.current === sendVersion ? { ceo: ceoLoadFailed(s.ceo, err instanceof Error ? err.message : String(err)) } : {});
+        set(s => ceoSendVersionRef.current === sendVersion && s.ceoThread === thread ? { ceo: ceoLoadFailed(s.ceo, err instanceof Error ? err.message : String(err)) } : {});
       }
+    },
+    setCeoThread: (thread: string) => {
+      if (ceoSendingRef.current || thread === ceoThreadRef.current) return false;
+      ceoThreadRef.current = thread;
+      ceoSendVersionRef.current += 1;
+      set({ ceoThread: thread, ceo: { ...emptyCeoState, loading: true } });
+      void api.ceoConversation(thread)
+        .then(conversation => set(s => s.ceoThread === thread ? { ceo: ceoLoadSucceeded(s.ceo, conversation) } : {}))
+        .catch(err => set(s => s.ceoThread === thread ? { ceo: ceoLoadFailed(s.ceo, err instanceof Error ? err.message : String(err)) } : {}));
+      return true;
     },
     sendCeoMessage: async (message: string, openPane = false) => {
       const text = cleanCeoMessage(message);
@@ -123,12 +137,16 @@ function useAppStore() {
       if (ceoSendingRef.current) return { ok: false, error: 'A CEO message is already sending' };
       ceoSendingRef.current = true;
       ceoSendVersionRef.current += 1;
+      const thread = ceoThreadRef.current;
+      const poll = window.setInterval(() => {
+        void api.ceoConversation(thread).then(conversation => set(s => s.ceoThread === thread && s.ceo.sending ? { ceo: ceoLiveUpdated(s.ceo, conversation) } : {})).catch(() => undefined);
+      }, 1500);
       set(s => ({
         ceo: ceoSendStarted(s.ceo, text),
         ...(openPane ? { pane: { ...s.pane, open: true, tab: 'ceo' as const } } : {}),
       }));
       try {
-        const response = await api.sendCeoMessage(text);
+        const response = await api.sendCeoMessage(text, thread);
         set(s => ({ ceo: ceoSendSucceeded(s.ceo, response), ...(openPane ? { pane: { ...s.pane, open: true, tab: 'ceo' as const } } : {}) }));
         return { ok: true };
       } catch (err) {
@@ -136,6 +154,7 @@ function useAppStore() {
         set(s => ({ ceo: ceoSendFailed(s.ceo, message) }));
         return { ok: false, error: message };
       } finally {
+        window.clearInterval(poll);
         ceoSendingRef.current = false;
       }
     },

@@ -1,4 +1,5 @@
 import { AppError, badRequest, conflict } from './errors.js';
+import { publicActivity } from './activity.js';
 
 const START_FIELDS = new Set(['files']);
 const STATUS_EVIDENCE_KEEP = 8;
@@ -24,6 +25,12 @@ export class TaskRunService {
     this.logger = logger;
     this.jobs = new Map();
     this.seats = new Set();
+    this.live = new Map();
+  }
+
+  liveActivity(taskId) {
+    const live = this.live.get(taskId);
+    return live ? { runId: live.runId, items: publicActivity(live.items) } : null;
   }
 
   async start(taskId, body = {}, { manualRetry = false } = {}) {
@@ -67,7 +74,9 @@ export class TaskRunService {
   async dispatch(task, runId, { pod, template, files }) {
     let result;
     try {
-      result = await this.executor.execute({ task, pod, template, files });
+      const items = [];
+      this.live.set(task.id, { runId, items });
+      result = await this.executor.execute({ task, pod, template, files, activity: items });
     } catch (error) {
       if (error instanceof AppError) {
 
@@ -84,6 +93,7 @@ export class TaskRunService {
         evidence: [{ type: 'run_error', message: 'The run failed unexpectedly after it was claimed; the outcome is unknown. Manual review of the task workspace and Hermes session is required before any retry; Waypoint never retries automatically.', retry: 'manual_review_required', automaticRetry: false }],
       });
     }
+    finally { this.live.delete(task.id); }
     if (result?.outcome === 'dry_run') return this.store.abortTaskRun(task.id, runId, { reason: 'dry_run' });
     this.logger?.info?.('task_run_finished', { taskId: task.id, runId, outcome: result.outcome, durationMs: result.durationMs });
     return this.store.finishTaskRun(task.id, runId, result);

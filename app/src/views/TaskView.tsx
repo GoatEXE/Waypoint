@@ -6,7 +6,10 @@ import { OnDot } from '../components/ui';
 import { useSplitCols } from '../components/layout';
 import { TaskFields, draftFromTask, draftToInput, useQueueData } from '../components/TaskFields';
 import { relations, statusLabel, taskLabel } from '../taskQueueModel';
+import { ActivityBlock, ActivityList } from '../components/Activity';
 import type { TaskSummary } from '../api';
+import { useStore } from '../store';
+import { ceoNameOf } from '../orgModel';
 
 type LoadState =
   | { status: 'loading'; task: null; pod: null; podError: null; error: null }
@@ -119,6 +122,9 @@ function LatestRun({ task }: { task: TaskRecord }) {
         {run.finishedAt && <span>Finished <span className="v">{formatDateTime(run.finishedAt)}</span></span>}
         {formatDuration(run.durationMs) && <span>Duration <span className="v">{formatDuration(run.durationMs)}</span></span>}
       </div>
+      {task.liveActivity && task.liveActivity.runId === run.id
+        ? (task.liveActivity.items.length ? <ActivityList items={task.liveActivity.items} /> : <div style={{ fontSize: 12, color: 'var(--faint)' }}>Waiting for the seat's first step…</div>)
+        : run.activity?.length ? <ActivityBlock items={run.activity} /> : null}
       {reply.text && (
         <div className="stack" style={{ gap: 6 }}>
           <div style={{ fontSize: 11.5, color: 'var(--faint)' }}>Latest reply</div>
@@ -226,6 +232,9 @@ export function TaskView({ id }: { id: string }) {
   const splitCols = useSplitCols();
   const [load, setLoad] = useState<LoadState>(initialLoad);
   const queue = useQueueData();
+  const { state: appState, setCeoThread, setPane } = useStore();
+  const readyTaskId = load.status === 'ready' ? load.task.id : null;
+  useEffect(() => { if (readyTaskId) setCeoThread(readyTaskId); }, [readyTaskId, setCeoThread]);
   const [refreshing, setRefreshing] = useState(false);
   const [startingRun, setStartingRun] = useState(false);
   const [retryReviewed, setRetryReviewed] = useState(false);
@@ -342,6 +351,7 @@ export function TaskView({ id }: { id: string }) {
         </div>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 10, flexWrap: 'wrap' }}>
           {task.state === 'delegated' && task.seatId && <button className="btn lg btn-primary" onClick={() => void startRun()} disabled={!canStartRun(task, startingRun, pod)}>{runButtonLabel(task, startingRun)}</button>}
+          <button className="btn lg btn-ghost" onClick={() => { setCeoThread(task.id); setPane({ open: true, tab: 'ceo' }); }}>Discuss with {ceoNameOf(appState.org.organization)}</button>
           <RefreshButton loading={refreshing} onClick={() => void loadTask('refresh')} />
         </div>
       </div>

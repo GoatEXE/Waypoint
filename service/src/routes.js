@@ -59,8 +59,14 @@ async function route(request, url, { config, store, organization, docker, hermes
   let match = url.pathname.match(/^\/hermes\/skills\/(.+)$/);
   if (request.method === 'GET' && match) return { body: await hermes.skill(decodeRouteParam(match[1])) };
   if (request.method === 'PUT' && match) return { body: await hermes.setSkillEnabled(decodeRouteParam(match[1]), await readBody(request)) };
-  if (request.method === 'GET' && url.pathname === '/hermes/ceo/conversation') return { body: await hermes.ceoConversation() };
-  if (request.method === 'POST' && url.pathname === '/hermes/ceo/messages') return { body: await hermes.sendCeoMessage(await readBody(request)) };
+  if (request.method === 'GET' && url.pathname === '/hermes/ceo/conversation') return { body: await hermes.ceoConversation(url.searchParams.get('threadId') || undefined) };
+  if (request.method === 'GET' && url.pathname === '/hermes/ceo/threads') return { body: await ceoThreads(store, hermes) };
+  if (request.method === 'POST' && url.pathname === '/hermes/ceo/messages') {
+    const body = await readBody(request);
+    const threadId = body?.threadId || undefined;
+    const context = threadId ? await taskThreadContext(store, threadId) : '';
+    return { body: await hermes.sendCeoMessage({ message: body?.message, threadId, context }) };
+  }
   if (request.method === 'GET' && url.pathname === '/hermes/model-catalog') return { body: await hermes.modelCatalog(url.searchParams.get('provider') || '', { refresh: url.searchParams.get('refresh') === '1' || url.searchParams.get('refresh') === 'true' }) };
   if (request.method === 'POST' && url.pathname === '/hermes/lifecycle') return { body: await hermes.lifecycle((await readBody(request)).action) };
   if (request.method === 'PUT' && url.pathname === '/hermes/model') return { body: await hermes.saveModel(await readBody(request)) };
@@ -138,12 +144,20 @@ async function route(request, url, { config, store, organization, docker, hermes
   if (request.method === 'GET' && url.pathname === '/projects') return { body: { projects: await store.listProjects() } };
   if (request.method === 'POST' && url.pathname === '/projects') return { status: 201, body: await store.createProject(await readBody(request)) };
   match = url.pathname.match(/^\/tasks\/([^/]+)$/);
-  if (request.method === 'GET' && match) return { body: await store.getTaskView(decodeRouteParam(match[1])) };
+  if (request.method === 'GET' && match) {
+    const task = await store.getTaskView(decodeRouteParam(match[1]));
+    return { body: { ...task, liveActivity: taskRuns.liveActivity(task.id) } };
+  }
   if (request.method === 'PATCH' && match) return { body: await store.updateTask(decodeRouteParam(match[1]), await readBody(request)) };
   match = url.pathname.match(/^\/tasks\/([^/]+)\/run$/);
   if (request.method === 'POST' && match) {
     const result = await taskRuns.start(await store.resolveTaskId(decodeRouteParam(match[1])), await readBody(request));
     return { status: result.dryRun ? 200 : 202, body: result };
+  }
+  match = url.pathname.match(/^\/tasks\/([^/]+)\/messages$/);
+  if (request.method === 'GET' && match) {
+    const taskId = await store.resolveTaskId(decodeRouteParam(match[1]));
+    return { body: { messages: messaging ? await messaging.listTaskMessages(taskId) : [] } };
   }
   match = url.pathname.match(/^\/tasks\/([^/]+)\/manual-retry$/);
   if (request.method === 'POST' && match) {
@@ -174,12 +188,25 @@ async function bridgeTool(request, { config, store, docker, hermes, podSeats, ta
       assertBridgeFields(args, ['messageId']);
       return messaging.acknowledge(actor, args.messageId);
     }
-    assertBridgeFields(args, ['to', 'text']);
-    return messaging.send(actor, args, { bridge: true });
+    assertBridgeFields(args, ['to', 'text', 'taskId']);
+    const liveThread = actor === 'ceo' ? hermes.liveTurn?.threadId : null;
+    const sent = await messaging.send(actor, !args.taskId && liveThread && liveThread !== 'general' ? { ...args, taskId: liveThread } : args, { bridge: true });
+    if (actor === 'ceo') hermes.recordCeoAction?.('send_message', `to ${String(args.to || '').slice(0, 80)}`);
+    return sent;
   }
   if (!bearerMatches(request.headers.authorization, config.bridge.token)) throw forbidden('Waypoint bridge token is required');
 
   if (hermes.mailboxTurnInFlight) throw forbidden('CEO control tools are unavailable during a peer-message turn');
+  let result;
+  try { result = await ceoControlTool(tool, args, { config, store, docker, hermes, podSeats, taskRuns, messaging }); }
+  catch (error) {
+    if (tool !== 'health') hermes.recordCeoAction?.(tool, String(error.message || 'failed'), 'error');
+    throw error;
+  }
+  if (tool !== 'health') hermes.recordCeoAction?.(tool, actionSummary(tool, args, result));
+  return result;
+}
+async function ceoControlTool(tool, args, { config, store, docker, hermes, podSeats, taskRuns, messaging }) {
   if (tool === 'health') return { ok: true, service: config.serviceName };
   if (tool === 'create_template') return store.createTemplate(args);
   if (tool === 'clone_template') return store.cloneTemplate(String(args.templateId || ''), args, ({ podId, podName }) => docker.startPlan({ podId, podName }));
@@ -205,6 +232,41 @@ async function bridgeTool(request, { config, store, docker, hermes, podSeats, ta
   }
   if (tool === 'task_status') return taskRuns.status(await store.resolveTaskId(bridgeTaskId(args)));
   throw badRequest('unsupported bridge tool', { tool });
+}
+async function ceoThreads(store, hermes) {
+  const { threads, busyThreadId } = await hermes.listCeoThreads();
+  const tasks = new Map((await store.listTasks()).map((task) => [task.id, task]));
+  return {
+    busyThreadId,
+    threads: threads.map((thread) => {
+      const task = tasks.get(thread.threadId);
+      return { ...thread, title: thread.threadId === 'general' ? 'General' : task ? task.summary : 'Deleted task', ref: task?.ref || null, status: task?.status || null };
+    }),
+  };
+}
+async function taskThreadContext(store, threadId) {
+  if (threadId === 'general') return '';
+  const task = await store.getTaskView(threadId).catch((error) => { throw error.status === 404 ? badRequest('threadId does not match a stored task') : error; });
+  const lines = [
+    `This conversation is about Waypoint task ${task.ref || task.id}: ${task.summary}`,
+    task.description ? `Description: ${task.description}` : '',
+    `Status: ${task.status}. Run state: ${task.state}. Assignee: ${task.podId ? `${task.podId}${task.seatId ? `/${task.seatId}` : ''}` : 'none'}.`,
+    `Use taskId ${task.ref || task.id} with update_task, run_task, and task_status. Keep this conversation focused on this task.`,
+  ];
+  return lines.filter(Boolean).join('\n');
+}
+function actionSummary(tool, args = {}, result = {}) {
+  const value = (v) => String(v ?? '').slice(0, 120);
+  if (tool === 'create_task') return `${value(result.ref)} ${value(result.summary)}`;
+  if (tool === 'update_task') return `${value(result.ref || args.taskId)} ${Object.keys(args).filter((key) => key !== 'taskId').join(', ')}`;
+  if (tool === 'run_task' || tool === 'task_status') return `${value(args.taskId)} ${value(result.state)}`;
+  if (tool === 'create_mission') return value(result.mission?.title || args.title);
+  if (tool === 'create_template') return value(result.name || args.name);
+  if (tool === 'clone_template') return value(result.podName || args.podName);
+  if (tool === 'create_project') return value(result.name || args.name);
+  if (['pod_status', 'pod_start', 'pod_stop'].includes(tool)) return `${value(args.podId)} ${value(result.status?.state)}`;
+  if (tool === 'list_tasks') return `${result.tasks?.length ?? 0} tasks`;
+  return '';
 }
 function assertBridgeFields(args, allowed) {
   const extra = Object.keys(args).filter((key) => !allowed.includes(key));

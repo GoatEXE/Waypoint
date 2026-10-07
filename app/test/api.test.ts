@@ -30,10 +30,12 @@ test('CEO conversation API uses the agreed GET and POST contract', async () => {
   assert.deepEqual(await api.ceoConversation(), { sessionId: 's1', messages: [] });
   await api.sendCeoMessage('Do this');
 
-  assert.equal(calls[0].url, '/api/hermes/ceo/conversation');
+  assert.equal(calls[0].url, '/api/hermes/ceo/conversation?threadId=general');
   assert.equal(calls[1].url, '/api/hermes/ceo/messages');
   assert.equal(calls[1].init?.method, 'POST');
-  assert.equal(calls[1].init?.body, JSON.stringify({ message: 'Do this' }));
+  assert.equal(calls[1].init?.body, JSON.stringify({ message: 'Do this', threadId: 'general' }));
+  await api.ceoConversation('task_1');
+  assert.equal(calls[2].url, '/api/hermes/ceo/conversation?threadId=task_1');
 });
 
 test('skills API lists all installed skills and toggles one skill availability', async () => {
