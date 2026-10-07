@@ -26,6 +26,10 @@ The host-only control API also exposes `GET /org-chart?query=...`, `GET /message
 
 The host-only `GET /message-deliveries?limit=100` lists recent messages across CEO and pod seat mailboxes with their durable wake state (`queued`, `running`, `completed`, `failed`, `outcome_unknown`, or `suppressed`). `POST /message-deliveries/review` with `{ "to": "ADDRESS", "messageId": "msg_<uuid>" }` marks only a failed or uncertain delivery reviewed. It does not replay that message. Later queued turns for the same recipient wait until the uncertain delivery is reviewed. Neither route is on the bridge port.
 
+## `GET /organization` and `PUT /organization`
+
+Host-only control routes for the organization profile created during first-run setup. `GET` returns `{ "configured": false, "organization": null }` until one is saved; the app shows its setup flow in that state. `PUT` accepts any of `name` (1–80 characters), `key` (task prefix, 2–6 uppercase letters or digits starting with a letter), `ceoName` (1–40 characters), and `logo` (a base64 PNG, JPEG, WebP, or GIF data URL up to 256 KB, or `null` to remove it). Creating the organization requires `name`; `key` defaults to the first three letters of the name and `ceoName` to `CEO`. Omitted fields keep their saved values. A changed name or CEO name is written into the running CEO's bridge skill as its identity, and `org_chart` lists the CEO under that name.
+
 ## `GET /healthz`
 
 Returns service health and dependency-neutral process status.

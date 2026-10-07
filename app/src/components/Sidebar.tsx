@@ -8,6 +8,7 @@ import { Dot, OnDot } from './ui';
 import { api, type HermesStatus, type MissionPod, type TaskSummary } from '../api';
 import { sidebarHermesSummary } from '../hermesSidebarStatus';
 import { missionPods, sidebarMissionLabel } from '../missionsModel';
+import { ceoNameOf } from '../orgModel';
 
 const WORKSPACE: [View, string, number, number, string, number][] = [
   ['inbox', 'Inbox', 12, 9, '2px', 0],
@@ -58,14 +59,14 @@ export function Sidebar() {
   return (
     <aside className="sidebar">
       <div className="brand">
-        <div className="brand-mark" />
-        <div className="brand-name">Waypoint</div>
+        {state.org.organization?.logo ? <img className="brand-logo" src={state.org.organization.logo} alt="" /> : <div className="brand-mark" />}
+        <div className="brand-name" title={state.org.organization?.name}>{state.org.organization?.name || 'Waypoint'}</div>
         <div className="brand-env">LOCAL</div>
       </div>
       <div className="new-assign-wrap">
         <button className="new-assign" onClick={() => openModal('assignment')}>
           <span className="plus">+</span>New assignment
-          <span className="tag">CEO</span>
+          <span className="tag">{ceoNameOf(state.org.organization)}</span>
         </button>
       </div>
 

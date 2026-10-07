@@ -4,6 +4,7 @@ import * as D from '../data';
 import { byParent, projById, st } from '../model';
 import { chatContextFor, useRoute } from '../routes';
 import { useStore, useViewport, type PaneTab } from '../store';
+import { ceoNameOf } from '../orgModel';
 import { Dot, PaneGroupHead } from './ui';
 import { PANE_DOCK_MIN } from './layout';
 
@@ -98,7 +99,7 @@ function CeoChat() {
           <textarea
             rows={2}
             value={draft}
-            placeholder="Message the CEO…"
+            placeholder={`Message ${ceoNameOf(state.org.organization)}…`}
             disabled={ceo.sending}
             onChange={e => setDraft(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
@@ -220,7 +221,7 @@ export function RightPane() {
   const { state, setPane } = useStore();
   const vw = useViewport();
   const { tab, item } = state.pane;
-  const tabs: [PaneTab, string][] = [['ceo', 'CEO'], ['tasks', 'Tasks'], ['artifacts', 'Artifacts'], ['inbox', 'Inbox']];
+  const tabs: [PaneTab, string][] = [['ceo', ceoNameOf(state.org.organization)], ['tasks', 'Tasks'], ['artifacts', 'Artifacts'], ['inbox', 'Inbox']];
   if (item) tabs.push(['item', item]);
 
   return (
