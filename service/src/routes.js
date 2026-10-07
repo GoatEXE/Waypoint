@@ -5,10 +5,10 @@ import { normalizeSeatModel, publicSeatsResult } from './podSeats.js';
 
 const NOT_FOUND = { status: 404, body: { error: { code: 'not_found', message: 'Route not found' } } };
 
-export function createHandler({ config, store, organization, docker, hermes, podSeats, podSeatAuth, taskRuns, messaging, logger }) {
+export function createHandler({ config, store, organization, docker, hermes, podSeats, podSeatAuth, taskRuns, messaging, seatChat, logger }) {
   return createJsonHandler(logger, (request, url) => {
     assertMutationSafety(request);
-    return route(request, url, { config, store, organization, docker, hermes, podSeats, podSeatAuth, taskRuns, messaging, logger });
+    return route(request, url, { config, store, organization, docker, hermes, podSeats, podSeatAuth, taskRuns, messaging, seatChat, logger });
   });
 }
 
@@ -35,7 +35,7 @@ function createJsonHandler(logger, dispatch) {
     }
   };
 }
-async function route(request, url, { config, store, organization, docker, hermes, podSeats, podSeatAuth, taskRuns, messaging, logger }) {
+async function route(request, url, { config, store, organization, docker, hermes, podSeats, podSeatAuth, taskRuns, messaging, seatChat, logger }) {
   if (request.method === 'GET' && url.pathname === '/healthz') return { body: { ok: true, service: config.serviceName, dryRun: config.dryRun, uptimeSeconds: Math.round(process.uptime()) } };
   if (request.method === 'GET' && url.pathname === '/config') return { body: publicConfig(config) };
   if (request.method === 'GET' && url.pathname === '/organization') return { body: await organization.describe() };
@@ -129,6 +129,10 @@ async function route(request, url, { config, store, organization, docker, hermes
   if (request.method === 'POST' && match) return { body: podSeatAuth.submitLoginCode(match[1], decodeRouteParam(match[2]), decodeRouteParam(match[3]), decodeRouteParam(match[4]), await readBody(request)) };
   match = url.pathname.match(/^\/pod-instances\/([^/]+)\/seats\/([^/]+)\/providers\/([^/]+)\/api-key$/);
   if (request.method === 'PUT' && match) return { body: await podSeatAuthSaveKey(store, podSeatAuth, match[1], decodeRouteParam(match[2]), decodeRouteParam(match[3]), await readBody(request)) };
+  match = url.pathname.match(/^\/pod-instances\/([^/]+)\/seats\/([^/]+)\/conversation$/);
+  if (request.method === 'GET' && match && seatChat) return { body: await seatChat.conversation(decodeRouteParam(match[1]), decodeRouteParam(match[2])) };
+  match = url.pathname.match(/^\/pod-instances\/([^/]+)\/seats\/([^/]+)\/messages$/);
+  if (request.method === 'POST' && match && seatChat) return { body: await seatChat.send(decodeRouteParam(match[1]), decodeRouteParam(match[2]), await readBody(request)) };
   if (request.method === 'GET' && url.pathname === '/missions') return { body: { missions: await store.listMissions() } };
   if (request.method === 'POST' && url.pathname === '/missions') {
     const { created, mission } = await store.createMission(await readBody(request), { source: 'app' });

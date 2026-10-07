@@ -45,7 +45,7 @@ export function OrgChartView() {
 
   return (
     <div className="page" style={{ maxWidth: 1280, gap: 24 }}>
-      <WorkspaceHead title="Organization" lede="Who reports to whom, what each pod and seat is working on, and what is running now." />
+      <WorkspaceHead title="Organization" lede="Who reports to whom, what each pod and seat is working on, and what is running now. Click a seat to talk with it directly." />
       {error && <div className="card" role="alert" style={{ padding: 12 }}>{error}</div>}
       {!tree && !error && <div className="empty" role="status">Loading organization…</div>}
       {tree && (
@@ -91,7 +91,7 @@ export function OrgChartView() {
                 {pod.podOnly.length > 0 && <div className="org-tasks" style={{ padding: '0 6px' }}>{pod.podOnly.map(t => <TaskChip key={t.id} task={t} />)}</div>}
                 <div className="org-seats">
                   {pod.seats.map(seat => (
-                    <div key={seat.seatId} className={'org-node org-seat' + (seat.running ? ' busy' : '')} onClick={() => nav('/pods/' + pod.podId)}>
+                    <div key={seat.seatId} className={'org-node org-seat' + (seat.running ? ' busy' : '')} title={`Chat with ${seat.seatId}`} onClick={() => { setCeoThread(`seat:${pod.podId}/${seat.seatId}`); setPane({ open: true, tab: 'ceo' }); }}>
                       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, minWidth: 0 }}>
                         <span className="org-name mono">{seat.seatId}</span>
                         <span className="org-sub ellipsis">{seat.role}</span>

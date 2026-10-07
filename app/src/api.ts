@@ -59,7 +59,7 @@ export interface HermesSkillInventory {
 export type HermesSkillUpdateResponse = HermesSkill | { skill: HermesSkill };
 
 export interface ActivityItem { kind: 'tool' | 'action'; name: string; detail: string; status: 'running' | 'ok' | 'error' | 'unknown'; durationMs?: number; at?: string }
-export interface CeoMessage { role: 'user' | 'ceo' | 'activity'; text?: string; at: string; status?: 'sent' | 'confirmed' | 'outcome_unknown'; items?: ActivityItem[] }
+export interface CeoMessage { role: 'user' | 'ceo' | 'seat' | 'activity'; text?: string; at: string; status?: 'sent' | 'confirmed' | 'outcome_unknown'; items?: ActivityItem[] }
 export interface CeoLiveTurn { startedAt: string; message: string; items: ActivityItem[] }
 export interface CeoConversation { threadId?: string; sessionId: string | null; messages: CeoMessage[]; live?: CeoLiveTurn | null; busyThreadId?: string | null }
 export interface CeoSendResponse extends CeoConversation { sessionId: string; reply: string }
@@ -117,6 +117,11 @@ async function json<T>(path: string, init?: RequestInit): Promise<T> {
   return request;
 }
 
+export function parseSeatThread(threadId: string): { podId: string; seatId: string } | null {
+  const match = /^seat:(pod_[^/]+)\/([a-z][a-z0-9_-]*)$/.exec(threadId);
+  return match ? { podId: match[1], seatId: match[2] } : null;
+}
+
 export const api = {
   config: () => json<AppConfig>('/config'),
   organization: () => json<OrganizationState>('/organization'),
@@ -139,6 +144,14 @@ export const api = {
   hermesSkills: () => json<HermesSkillInventory>('/hermes/skills'),
   setHermesSkillEnabled: (name: string, enabled: boolean) => json<HermesSkillUpdateResponse>(`/hermes/skills/${encodeURIComponent(name)}`, { method: 'PUT', body: JSON.stringify({ enabled }) }),
   ceoConversation: (threadId = 'general') => json<CeoConversation>(`/hermes/ceo/conversation?threadId=${encodeURIComponent(threadId)}`),
+  threadConversation: (threadId: string) => {
+    const seat = parseSeatThread(threadId);
+    return seat ? json<CeoConversation>(`/pod-instances/${encodeURIComponent(seat.podId)}/seats/${encodeURIComponent(seat.seatId)}/conversation`) : api.ceoConversation(threadId);
+  },
+  sendThreadMessage: (message: string, threadId: string) => {
+    const seat = parseSeatThread(threadId);
+    return seat ? json<CeoSendResponse>(`/pod-instances/${encodeURIComponent(seat.podId)}/seats/${encodeURIComponent(seat.seatId)}/messages`, { method: 'POST', body: JSON.stringify({ message }) }) : api.sendCeoMessage(message, threadId);
+  },
   ceoThreads: () => json<{ threads: CeoThread[]; busyThreadId: string | null }>('/hermes/ceo/threads'),
   sendCeoMessage: (message: string, threadId = 'general') => json<CeoSendResponse>('/hermes/ceo/messages', { method: 'POST', body: JSON.stringify({ message, threadId }) }),
   missions: () => json<{ missions: Mission[] }>('/missions'),

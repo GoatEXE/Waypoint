@@ -9,6 +9,7 @@ Status: accepted by user direction and partially runtime-verified in this backen
 - The CEO runs in its own labeled Docker container with an independent durable Hermes home volume. The CEO may provision many pods, but it is scoped to delegation/provisioning/monitoring. The CEO does not execute tasks itself. It may start an explicit, bounded pod task run through the bridge (`run_task`). Automatic scheduling/dispatch and automatic retry remain out of scope.
 - Each pod maps to exactly one Docker container.
 - Each pod container may host one or more separate Hermes seat profiles/processes.
+- Containers are not nested. Seats are already isolated profiles inside their pod container, and the host service reaches any seat with `docker exec ... hermes -p <seat>`, including for direct user chat. Docker-in-Docker would need a privileged container or a mounted Docker socket, which breaks the owned-container, no-host-mount boundary. If a seat ever needs its own container, it becomes a sibling container managed by the host service.
 - Seat definitions are jobs/personalities, not secret bundles.
 
 ## CEO runtime and bridge

@@ -52,6 +52,10 @@ The CEO conversation is split into threads: `general` plus one thread per task, 
 
 `messages` contain `user` and `ceo` entries plus one `activity` entry per turn: `{ role: "activity", at, items: [{ kind: "tool"|"action", name, detail, status: "ok"|"error"|"unknown", durationMs? }] }`. Tool items come from the Hermes stream-json `tool_use`/`tool_result` events: the tool name and a redacted, 200-character summary of its main input. Tool output is never stored. Seat task runs record the same tool items: while a run is active, `GET /tasks/:taskId` includes `liveActivity: { runId, items }`, and each finished run keeps `activity` in `runs[]`. `GET /tasks/:taskId/messages` lists messages linked to the task, newest first. In a task thread, the app merges the CEO conversation, the task's seat runs, and its linked messages by time. Action items record the CEO's Waypoint bridge calls (for example `create_task` → `SUN-5 Plan the site`). Hermes stream-json does not emit model reasoning, so threads cannot show it.
 
+## Direct seat chat
+
+`GET /pod-instances/:podId/seats/:seatId/conversation` and `POST /pod-instances/:podId/seats/:seatId/messages` (body `{ "message": "..." }`) let the user talk with one seat directly. Each turn runs `hermes -p <seat> chat` inside the seat's own pod container through the task executor, so it has the same readiness checks, turn limits, and live tool activity as a task run. It uses one stable per-seat chat session and workspace. A seat that is running a task or answering a message is refused with `409`, as is dry-run mode. Responses use the CEO conversation shape, with seat replies as `role: "seat"`. Thread id in the app: `seat:<podId>/<seatId>`.
+
 ## `POST /hermes/lifecycle`
 
 Body field `action`: `start`, `stop`, or `status`. Starts/stops only the labeled Waypoint CEO container and seeds/synchronizes the CEO home. Runtime ports are not broadly published.
