@@ -1,85 +1,155 @@
+import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import * as D from '../data';
-import { projById, seatStatus } from '../model';
-import { useStore } from '../store';
-import { Dot, OnDot } from '../components/ui';
+import { api, isNotFoundError, type PodInstance, type PodInstanceSeat } from '../api';
+import { podStateLabel, shortDate } from '../missionsModel';
+import { OnDot } from '../components/ui';
 import { useSplitCols } from '../components/layout';
+import { PodSeatSetup } from './PodSeatSetup';
 
-const TERM_COLOR = { txt: 'var(--text-3)', muted: 'var(--faint)', acc: 'var(--acc-text)', hi: 'var(--text)' } as const;
+type LoadState =
+  | { status: 'loading'; pod: null; error: null }
+  | { status: 'ready'; pod: PodInstance; error: null }
+  | { status: 'notfound'; pod: null; error: null }
+  | { status: 'error'; pod: null; error: string };
+
+const initialLoad: LoadState = { status: 'loading', pod: null, error: null };
+
+function StatePill({ state }: { state: string }) {
+  return <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}><OnDot on={state === 'running'} /><span style={{ color: 'var(--text)' }}>{podStateLabel(state)}</span></span>;
+}
+
+function seatLabel(seat: PodInstanceSeat): string {
+  return seat.state ? seat.state.charAt(0).toUpperCase() + seat.state.slice(1) : 'Recorded';
+}
+
+function RefreshButton({ loading, onClick }: { loading: boolean; onClick: () => void }) {
+  return <button className="btn lg btn-ghost" onClick={onClick} disabled={loading}>{loading ? 'Refreshing…' : 'Refresh'}</button>;
+}
+
+function podStatusSentence(state: string): string {
+  if (state === 'planned') return 'This pod is set up but not running. Start it, prepare a seat, and connect its provider before running tasks.';
+  if (state === 'running') return 'This pod is running.';
+  if (state === 'stopped') return 'This pod is stopped.';
+  if (state === 'missing') return 'This pod is not available right now.';
+  return `Current state: ${podStateLabel(state)}.`;
+}
 
 export function PodView({ name }: { name: string }) {
-  const { state, set } = useStore();
+  const podId = name;
   const nav = useNavigate();
   const splitCols = useSplitCols();
-  const p = D.pods.find(x => x.name === name)!;
-  const stopped = state.podStopped && p.name === 'web-squad-01';
-  const podSeats = D.seats.filter(s => s.pod === p.name);
-  const sel = podSeats.find(s => s.name === state.seat) ?? podSeats[0];
-  const term: [string, keyof typeof TERM_COLOR][] = stopped
-    ? [['$ pod stopped · profile snapshot saved', 'muted']]
-    : D.seatTerminals[sel.name] ?? [[`$ hermes run --profile ${sel.name}`, 'txt'], ['› ' + sel.task, 'muted'], ['› idle, watching for handoffs', 'muted']];
-  const secrets = sel.pod === 'api-pod-01' ? 'bw · intake-api (read)' : sel.pod === 'compliance-01' ? 'none' : 'bw · intake-web (read)';
+  const [load, setLoad] = useState<LoadState>(initialLoad);
+  const [refreshing, setRefreshing] = useState(false);
+  const [selectedSeat, setSelectedSeat] = useState('');
+
+  const loadPod = useCallback(async (mode: 'initial' | 'refresh' | 'quiet' = 'initial') => {
+    if (mode === 'initial') setLoad(initialLoad);
+    else if (mode === 'refresh') setRefreshing(true);
+    try {
+      const pod = await api.podInstance(podId);
+      setLoad({ status: 'ready', pod, error: null });
+      setSelectedSeat(current => pod.seats.some(s => s.id === current) ? current : pod.seats[0]?.id || '');
+    } catch (error) {
+      if (isNotFoundError(error)) setLoad({ status: 'notfound', pod: null, error: null });
+      else setLoad({ status: 'error', pod: null, error: error instanceof Error ? error.message : String(error) });
+    } finally {
+      setRefreshing(false);
+    }
+  }, [podId]);
+
+  useEffect(() => { void loadPod(); }, [loadPod]);
+
+  if (load.status === 'loading') {
+    return <div className="page" style={{ maxWidth: 920, gap: 12 }}><div className="eyebrow">POD</div><h1 className="h1 mono">{podId}</h1><p className="lede" role="status">Loading pod record…</p></div>;
+  }
+
+  if (load.status === 'notfound') {
+    return <div className="page" style={{ maxWidth: 920, gap: 12 }}><div className="eyebrow">NOT FOUND</div><h1 className="h1">Pod not found</h1><p className="lede">No stored pod instance exists for <span className="mono">{podId}</span>.</p><RefreshButton loading={refreshing} onClick={() => void loadPod('refresh')} /></div>;
+  }
+
+  if (load.status === 'error') {
+    return <div className="page" style={{ maxWidth: 920, gap: 14 }}><div className="eyebrow">POD</div><h1 className="h1">Couldn't load this pod</h1><p className="lede" role="alert">The Waypoint service did not answer: {load.error}</p><RefreshButton loading={refreshing} onClick={() => void loadPod('refresh')} /></div>;
+  }
+
+  const pod = load.pod;
+  const selected = pod.seats.find(s => s.id === selectedSeat) || pod.seats[0];
+  const lifecycle = pod.lifecycle;
 
   return (
     <div className="page" style={{ maxWidth: 1080, gap: 30 }}>
       <div style={{ display: 'flex', alignItems: 'flex-end', gap: 20, flexWrap: 'wrap' }}>
         <div className="page-head">
           <div className="eyebrow">POD</div>
-          <h1 className="h1 mono">{p.name}</h1>
+          <h1 className="h1 mono">{pod.podName || pod.id}</h1>
           <div className="meta-row">
-            <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}><OnDot on={!stopped} /><span style={{ color: 'var(--text)' }}>{stopped ? 'Stopped' : 'Running'}</span></span>
-            <span>Template <span className="v mono">{p.template}</span></span>
-            <span>Attached to <span className="ul mono" onClick={() => nav('/projects/' + p.p)}>{projById(p.p).name}</span></span>
-            <span>Up {p.uptime}</span>
+            <StatePill state={pod.state} />
+            <span>Pod ID <span className="v mono">{pod.id}</span></span>
+            <span>Template <span className="v mono">{pod.templateId}{pod.templateVersion ? ` · ${pod.templateVersion}` : ''}</span></span>
+            {pod.createdAt && <span>Recorded <span className="v">{shortDate(pod.createdAt)}</span></span>}
           </div>
         </div>
-        {p.name === 'web-squad-01' && !stopped && (
-          <button className="btn lg" style={{ marginLeft: 'auto', border: '1px solid var(--border-4)', background: 'var(--surface-3)', color: 'var(--text)' }} onClick={() => nav('/pods/web-squad-01/review')}>
-            Stop pod &amp; review learnings
-          </button>
-        )}
+        <div style={{ marginLeft: 'auto' }}><RefreshButton loading={refreshing} onClick={() => void loadPod('refresh')} /></div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(200px,1fr))', gap: 10 }}>
-        {podSeats.map(s => (
-          <div key={s.name} className="row link stack" style={{ padding: 14, borderRadius: 11, border: `1px solid ${s.name === sel.name ? 'var(--border-6)' : 'var(--border)'}`, gap: 8 }} onClick={() => set({ seat: s.name })}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Dot status={seatStatus(s, state.resolved, state.podStopped)} size={7} />
-              <span style={{ font: '500 12.5px var(--mono)' }}>{s.name}</span>
-              <span style={{ marginLeft: 'auto', fontSize: 11.5, color: 'var(--faint)' }}>{s.role}</span>
-            </div>
-            <div style={{ fontSize: 12.5, color: 'var(--text-4)' }}>{stopped ? 'Profile saved · ' + s.task.split(' ·')[0] : s.task}</div>
-          </div>
-        ))}
+      <div className="stack" style={{ padding: '16px 18px', borderRadius: 12, background: 'var(--surface-2)', border: '1px solid var(--border)', gap: 6 }}>
+        <div style={{ fontSize: 11.5, color: 'var(--faint)' }}>Status</div>
+        <div style={{ fontSize: 14, color: 'var(--text-2)', lineHeight: 1.5 }}>
+          {podStatusSentence(pod.state)}
+        </div>
       </div>
 
       <div className="split" style={{ gridTemplateColumns: splitCols, gap: 28 }}>
         <div className="stack" style={{ gap: 12 }}>
-          <div className="section-head"><div className="section-title">Session</div><span className="aside">{sel.name}</span></div>
-          <div className="terminal">
-            {term.map(([t, c], i) => <div key={i} style={{ color: TERM_COLOR[c], whiteSpace: 'pre-wrap' }}>{t}</div>)}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--fainter)' }}>›<div className="cursor" /></div>
-          </div>
+          <div className="section-head"><div className="section-title">Seats</div><span className="aside">{pod.seats.length}</span></div>
+          {!pod.seats.length && <div className="empty">No seats are recorded for this pod.</div>}
+          {!!pod.seats.length && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(200px,1fr))', gap: 10 }}>
+              {pod.seats.map(seat => (
+                <button key={seat.id} className="row stack" style={{ textAlign: 'left', padding: 14, borderRadius: 11, border: `1px solid ${selected?.id === seat.id ? 'var(--border-6)' : 'var(--border)'}`, gap: 8, background: 'var(--surface)', color: 'var(--text)', cursor: 'pointer' }} onClick={() => setSelectedSeat(seat.id)}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <OnDot on={pod.state === 'running'} />
+                    <span style={{ font: '500 12.5px var(--mono)' }}>{seat.id}</span>
+                    <span style={{ marginLeft: 'auto', fontSize: 11.5, color: 'var(--faint)' }}>{seat.role}</span>
+                  </div>
+                  <div style={{ fontSize: 12.5, color: 'var(--text-4)' }}>{seatLabel(seat)}</div>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="stack" style={{ gap: 22 }}>
           <div className="stack" style={{ gap: 10 }}>
-            <div className="section-title">Identity</div>
-            <div className="kv-grid" style={{ display: 'flex', flexDirection: 'column' }}>
-              {[['Hermes profile', `~/.waypoint/profiles/${sel.name}`], ['From template', `${p.template} · ${sel.role}`], ['Secrets', secrets]].map(([k, v]) => (
-                <div key={k} className="kv" style={{ padding: '10px 12px', gap: 2 }}><span className="k">{k}</span><span className="v" style={{ fontSize: 12 }}>{v}</span></div>
-              ))}
-            </div>
+            <div className="section-title">Selected seat</div>
+            {selected ? (
+              <div className="kv-grid" style={{ display: 'flex', flexDirection: 'column' }}>
+                {[
+                  ['Seat ID', selected.id],
+                  ['Role', selected.role],
+                  ['Seat record', seatLabel(selected)],
+                  ['Baseline files copied', String(selected.copiedFiles?.length || 0)],
+                ].map(([k, v]) => (
+                  <div key={k} className="kv" style={{ padding: '10px 12px', gap: 2 }}><span className="k">{k}</span><span className="v" style={{ fontSize: 12 }}>{v}</span></div>
+                ))}
+              </div>
+            ) : <div className="empty">No seat selected.</div>}
           </div>
+
           <div className="stack" style={{ gap: 10 }}>
-            <div className="section-title">Reviewed when this pod stops</div>
+            <div className="section-title">Lifecycle note</div>
             <div className="stack" style={{ padding: 14, border: '1px solid var(--border)', borderRadius: 10, background: 'var(--surface)', gap: 8, fontSize: 12.5, color: 'var(--text-4)' }}>
-              {[['Memory entries', '+' + p.learn.memory], ['New skills', '+' + p.learn.skills], ['Instruction changes', String(p.learn.instr)]].map(([k, v]) => (
-                <div key={k} style={{ display: 'flex', justifyContent: 'space-between' }}><span>{k}</span><span className="mono" style={{ color: 'var(--text)' }}>{v}</span></div>
-              ))}
-              <div style={{ fontSize: 12, color: 'var(--faint)', paddingTop: 6, borderTop: '1px solid var(--border)' }}>Compared against each seat's starting snapshot. Open tasks and evidence are kept.</div>
+              {lifecycle?.updatedAt ? (
+                <>
+                  <div>Last recorded action: <span className="mono c-text3">{lifecycle.lastAction || 'status'}</span></div>
+                  <div>Updated {shortDate(lifecycle.updatedAt)}. {lifecycle.dryRun ? 'Planning check only; the pod was not changed.' : lifecycle.executed ? 'The action was completed.' : 'No action was performed.'}</div>
+                </>
+              ) : <div className="empty">No lifecycle action is recorded.</div>}
             </div>
           </div>
+
+          <PodSeatSetup pod={pod} selectedSeatId={selected?.id || ''} onPodChanged={() => loadPod('quiet')} />
+
+          <button className="btn btn-ghost" style={{ alignSelf: 'flex-start', padding: '7px 12px', color: 'var(--text)' }} onClick={() => nav('/')}>Back to mission</button>
         </div>
       </div>
     </div>

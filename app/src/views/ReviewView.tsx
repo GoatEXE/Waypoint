@@ -13,14 +13,24 @@ export function ReviewView() {
   const cnt = (k: LessonPick) => D.lessons.filter(l => pickOf(l) === k).length;
 
   const apply = () => {
-    set(s => ({ podStopped: true, resolved: { ...s.resolved, 'learn-web': 'yes' } }));
-    nav('/pods/web-squad-01');
+    set({ podStopped: true });
+    nav('/');
   };
+
+  if (!D.lessons.length) {
+    return (
+      <div className="page" style={{ maxWidth: 960, gap: 18 }}>
+        <div className="eyebrow">LEARNING REVIEW</div>
+        <h1 className="h1">No learnings to review</h1>
+        <div className="empty">There are no pod learnings recorded yet.</div>
+      </div>
+    );
+  }
 
   return (
     <div className="page" style={{ maxWidth: 960, gap: 28, paddingBottom: 120 }}>
       <div className="page-head">
-        <div className="eyebrow">LEARNING REVIEW · WEB-SQUAD-01</div>
+        <div className="eyebrow">LEARNING REVIEW</div>
         <h1 className="h1">What this pod learned</h1>
         <p className="lede" style={{ maxWidth: 640 }}>Each change is diffed against the seat's starting snapshot. Choose where it should live. Promotions are versioned and reversible; originals are kept.</p>
       </div>
@@ -28,7 +38,7 @@ export function ReviewView() {
       <div className="stack" style={{ gap: 10 }}>
         {D.lessons.map(l => {
           const pick = pickOf(l);
-          const hint = { seat: `Stays in ${l.seat}'s Hermes profile`, project: 'Becomes project knowledge for intake-web', template: 'Drafted into web-squad v4 for review', discard: 'Dropped; original snapshot kept' }[pick];
+          const hint = { seat: `Stays in ${l.seat}'s Hermes profile`, project: 'Becomes project knowledge', template: 'Drafted into a template for review', discard: 'Dropped; original snapshot kept' }[pick];
           return (
             <div key={l.id} className="card stack" style={{ padding: '16px 18px', gap: 12, opacity: pick === 'discard' ? 0.6 : 1 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', fontSize: 12, color: 'var(--dim)' }}>
@@ -61,7 +71,7 @@ export function ReviewView() {
         <span style={{ fontSize: 13, color: 'var(--text-4)' }}>
           {cnt('project')} to project · {cnt('template')} to template · {cnt('seat')} kept with seat · {cnt('discard')} discarded
         </span>
-        <button className="btn lg btn-ghost" style={{ marginLeft: 'auto' }} onClick={() => nav('/pods/web-squad-01')}>Keep pod running</button>
+        <button className="btn lg btn-ghost" style={{ marginLeft: 'auto' }} onClick={() => nav('/')}>Keep pod running</button>
         <button className="btn lg btn-primary" onClick={apply}>Apply &amp; stop pod</button>
       </div>
     </div>

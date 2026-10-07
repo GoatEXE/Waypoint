@@ -13,7 +13,11 @@ import { TaskView } from './views/TaskView';
 import { RunView } from './views/RunView';
 import { PodView } from './views/PodView';
 import { ReviewView } from './views/ReviewView';
-import { ArtifactsView, ConnectorsView, InboxView, RoutinesView, SkillsView } from './views/WorkspaceViews';
+import { ArtifactsView, RoutinesView } from './views/WorkspaceViews';
+import { MessageInboxView } from './views/MessageInboxView';
+import { SkillsView } from './views/SkillsView';
+import { ConnectorsView } from './views/ConnectorsView';
+import { SettingsView } from './views/SettingsView';
 
 function View() {
   const r = parseRoute(useLocation().pathname);
@@ -24,11 +28,12 @@ function View() {
     case 'run': return <RunView id={r.id!} />;
     case 'pod': return <PodView name={r.id!} />;
     case 'review': return <ReviewView />;
-    case 'inbox': return <InboxView />;
+    case 'inbox': return <MessageInboxView />;
     case 'routines': return <RoutinesView />;
     case 'artifacts': return <ArtifactsView />;
     case 'skills': return <SkillsView />;
     case 'connectors': return <ConnectorsView />;
+    case 'settings': return <SettingsView />;
     default: return (
       <div className="page" style={{ maxWidth: 920, gap: 12 }}>
         <div className="eyebrow">NOT FOUND</div>

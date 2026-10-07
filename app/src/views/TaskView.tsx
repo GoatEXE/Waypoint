@@ -1,136 +1,345 @@
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import * as D from '../data';
-import { ACC, projById, st, trailFor } from '../model';
-import { useStore } from '../store';
-import { ApprovalCard, Dot } from '../components/ui';
+import { api, isNotFoundError, type PodInstance, type TaskRecord, type TaskRunRecord, type TaskRunStartResponse } from '../api';
+import { podStateLabel, shortDate, taskStateLabel } from '../missionsModel';
+import { OnDot } from '../components/ui';
 import { useSplitCols } from '../components/layout';
 
-export function RunRows({ ids }: { ids: string[] }) {
-  const nav = useNavigate();
+type LoadState =
+  | { status: 'loading'; task: null; pod: null; podError: null; error: null }
+  | { status: 'ready'; task: TaskRecord; pod: PodInstance | null; podError: string | null; error: null }
+  | { status: 'notfound'; task: null; pod: null; podError: null; error: null }
+  | { status: 'error'; task: null; pod: null; podError: null; error: string };
+
+type RunNotice = { kind: 'status' | 'error' | 'success'; text: string } | null;
+
+const initialLoad: LoadState = { status: 'loading', task: null, pod: null, podError: null, error: null };
+const POLL_MS = 1500;
+const MAX_POLLS = 80;
+const REPLY_PREVIEW_MAX = 1600;
+
+function RefreshButton({ loading, onClick }: { loading: boolean; onClick: () => void }) {
+  return <button className="btn lg btn-ghost" onClick={onClick} disabled={loading}>{loading ? 'Refreshing…' : 'Refresh'}</button>;
+}
+
+function taskStatusOn(state: string): boolean {
+  return ['running', 'review', 'in_review', 'done', 'complete', 'completed'].includes(state.toLowerCase());
+}
+
+function taskStatusSentence(task: TaskRecord): string {
+  if (task.state === 'delegated') return `Not started. Assigned to the ${task.seatId} seat.`;
+  if (task.state === 'running') return 'Running. Checking for updates.';
+  if (task.state === 'completed') return 'Completed.';
+  if (task.state === 'failed') return 'Run failed. Manual review required before another run.';
+  if (task.state === 'outcome_unknown') return 'Run outcome unknown. Manual review required before another run.';
+  return taskStateLabel(task.state);
+}
+
+function runStateLabel(state: string): string {
+  if (state === 'running') return 'Running';
+  if (state === 'completed') return 'Completed';
+  if (state === 'failed') return 'Failed';
+  if (state === 'outcome_unknown') return 'Outcome unknown';
+  if (state === 'aborted') return 'Not started';
+  return state ? state.charAt(0).toUpperCase() + state.slice(1).replaceAll('_', ' ') : 'Unknown';
+}
+
+function latestRun(task: TaskRecord): TaskRunRecord | null {
+  const runs = Array.isArray(task.runs) ? task.runs : [];
+  if (!runs.length) return null;
+  return runs.find(run => run.id === task.lastRunId) || runs.at(-1) || null;
+}
+
+function isTerminalTask(task: TaskRecord): boolean {
+  return task.state !== 'running' && !task.activeRunId;
+}
+
+function formatDateTime(iso?: string | null): string {
+  if (!iso) return '';
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+
+function formatDuration(ms?: number | null): string {
+  if (!Number.isFinite(ms || NaN) || (ms || 0) < 0) return '';
+  if ((ms || 0) < 1000) return `${ms} ms`;
+  const seconds = Math.round((ms || 0) / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  return `${minutes}m ${seconds % 60}s`;
+}
+
+function capText(text: string, max = REPLY_PREVIEW_MAX): { text: string; capped: boolean } {
+  if (text.length <= max) return { text, capped: false };
+  return { text: `${text.slice(0, max - 12)}\n[truncated]`, capped: true };
+}
+
+function runEvidence(task: TaskRecord, runId?: string): TaskRecord['evidence'] {
+  if (!runId) return [];
+  return (task.evidence || []).filter(entry => entry.runId === runId).slice(-6);
+}
+
+function EvidenceList({ task }: { task: TaskRecord }) {
   return (
-    <div className="list">
-      {ids.map(rid => {
-        const r = D.runs[rid]; const s = st(r.st);
-        return (
-          <div key={rid} className="row link" style={{ display: 'grid', gridTemplateColumns: '52px minmax(0,1fr) auto auto', gap: 16, alignItems: 'center', padding: '14px 16px' }} onClick={() => nav('/runs/' + rid)}>
-            <span style={{ font: '500 12px var(--mono)', color: 'var(--text-3)' }}>{rid}</span>
-            <span className="ellipsis" style={{ color: 'var(--text-4)', fontSize: 13 }}>{r.short}</span>
-            <span style={{ fontSize: 12, color: s.c }}>{s.l}</span>
-            <span style={{ fontSize: 12, color: 'var(--fainter)', width: 82, textAlign: 'right' }}>{r.when}</span>
+    <div className="stack" style={{ gap: 10 }}>
+      <div className="section-title">Evidence</div>
+      {!task.evidence?.length && <div className="empty">No evidence notes are recorded.</div>}
+      {(task.evidence || []).map((item, index) => (
+        <div key={`${item.at}-${index}`} className="stack" style={{ gap: 5, padding: '12px 14px', border: '1px solid var(--border)', borderRadius: 10, background: 'var(--surface)' }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap' }}>
+            <span className="sb-label" style={{ color: 'var(--dim)' }}>{item.type || 'record'}</span>
+            <span style={{ fontSize: 11.5, color: 'var(--faint)' }}>{shortDate(item.at)}</span>
+            {item.retry === 'manual_review_required' && <span style={{ fontSize: 11.5, color: 'var(--text-3)' }}>manual review required</span>}
           </div>
-        );
-      })}
+          <div style={{ fontSize: 13, lineHeight: 1.45, color: 'var(--text-3)' }}>{item.message}</div>
+        </div>
+      ))}
     </div>
   );
 }
 
+function LatestRun({ task }: { task: TaskRecord }) {
+  const run = latestRun(task);
+  if (!run) return <div className="empty">No runs yet.</div>;
+  const reply = capText(run.reply || '');
+  const evidence = runEvidence(task, run.id);
+  return (
+    <div className="stack" style={{ gap: 12, padding: 14, border: '1px solid var(--border)', borderRadius: 12, background: 'var(--surface)' }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
+        <span style={{ font: '500 12.5px var(--mono)', color: 'var(--text)' }}>{run.id}</span>
+        <span style={{ fontSize: 12.5, color: 'var(--text-3)' }}>{runStateLabel(run.state)}</span>
+        {run.reason && <span style={{ fontSize: 12, color: 'var(--faint)' }}>Reason: {run.reason.replaceAll('_', ' ')}</span>}
+      </div>
+      <div className="meta-row" style={{ gap: '6px 16px' }}>
+        {run.startedAt && <span>Started <span className="v">{formatDateTime(run.startedAt)}</span></span>}
+        {run.finishedAt && <span>Finished <span className="v">{formatDateTime(run.finishedAt)}</span></span>}
+        {formatDuration(run.durationMs) && <span>Duration <span className="v">{formatDuration(run.durationMs)}</span></span>}
+      </div>
+      {reply.text && (
+        <div className="stack" style={{ gap: 6 }}>
+          <div style={{ fontSize: 11.5, color: 'var(--faint)' }}>Latest reply</div>
+          <div style={{ whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.5, color: 'var(--text-3)', maxHeight: 220, overflow: 'auto' }}>{reply.text}</div>
+          {(run.replyTruncated || reply.capped) && <div style={{ fontSize: 11.5, color: 'var(--faint)' }}>Reply preview is capped.</div>}
+        </div>
+      )}
+      {evidence.length > 0 && (
+        <div className="stack" style={{ gap: 6 }}>
+          <div style={{ fontSize: 11.5, color: 'var(--faint)' }}>Run evidence</div>
+          {evidence.map((item, index) => (
+            <div key={`${item.at}-${index}`} style={{ fontSize: 12.5, color: 'var(--text-4)', lineHeight: 1.4 }}>
+              <span className="mono c-text3">{item.type || 'record'}</span>{' '}{item.message}{item.retry === 'manual_review_required' ? ' Manual review required.' : ''}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function runButtonLabel(task: TaskRecord, starting: boolean): string {
+  if (starting) return 'Starting…';
+  if (task.state === 'running') return 'Running…';
+  return 'Run task';
+}
+
+function canStartRun(task: TaskRecord, starting: boolean, pod: PodInstance | null): boolean {
+  return !starting && task.state === 'delegated' && pod?.state === 'running';
+}
+
+function runNoticeFromStart(response: TaskRunStartResponse): RunNotice {
+  if (response.dryRun) return { kind: 'status', text: 'Run check completed. No task run was started.' };
+  if (response.state === 'running') return { kind: 'status', text: `Run started${response.runId ? ` (${response.runId})` : ''}. Checking for updates…` };
+  return { kind: 'status', text: response.message || 'Run request accepted.' };
+}
+
 export function TaskView({ id }: { id: string }) {
-  const { tasks, set } = useStore();
   const nav = useNavigate();
   const splitCols = useSplitCols();
-  const t = tasks.find(x => x.id === id)!;
-  const s = st(t.st);
-  const trail = trailFor(t);
-  const approval = t.approval ? D.inbox.find(i => i.id === t.approval) : undefined;
-  const blockedBy = t.st === 'blocked' || t.st === 'decision' ? t.blockedBy : undefined;
-  const openOwner = () => {
-    const seat = D.seats.find(x => x.name === t.owner)!;
-    set({ seat: seat.name });
-    nav('/pods/' + seat.pod);
-  };
+  const [load, setLoad] = useState<LoadState>(initialLoad);
+  const [refreshing, setRefreshing] = useState(false);
+  const [startingRun, setStartingRun] = useState(false);
+  const [retryReviewed, setRetryReviewed] = useState(false);
+  const [runNotice, setRunNotice] = useState<RunNotice>(null);
+  const pollTimer = useRef<number | null>(null);
+
+  const clearPoll = useCallback(() => {
+    if (pollTimer.current) window.clearTimeout(pollTimer.current);
+    pollTimer.current = null;
+  }, []);
+
+  const loadTask = useCallback(async (mode: 'initial' | 'refresh' | 'poll' = 'initial') => {
+    if (mode === 'initial') setLoad(initialLoad);
+    else if (mode === 'refresh') setRefreshing(true);
+    try {
+      const task = await api.task(id);
+      let pod: PodInstance | null = null;
+      let podError: string | null = null;
+      try {
+        pod = await api.podInstance(task.podId);
+      } catch (error) {
+        podError = isNotFoundError(error) ? 'Linked pod record was not found.' : error instanceof Error ? error.message : String(error);
+      }
+      setLoad({ status: 'ready', task, pod, podError, error: null });
+      return task;
+    } catch (error) {
+      if (isNotFoundError(error)) setLoad({ status: 'notfound', task: null, pod: null, podError: null, error: null });
+      else setLoad({ status: 'error', task: null, pod: null, podError: null, error: error instanceof Error ? error.message : String(error) });
+      return null;
+    } finally {
+      if (mode === 'refresh') setRefreshing(false);
+    }
+  }, [id]);
+
+  const pollTask = useCallback((remaining = MAX_POLLS) => {
+    clearPoll();
+    pollTimer.current = window.setTimeout(async () => {
+      const task = await loadTask('poll');
+      if (!task) return;
+      if (isTerminalTask(task)) {
+        const last = latestRun(task);
+        if (task.state === 'completed') setRunNotice({ kind: 'success', text: 'Run completed.' });
+        else if (task.state === 'failed') setRunNotice({ kind: 'error', text: 'Run failed. Manual review is required before another run.' });
+        else if (task.state === 'outcome_unknown') setRunNotice({ kind: 'error', text: 'Run outcome is unknown. Manual review is required before another run.' });
+        else if (last?.state === 'aborted') setRunNotice({ kind: 'status', text: 'Run did not start. Check the latest run details.' });
+        clearPoll();
+        return;
+      }
+      if (remaining <= 1) {
+        setRunNotice({ kind: 'error', text: 'Run is still in progress. Refresh later to check the outcome.' });
+        clearPoll();
+        return;
+      }
+      pollTask(remaining - 1);
+    }, POLL_MS);
+  }, [clearPoll, loadTask]);
+
+  useEffect(() => {
+    void loadTask();
+    return clearPoll;
+  }, [clearPoll, loadTask]);
+
+  const startRun = useCallback(async (manualRetry = false) => {
+    if (load.status !== 'ready') return;
+    if (manualRetry ? (!retryReviewed || !['failed', 'outcome_unknown'].includes(load.task.state) || load.pod?.state !== 'running' || startingRun) : !canStartRun(load.task, startingRun, load.pod)) return;
+    setStartingRun(true);
+    setRunNotice({ kind: 'status', text: 'Starting run…' });
+    clearPoll();
+    try {
+      const response = manualRetry ? await api.retryTaskAfterReview(load.task.id) : await api.runTask(load.task.id);
+      if (manualRetry) setRetryReviewed(false);
+      setRunNotice(runNoticeFromStart(response));
+      const task = await loadTask('poll');
+      if (response.state === 'running' && !response.dryRun && (!task || !isTerminalTask(task))) pollTask();
+    } catch (error) {
+      setRunNotice({ kind: 'error', text: error instanceof Error ? error.message : String(error) });
+      await loadTask('poll');
+    } finally {
+      setStartingRun(false);
+    }
+  }, [clearPoll, load, loadTask, pollTask, retryReviewed, startingRun]);
+
+  if (load.status === 'loading') {
+    return <div className="page" style={{ maxWidth: 920, gap: 12 }}><div className="eyebrow">TASK</div><h1 className="h1 mono">{id}</h1><p className="lede" role="status">Loading task record…</p></div>;
+  }
+
+  if (load.status === 'notfound') {
+    return <div className="page" style={{ maxWidth: 920, gap: 12 }}><div className="eyebrow">NOT FOUND</div><h1 className="h1">Task not found</h1><p className="lede">No stored task exists for <span className="mono">{id}</span>.</p><RefreshButton loading={refreshing} onClick={() => void loadTask('refresh')} /></div>;
+  }
+
+  if (load.status === 'error') {
+    return <div className="page" style={{ maxWidth: 920, gap: 14 }}><div className="eyebrow">TASK</div><h1 className="h1">Couldn't load this task</h1><p className="lede" role="alert">The Waypoint service did not answer: {load.error}</p><RefreshButton loading={refreshing} onClick={() => void loadTask('refresh')} /></div>;
+  }
+
+  const { task, pod, podError } = load;
+  const startDisabledReason = task.state === 'delegated'
+    ? (pod?.state === 'running' ? '' : 'Start and prepare the pod first.')
+    : task.state === 'running' ? 'A run is already in progress.' : 'Manual review is required before another run.';
 
   return (
     <div className="page" style={{ maxWidth: 1040, gap: 32 }}>
-      <div className="page-head">
-        <div className="eyebrow-row"><span>TASK</span><span className="sep">·</span><span>{t.id}</span></div>
-        <h1 className="h1">{t.title}</h1>
-        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '10px 20px', fontSize: 12.5, color: 'var(--muted)' }}>
-          <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}><Dot status={t.st} /><span style={{ color: 'var(--text)' }}>{s.l}</span></span>
-          <span>Owner <span className="ul mono" onClick={openOwner}>{t.owner}</span></span>
-          <span>Project <span className="ul mono" onClick={() => nav('/projects/' + t.p)}>{projById(t.p).name}</span></span>
-          <span className="c-fainter">{t.cost || ''}</span>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 20, flexWrap: 'wrap' }}>
+        <div className="page-head">
+          <div className="eyebrow-row"><span>TASK</span><span className="sep">·</span><span>{task.id}</span></div>
+          <h1 className="h1">{task.summary}</h1>
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '10px 20px', fontSize: 12.5, color: 'var(--muted)' }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}><OnDot on={taskStatusOn(task.state)} /><span style={{ color: 'var(--text)' }}>{taskStateLabel(task.state)}</span></span>
+            <span>Seat <span className="v mono">{task.seatId}</span></span>
+            <span>Pod <button type="button" className="ul mono" style={{ border: 0, background: 'transparent', padding: 0, color: 'inherit', font: 'inherit', cursor: 'pointer' }} onClick={() => nav('/pods/' + task.podId)}>{pod?.podName || task.podId}</button></span>
+            <span>Updated <span className="v">{shortDate(task.updatedAt)}</span></span>
+          </div>
+        </div>
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          {task.state === 'delegated' && <button className="btn lg btn-primary" onClick={() => void startRun()} disabled={!canStartRun(task, startingRun, pod)}>{runButtonLabel(task, startingRun)}</button>}
+          <RefreshButton loading={refreshing} onClick={() => void loadTask('refresh')} />
         </div>
       </div>
 
-      <div className="stack" style={{ padding: '18px 20px', borderRadius: 12, background: 'var(--surface-2)', border: '1px solid var(--border)', gap: 6 }}>
-        <div style={{ fontSize: 11.5, color: 'var(--faint)' }}>Why this matters</div>
-        <div style={{ fontSize: 14.5, lineHeight: 1.55, color: 'var(--text-2)', maxWidth: 720, textWrap: 'pretty' }}>{t.why}</div>
-      </div>
-
-      {blockedBy && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', border: '1px dashed var(--border-6)', borderRadius: 10, fontSize: 13, color: 'var(--text-3)' }}>
-          <div className="dot" style={{ width: 8, height: 8, borderColor: 'var(--text)' }} />{blockedBy}
+      {['failed', 'outcome_unknown'].includes(task.state) && (
+        <div className="stack" style={{ gap: 10, padding: 18, border: '1px solid var(--border-3)', borderRadius: 12, background: 'var(--surface-2)' }}>
+          <div className="section-title">Review before another run</div>
+          <p style={{ margin: 0, color: 'var(--muted)', fontSize: 13 }}>Read the latest reply and evidence below. The prior turn may have changed its workspace, so another run may repeat work. Waypoint will not retry automatically.</p>
+          <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 13 }}>
+            <input type="checkbox" checked={retryReviewed} onChange={(event) => setRetryReviewed(event.target.checked)} />
+            I reviewed the prior outcome and want to run this task again.
+          </label>
+          <div><button className="btn btn-primary" type="button" onClick={() => void startRun(true)} disabled={!retryReviewed || pod?.state !== 'running' || startingRun}>{startingRun ? 'Starting…' : 'Retry after review'}</button></div>
+          {pod?.state !== 'running' && <span style={{ fontSize: 12, color: 'var(--faint)' }}>Start the pod before retrying.</span>}
         </div>
       )}
 
+      <div className="stack" style={{ padding: '18px 20px', borderRadius: 12, background: 'var(--surface-2)', border: '1px solid var(--border)', gap: 6 }}>
+        <div style={{ fontSize: 11.5, color: 'var(--faint)' }}>Status</div>
+        <div style={{ fontSize: 14.5, lineHeight: 1.55, color: 'var(--text-2)', maxWidth: 760, textWrap: 'pretty' }}>
+          {taskStatusSentence(task)}
+        </div>
+        {startDisabledReason && <div style={{ fontSize: 12.5, color: 'var(--faint)' }}>{startDisabledReason}</div>}
+        {runNotice && <div role={runNotice.kind === 'error' ? 'alert' : 'status'} style={{ fontSize: 12.5, color: runNotice.kind === 'error' ? 'var(--text)' : 'var(--text-3)' }}>{runNotice.text}</div>}
+      </div>
+
       <div className="split" style={{ gridTemplateColumns: splitCols, gap: 36 }}>
-        <div className="stack" style={{ gap: 32 }}>
+        <div className="stack" style={{ gap: 28 }}>
+          <EvidenceList task={task} />
+
           <div className="stack" style={{ gap: 12 }}>
             <div className="section-title">Runs</div>
-            {t.runs?.length ? <RunRows ids={t.runs} /> : <div className="empty">No runs yet.</div>}
-          </div>
-
-          <div className="stack" style={{ gap: 14 }}>
-            <div className="section-title">Delegation trail</div>
-            <div className="stack">
-              {trail.map((x, i) => {
-                const c = x.pending ? ACC : x.msg ? 'var(--faint)' : 'var(--text-3)';
-                const fill = x.pending || x.msg ? 'transparent' : 'var(--text-3)';
-                return (
-                  <div key={i} style={{ display: 'grid', gridTemplateColumns: '18px minmax(0,1fr)', gap: 12 }}>
-                    <div className="stack" style={{ alignItems: 'center' }}>
-                      <div style={{ width: 9, height: 9, marginTop: 5, borderRadius: x.msg ? 2 : '50%', border: `1.5px solid ${c}`, background: fill }} />
-                      <div style={{ flex: 1, width: 1, background: '#24262b', margin: '4px 0', opacity: i === trail.length - 1 ? 0 : 1 }} />
-                    </div>
-                    <div className="stack" style={{ paddingBottom: 18, gap: 3 }}>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'baseline', fontSize: 12.5 }}>
-                        <span className="mono c-text3">{x.from}</span>
-                        <span className="c-fainter">{x.verb}</span>
-                        <span className="mono c-text3">{x.to}</span>
-                        <span className="c-fainter" style={{ marginLeft: 'auto' }}>{x.when}</span>
-                      </div>
-                      <div style={{ color: 'var(--text-4)', fontSize: 13, textWrap: 'pretty' }}>{x.text}</div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+            <LatestRun task={task} />
           </div>
         </div>
 
         <div className="stack" style={{ gap: 28 }}>
           <div className="stack" style={{ gap: 10 }}>
-            <div className="section-title">Depends on</div>
-            {t.deps.map(depId => {
-              const dt = tasks.find(x => x.id === depId)!;
+            <div className="section-title">Assignment</div>
+            <div className="kv-grid" style={{ display: 'flex', flexDirection: 'column' }}>
+              {[
+                ['Task state', taskStateLabel(task.state)],
+                ['Assigned seat', task.seatId],
+                ['Pod record', pod ? `${pod.podName} · ${podStateLabel(pod.state)}` : (podError || 'Unavailable')],
+                ['Created', shortDate(task.createdAt)],
+              ].map(([k, v]) => (
+                <div key={k} className="kv" style={{ padding: '10px 12px', gap: 2 }}><span className="k">{k}</span><span className="v" style={{ fontSize: 12 }}>{v}</span></div>
+              ))}
+            </div>
+            {podError && <div style={{ fontSize: 12.5, color: 'var(--faint)' }} role="status">{podError}</div>}
+          </div>
+
+          <div className="stack" style={{ gap: 10 }}>
+            <div className="section-title">Pod seats</div>
+            {!pod?.seats.length && <div className="empty">No linked pod seat list is available.</div>}
+            {pod?.seats.map(seat => {
+              const assigned = seat.id === task.seatId;
               return (
-                <div key={depId} className="card link" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 9 }} onClick={() => nav('/tasks/' + depId)}>
-                  <Dot status={dt.st} />
-                  <span style={{ font: '400 12px var(--mono)', color: 'var(--faint)' }}>{depId}</span>
-                  <span className="ellipsis" style={{ fontSize: 12.5 }}>{dt.title}</span>
+                <div key={seat.id} className="card" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 9, borderColor: assigned ? 'var(--border-6)' : undefined }}>
+                  <OnDot on={pod.state === 'running'} />
+                  <span style={{ font: '400 12px var(--mono)', color: assigned ? 'var(--text)' : 'var(--faint)' }}>{seat.id}</span>
+                  <span className="ellipsis" style={{ fontSize: 12.5 }}>{seat.role}</span>
+                  {assigned && <span style={{ marginLeft: 'auto', fontSize: 11.5, color: 'var(--text-3)' }}>assigned</span>}
                 </div>
               );
             })}
-            {!t.deps.length && <div style={{ fontSize: 12.5, color: 'var(--faint)' }}>None</div>}
           </div>
 
-          {approval && (
-            <div className="stack" style={{ gap: 10 }}>
-              <div className="section-title">Approval</div>
-              <ApprovalCard it={approval} gap={10} />
-            </div>
-          )}
-
-          <div className="stack" style={{ gap: 10 }}>
-            <div className="section-title">Messages</div>
-            {(t.msgs || []).map((m, i) => (
-              <div key={i} className="stack" style={{ gap: 4, padding: '10px 12px', borderLeft: '2px solid #24262b' }}>
-                <div style={{ font: '400 11.5px var(--mono)', color: 'var(--dim)' }}>{m.from} → {m.to}</div>
-                <div style={{ fontSize: 12.5, color: 'var(--text-3)' }}>{m.text}</div>
-              </div>
-            ))}
-            {!t.msgs?.length && <div style={{ fontSize: 12.5, color: 'var(--faint)' }}>No seat-to-seat messages.</div>}
-          </div>
+          <button className="btn btn-ghost" style={{ alignSelf: 'flex-start', padding: '7px 12px', color: 'var(--text)' }} onClick={() => nav('/pods/' + task.podId)}>Open pod →</button>
         </div>
       </div>
     </div>

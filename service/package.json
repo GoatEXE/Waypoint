@@ -1,0 +1,11 @@
+{
+  "name": "waypoint-pod-service",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Waypoint backend foundation for credential-free Hermes pod planning.",
+  "engines": { "node": ">=22" },
+  "scripts": { "start": "node --env-file-if-exists=.env src/index.js", "test": "node --test", "check": "npm test", "migrate-shared-auth": "node --env-file-if-exists=.env scripts/migrate-shared-auth.mjs" },
+  "dependencies": {},
+  "devDependencies": {}
+}

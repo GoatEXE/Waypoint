@@ -214,6 +214,83 @@ button, input, textarea { font-family: inherit; }
 .segmented button.on { background: #22252a; color: var(--text); }
 .review-bar { position: sticky; bottom: 20px; display: flex; align-items: center; flex-wrap: wrap; gap: 14px; padding: 14px 18px; border: 1px solid var(--border-3); border-radius: 12px; background: var(--surface-3); box-shadow: 0 10px 30px rgba(0, 0, 0, .4); }
 
+/* ── settings & connectors ────────────────────────── */
+.settings-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+.connector-layout { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 14px; align-items: start; }
+.connector-table-head { display: grid; grid-template-columns: minmax(170px, 1.4fr) minmax(72px, .55fr) minmax(112px, .75fr) 70px; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--row-line); background: rgba(255,255,255,.025); color: var(--faint); font: 600 10.5px/1 var(--mono); letter-spacing: .06em; text-transform: uppercase; }
+.connector-row { width: 100%; display: grid; grid-template-columns: minmax(170px, 1.4fr) minmax(72px, .55fr) minmax(112px, .75fr) 70px; gap: 8px; align-items: center; padding: 13px 14px; border: 0; border-bottom: 1px solid var(--row-line); background: var(--surface); color: var(--text); text-align: left; cursor: pointer; }
+.connector-row:last-child { border-bottom: 0; }
+.connector-row:hover, .connector-row.active { background: var(--surface-hover); }
+.connector-name { display: flex; align-items: center; gap: 11px; min-width: 0; }
+.connector-name strong { display: block; font-size: 13px; font-weight: 600; color: var(--text); }
+.connector-name small { display: block; max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--faint); }
+.connector-muted { font-size: 12.5px; color: var(--muted); }
+.connector-status { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--text-4); }
+.connector-action { justify-self: end; border: 1px solid var(--border-4); border-radius: 7px; padding: 4px 9px; color: var(--text-3); font-size: 12px; }
+.provider-mark { width: 34px; height: 34px; flex: none; border-radius: 10px; border: 1px solid var(--border-3); background: var(--hover); display: flex; align-items: center; justify-content: center; color: var(--text-4); font: 600 11px var(--mono); }
+.status-badge { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--border-3); border-radius: 999px; padding: 3px 8px; font-size: 12px; white-space: nowrap; }
+.provider-method-card { border: 1px solid var(--border-2); border-radius: 12px; background: rgba(255,255,255,.025); padding: 14px; }
+.provider-login-panel { border: 1px solid var(--acc-line); background: var(--acc-wash); border-radius: 12px; display: flex; flex-direction: column; gap: 10px; padding: 16px; }
+.provider-login-panel .kind { font: 600 10.5px/1 var(--mono); letter-spacing: .06em; color: var(--acc-text); }
+@media (max-width: 820px) {
+  .connector-layout { grid-template-columns: 1fr; }
+  .connector-table-head { display: none; }
+  .connector-row { grid-template-columns: 1fr; gap: 6px; }
+  .connector-action { justify-self: start; }
+  .connector-muted, .connector-status { padding-left: 45px; }
+}
+
+/* ── skills ───────────────────────────────────────── */
+.skills-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.skills-search-wrap { flex: 1 1 260px; min-width: 220px; display: flex; align-items: center; gap: 8px; border: 1px solid var(--border-2); border-radius: 10px; background: var(--input); color: var(--faint); padding: 0 11px; }
+.skills-search { width: 100%; border: 0; outline: 0; background: transparent; color: var(--text); padding: 9px 0; font-size: 13px; }
+.skills-search::placeholder { color: var(--fainter); }
+.skills-filters { display: flex; flex-wrap: wrap; gap: 6px; }
+.skills-refresh { margin-left: auto; }
+.skills-status-row { min-height: 20px; display: flex; flex-wrap: wrap; gap: 8px 18px; color: var(--dim); font-size: 12.5px; }
+.skills-layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; align-items: start; }
+.skills-results { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+.skills-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px; }
+.skill-card { min-width: 0; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); overflow: hidden; display: flex; flex-direction: column; }
+.skill-card.active { border-color: var(--acc-line); background: linear-gradient(180deg, var(--acc-wash), var(--surface) 55%); }
+.skill-card.disabled-skill { background: #0f1012; }
+.skill-card-main { flex: 1; min-width: 0; border: 0; background: transparent; color: inherit; text-align: left; padding: 13px 14px 10px; cursor: pointer; display: flex; flex-direction: column; gap: 9px; }
+.skill-card-main:hover { background: rgba(255, 255, 255, .025); }
+.skills-page button:focus-visible, .skills-page input:focus-visible, .skill-card-main:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
+.skill-card-main p { margin: 0; min-height: 36px; color: var(--muted); font-size: 12.5px; line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.skill-card-top { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.skill-mark { width: 24px; height: 24px; flex: none; border-radius: 7px; border: 1px solid var(--border-3); background: var(--hover); display: flex; align-items: center; justify-content: center; color: var(--text-4); font: 600 9.5px var(--mono); }
+.skill-mark.large { width: 38px; height: 38px; border-radius: 11px; font-size: 12px; }
+.skill-name { font: 500 12.5px var(--mono); color: var(--text); }
+.skill-status { margin-left: auto; display: inline-flex; align-items: center; border: 1px solid var(--border-3); border-radius: 999px; padding: 2px 7px; color: var(--faint); font-size: 11.5px; white-space: nowrap; }
+.skill-status.on { border-color: oklch(0.72 0.14 252 / .4); color: var(--acc-text); background: var(--acc-wash); }
+.skill-status.off { background: transparent; }
+.skill-meta-line { display: flex; gap: 8px; flex-wrap: wrap; color: var(--fainter); font: 400 11px var(--mono); }
+.skill-card-actions { min-height: 42px; border-top: 1px solid var(--row-line); padding: 8px 14px; display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.skill-lock-note { width: 100%; color: var(--faint); font-size: 11.5px; line-height: 1.35; }
+.skill-detail { position: sticky; top: 20px; padding: 16px; display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.skill-detail-head { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.skill-detail h2 { margin: 0; font: 600 15px var(--mono); }
+.skill-detail-desc { margin: 0; color: var(--text-4); font-size: 13px; line-height: 1.5; }
+.skill-detail-list { margin: 0; display: grid; gap: 1px; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--border); }
+.skill-detail-list div { background: var(--surface-2); padding: 10px 12px; display: grid; gap: 3px; }
+.skill-detail-list dt { color: var(--faint); font-size: 11.5px; }
+.skill-detail-list dd { margin: 0; color: var(--text-3); font-size: 12.5px; }
+@media (max-width: 980px) {
+  .skills-layout { grid-template-columns: 1fr; }
+  .skill-detail { position: static; order: -1; }
+}
+@media (max-width: 560px) {
+  .skills-toolbar { align-items: stretch; }
+  .skills-search-wrap, .skills-filters, .skills-refresh { width: 100%; margin-left: 0; }
+  .skills-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 700px) {
+  .sidebar { display: none; }
+  .topbar { padding: 0 14px; }
+  .page { padding: 32px 16px 72px; }
+}
+
 /* ── switch ────────────────────────────────────────── */
 .switch { width: 34px; height: 20px; flex: none; border-radius: 10px; border: 1px solid oklch(0.72 0.14 252 / .5); background: oklch(0.72 0.14 252 / .25); padding: 2px; cursor: pointer; display: flex; justify-content: flex-end; }
 .switch > div { width: 14px; height: 14px; border-radius: 50%; background: var(--acc); }

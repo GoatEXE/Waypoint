@@ -1,0 +1,18 @@
+services:
+  pod-service:
+    build: .
+    ports:
+      - "127.0.0.1:3080:3080"
+    environment:
+      SERVICE_NAME: waypoint-pod-service
+      HOST: 0.0.0.0
+      PORT: 3080
+      LOG_LEVEL: info
+      DATA_DIR: /app/runtime/pod
+      DRY_RUN: "true"
+      POD_DOCKER_IMAGE: nousresearch/hermes-agent@sha256:d4da4a40cd7a28aba983775d9fd31d94cbf153eeb0cb9e844d6d0f612b7c24db
+      POD_LABEL_NAMESPACE: com.waypoint.pod
+      POD_NAME_PREFIX: waypoint-pod
+      POD_VOLUME_PREFIX: waypoint-pod-data
+    volumes:
+      - ./runtime/pod:/app/runtime/pod

@@ -5,9 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "open": "node scripts/open.mjs",
+    "approve": "node scripts/open.mjs --approve",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "typecheck": "tsc -b"
+    "typecheck": "tsc -b",
+    "test": "node --test test/*.test.ts"
   },
   "dependencies": {
     "react": "^18.3.1",

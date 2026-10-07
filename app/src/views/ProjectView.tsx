@@ -10,8 +10,9 @@ export function ProjectView({ id }: { id: D.ProjectId }) {
   const nav = useNavigate();
   const splitCols = useSplitCols();
   const p = projById(id);
+  if (!p) return <div className="page" style={{ maxWidth: 920, gap: 12 }}><div className="eyebrow">NOT FOUND</div><h1 className="h1">Project not found</h1></div>;
   const s = projStats(p, tasks);
-  const pod = D.pods.find(x => x.name === p.pod)!;
+  const pod = D.pods.find(x => x.name === p.pod);
 
   return (
     <div className="page" style={{ maxWidth: 1040, gap: 36 }}>
@@ -19,7 +20,7 @@ export function ProjectView({ id }: { id: D.ProjectId }) {
         <div className="eyebrow">PROJECT</div>
         <h1 className="h1 mono">{p.name}</h1>
         <p className="lede" style={{ fontSize: 15, maxWidth: 'none' }}>{p.goal}</p>
-        <div style={{ fontSize: 12.5, color: 'var(--dim)' }}>Advances <span className="ul" onClick={() => nav('/')}>{D.mission.title}</span></div>
+        <div style={{ fontSize: 12.5, color: 'var(--dim)' }}>Advances <span className="ul" onClick={() => nav('/')}>{D.mission?.title || 'workspace'}</span></div>
       </div>
 
       <div className="kv-grid" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))' }}>
@@ -60,9 +61,10 @@ export function ProjectView({ id }: { id: D.ProjectId }) {
 
         <div className="stack" style={{ gap: 12 }}>
           <div className="section-title">Assigned pod</div>
-          <div className="card link stack" style={{ padding: 16, gap: 12 }} onClick={() => nav('/pods/' + pod.name)}>
+          {!pod && <div className="empty">No pod assigned.</div>}
+          {pod && <div className="card link stack" style={{ padding: 16, gap: 12 }} onClick={() => nav('/pods/' + pod.name)}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <OnDot on={!(state.podStopped && pod.name === 'web-squad-01')} />
+              <OnDot on={!state.podStopped} />
               <span style={{ font: '500 13px var(--mono)' }}>{pod.name}</span>
               <span style={{ marginLeft: 'auto', fontSize: 11.5, color: 'var(--faint)' }}>{pod.template}</span>
             </div>
@@ -74,8 +76,9 @@ export function ProjectView({ id }: { id: D.ProjectId }) {
                   <span className="ellipsis" style={{ marginLeft: 'auto', color: 'var(--faint)', fontSize: 12 }}>{x.task}</span>
                 </div>
               ))}
+              {!D.seats.some(x => x.pod === pod.name) && <div style={{ fontSize: 12.5, color: 'var(--faint)' }}>No seats in this pod.</div>}
             </div>
-          </div>
+          </div>}
         </div>
       </div>
     </div>

@@ -5,13 +5,15 @@ import { Dot } from '../components/ui';
 
 export function RunView({ id }: { id: string }) {
   const r = D.runs[id];
-  const t = D.tasks.find(x => x.id === r.task)!;
+  if (!r) return <div className="page" style={{ maxWidth: 920, gap: 12 }}><div className="eyebrow">NOT FOUND</div><h1 className="h1">Run not found</h1></div>;
+  const t = D.tasks.find(x => x.id === r.task);
+  if (!t) return <div className="page" style={{ maxWidth: 920, gap: 12 }}><div className="eyebrow">NOT FOUND</div><h1 className="h1">Task not found for this run</h1></div>;
   const s = st(r.st);
   const passed = r.st === 'passed';
   const [openFiles, setOpenFiles] = useState<Record<number, boolean>>({ 0: true });
   const add = r.files.reduce((a, f) => a + f.add, 0);
   const del = r.files.reduce((a, f) => a + f.del, 0);
-  const artifacts = [{ kind: 'storybook', name: 'Steps/InsuranceCard' }, { kind: 'report', name: `vitest-${id}.json` }];
+  const artifacts = D.allArtifacts.filter(a => a.src === id);
 
   return (
     <div className="page" style={{ maxWidth: 1040, gap: 30 }}>
@@ -89,17 +91,15 @@ export function RunView({ id }: { id: string }) {
         </div>
         <div className="stack" style={{ gap: 12 }}>
           <div className="section-title">Artifacts</div>
-          <div className="hatch" style={{ aspectRatio: '16/9', border: '1px solid var(--border)', borderRadius: 12, fontSize: 11.5, background: 'repeating-linear-gradient(135deg,#121316 0 10px,#15171a 10px 20px)' }}>
-            screenshot · insurance-step-mobile.png
-          </div>
-          <div className="stack" style={{ gap: 6 }}>
+          {!artifacts.length && <div className="empty">No artifacts recorded for this run.</div>}
+          {!!artifacts.length && <div className="stack" style={{ gap: 6 }}>
             {artifacts.map(a => (
               <div key={a.name} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12.5, padding: '8px 12px', border: '1px solid var(--border)', borderRadius: 8, background: 'var(--surface)' }}>
                 <span style={{ font: '400 11px var(--mono)', color: 'var(--faint)', width: 62 }}>{a.kind}</span>
                 <span className="mono c-text3" style={{ fontSize: 12 }}>{a.name}</span>
               </div>
             ))}
-          </div>
+          </div>}
         </div>
       </div>
     </div>

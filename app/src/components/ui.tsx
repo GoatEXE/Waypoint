@@ -46,13 +46,12 @@ export function PaneGroupHead<T>({ g }: { g: Group<T> }) {
 /** Resolution state and handlers for one inbox item; shared by the Inbox, task page, chat and side pane. */
 export function useInboxItem(it: InboxItem) {
   const { state, resolve } = useStore();
-  const nav = useNavigate();
   const r = state.resolved[it.id];
   return {
     pending: !r,
     doneLabel: r === 'yes' ? it.yes : it.no,
     declineLabel: it.declineLabel || 'Decline',
-    approve: () => (it.review ? nav('/pods/web-squad-01/review') : resolve(it.id, 'yes')),
+    approve: () => resolve(it.id, 'yes'),
     decline: () => resolve(it.id, 'no'),
   };
 }

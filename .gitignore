@@ -1,0 +1,25 @@
+# Dependencies
+node_modules/
+service/node_modules/
+
+# Environment/secrets
+.env
+.env.*
+!.env.example
+service/.env
+service/.env.*
+!service/.env.example
+
+# Runtime state
+runtime/
+service/runtime/
+
+# Logs and caches
+*.log
+.DS_Store
+Thumbs.db
+
+# Local inspection and process state
+tmp/
+.forge/*
+!.forge/uf3k.json

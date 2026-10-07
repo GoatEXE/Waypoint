@@ -45,6 +45,7 @@ export function InboxView() {
         <div className="eyebrow">INBOX</div>
         <h1 className="h1">Waiting on you</h1>
       </div>
+      {!groups.length && <div className="empty">Inbox is clear.</div>}
       {groups.map(g => (
         <div key={g.key} className="stack" style={{ gap: 10 }}>
           <GroupHead g={g} />
@@ -62,7 +63,8 @@ export function RoutinesView() {
   return (
     <div className="page" style={{ maxWidth: 920, gap: 24 }}>
       <WorkspaceHead title="Routines" lede="Recurring work seats pick up on a schedule. Each run is recorded with the same evidence as any task." ledeWidth={600} />
-      <div className="list">
+      {!D.routines.length && <div className="empty">No routines yet.</div>}
+      {!!D.routines.length && <div className="list">
         {D.routines.map(r => {
           const off = !!state.routinesOff[r.id];
           return (
@@ -85,29 +87,29 @@ export function RoutinesView() {
             </div>
           );
         })}
-      </div>
+      </div>}
     </div>
   );
 }
 
 /* ── Artifacts ─────────────────────────────────────── */
 
-const ART_FILTERS: ('all' | D.ProjectId)[] = ['all', 'web', 'api', 'cmp'];
-
 export function ArtifactsView() {
   const [filter, setFilter] = useState<'all' | D.ProjectId>('all');
   const nav = useNavigate();
+  const filters: ('all' | D.ProjectId)[] = ['all', ...D.projects.map(p => p.id)];
   const groups = byParent(D.allArtifacts.filter(a => filter === 'all' || a.p === filter), a => a.p);
-  const projName = (id: D.ProjectId) => D.projects.find(p => p.id === id)!.name;
+  const projName = (id: D.ProjectId) => D.projects.find(p => p.id === id)?.name || id;
 
   return (
     <div className="page" style={{ maxWidth: 1040, gap: 24 }}>
       <WorkspaceHead title="Artifacts" />
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-        {ART_FILTERS.map(k => (
+        {filters.map(k => (
           <button key={k} className={'filter' + (filter === k ? ' on' : '')} onClick={() => setFilter(k)}>{k === 'all' ? 'All' : projName(k)}</button>
         ))}
       </div>
+      {!groups.length && <div className="empty">No artifacts yet.</div>}
       {groups.map(g => (
         <div key={g.key} className="stack" style={{ gap: 10 }}>
           <GroupHead g={g} />
@@ -130,41 +132,6 @@ export function ArtifactsView() {
   );
 }
 
-/* ── Skills ────────────────────────────────────────── */
-
-export function SkillsView() {
-  return (
-    <div className="page" style={{ maxWidth: 960, gap: 24 }}>
-      <WorkspaceHead title="Skills" lede="Hermes skills available to seats, by where they live. Promoted lessons land here as versioned changes." />
-      {D.skillGroups.map(g => (
-        <div key={g.label} className="stack" style={{ gap: 10 }}>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
-            <div className="section-title">{g.label}</div>
-            <span style={{ fontSize: 12, color: 'var(--faint)' }}>{g.sub}</span>
-          </div>
-          <div className="list">
-            {g.items.map(s => (
-              <div key={s.name} className="row" style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', padding: '14px 16px' }}>
-                <div className="stack" style={{ flex: '1 1 260px', minWidth: 0, gap: 3 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ font: '500 12.5px var(--mono)' }}>{s.name}</span>
-                    <span style={{ font: '400 11px var(--mono)', color: 'var(--fainter)' }}>{s.ver}</span>
-                    {s.proposed && (
-                      <span style={{ font: '500 10.5px var(--mono)', letterSpacing: '.04em', padding: '1px 6px', borderRadius: 5, border: '1px solid oklch(0.72 0.14 252 / .4)', color: 'var(--acc-text)' }}>PROPOSED</span>
-                    )}
-                  </div>
-                  <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>{s.desc}</div>
-                </div>
-                <div style={{ fontSize: 12, color: 'var(--dim)', textAlign: 'right' }}>{s.used}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 /* ── Connectors ────────────────────────────────────── */
 
 export function ConnectorsView() {
@@ -172,7 +139,8 @@ export function ConnectorsView() {
   return (
     <div className="page" style={{ maxWidth: 960, gap: 24 }}>
       <WorkspaceHead title="Connectors" lede="What the control plane can reach on this machine, and which seats can use it." />
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(280px,1fr))', gap: 12 }}>
+      {!D.connectors.length && <div className="empty">No workspace connectors configured here. Use Settings for the real Hermes CEO runtime and model providers.</div>}
+      {!!D.connectors.length && <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(280px,1fr))', gap: 12 }}>
         {D.connectors.map(c => {
           const on = state.connected[c.id] ?? c.on;
           return (
@@ -196,7 +164,7 @@ export function ConnectorsView() {
             </div>
           );
         })}
-      </div>
+      </div>}
     </div>
   );
 }
