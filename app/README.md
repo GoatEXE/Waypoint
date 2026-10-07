@@ -1,33 +1,27 @@
-# Waypoint web (front-end)
+# Waypoint web app
 
-React + TypeScript + Vite build of `project/Waypoint Prototype.dc.html`. Front-end only: every
-screen runs on the sample data in `src/data.ts` (the "Launch v2 of the patient intake app" mission).
-There is no host service yet.
+React, TypeScript, and Vite interface for the local Waypoint service.
+
+The mission, pod, task, message inbox, CEO conversation, Settings, Connectors, and Skills views use the service. Project, run, review, routines, and artifacts views still use sample data from `src/data.ts`.
+
+## Run
+
+Start the host service from `service/`, then in this directory:
 
 ```sh
 npm install
-npm run dev        # http://127.0.0.1:5173
-npm run open       # sign the default browser in to the /api proxy and open the app
-npm run approve -- ABCD-1234  # approve another browser showing that fingerprint at /__waypoint/pair
-npm run build      # typecheck + production bundle in dist/
+npm run check
+npm run dev
+npm run open
 ```
+
+`npm run open` signs the default browser in to the local `/api` proxy. Other browsers can open `/__waypoint/pair` and be approved with `npm run approve -- <fingerprint>` on the host.
+
+`npm run check` runs the source-comment lint rule across the app and service, the app tests, and a production build. The repository root `npm run check` also runs the service tests.
 
 ## Layout
 
-| Path | What |
-| --- | --- |
-| `src/data.ts` | Sample data and its types: where the host-service API plugs in later |
-| `src/model.ts` | Status styles and derived values (live task status after approvals, progress %, group-by-project) |
-| `src/views/SettingsView.tsx` | Real Hermes CEO runtime/auth settings, including provider-specific model dropdowns backed by the service catalog endpoint and Advanced custom model editing |
-| `src/store.tsx` | App state (pane, approvals, review picks, toggles, chat, modal, toast); UI prefs persist to `localStorage` |
-| `src/routes.ts` | URL ↔ view mapping, CEO chat context, active project |
-| `src/components/` | Sidebar, header and breadcrumb, right pane, modals, shared bits |
-| `src/views/` | Mission, Project, Task, Run, Pod, Learning review, and the Workspace pages |
-| `src/styles.css` | Design tokens (`:root`) and component classes |
-
-## Routes
-
-`/` mission · `/projects/:id` · `/tasks/:id` · `/runs/:id` · `/pods/:name` · `/pods/web-squad-01/review` ·
-`/inbox` · `/routines` · `/artifacts` · `/skills` · `/connectors`
-
-Deep links need the server to fall back to `index.html` (`vite dev` and `vite preview` already do).
+- `src/api.ts` contains the service client and response types.
+- `src/views/` contains both live service views and the remaining sample views.
+- `src/data.ts` supplies sample records only to the prototype views.
+- `server/controlProxy.js` gates `/api` behind the local browser session and forwards it to the service's host-only control channel.

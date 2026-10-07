@@ -26,7 +26,6 @@ function stream(text = 'Done: hello.txt written.') {
   ].map((event) => JSON.stringify(event)).join('\n');
 }
 
-/** App with fake readiness and Docker runner on the shared executor; no Docker, pod, or model is ever touched. */
 async function start({ dryRun = false, dataDir = undefined, ready = () => ({}), chat = async () => ({ code: 0, stdout: stream() }) } = {}) {
   dataDir ||= await fs.mkdtemp(path.join(os.tmpdir(), 'waypoint-runs-'));
   const app = await createApp({ PORT: '3081', HOST: '127.0.0.1', DATA_DIR: dataDir, WAYPOINT_CONTROL_DIR: path.join(dataDir, 'control'), LOG_LEVEL: 'error', HERMES_AUTO_START: 'false', DRY_RUN: String(dryRun) });
@@ -139,7 +138,7 @@ test('preflight refusal aborts the claim back to delegated without a model call'
     assert.ok(after.evidence.some((entry) => entry.type === 'run_aborted'));
     assert.equal(h.calls.chat, 0);
     assert.equal(h.calls.workspace, 0);
-    // Nothing ran, so a fresh run may be claimed once the seat is ready.
+
     assert.equal((await h.run(task.id)).status, 202);
     await h.app.taskRuns.settled(task.id);
   } finally { await h.stop(); }
@@ -286,7 +285,7 @@ test('startup marks runs left running by a previous process as outcome_unknown b
   const first = await start({ dataDir });
   const task = await first.newTask();
   await first.stop();
-  // Simulates a previous process that claimed a run and died before persisting an outcome.
+
   const { runId } = await new PodStore(dataDir).claimTaskRun(task.id);
   const second = await start({ dataDir });
   try {

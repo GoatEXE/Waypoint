@@ -5,7 +5,6 @@ import { normalizeSeatModel, publicSeatsResult } from './podSeats.js';
 
 const NOT_FOUND = { status: 404, body: { error: { code: 'not_found', message: 'Route not found' } } };
 
-// Control API: served only on the host-only named pipe / Unix socket.
 export function createHandler({ config, store, docker, hermes, podSeats, podSeatAuth, taskRuns, messaging, logger }) {
   return createJsonHandler(logger, (request, url) => {
     assertMutationSafety(request);
@@ -13,7 +12,6 @@ export function createHandler({ config, store, docker, hermes, podSeats, podSeat
   });
 }
 
-// Bridge API: the only thing served on the container-reachable TCP port.
 export function createBridgeHandler({ config, store, docker, hermes, podSeats, taskRuns, messaging, logger }) {
   return createJsonHandler(logger, async (request, url) => {
     if (request.method !== 'POST' || url.pathname !== '/bridge/tools') return NOT_FOUND;
@@ -103,7 +101,7 @@ async function route(request, url, { config, store, docker, hermes, podSeats, po
   }
   match = url.pathname.match(/^\/pod-instances\/([^/]+)\/seats\/([^/]+)\/model$/);
   if (request.method === 'PUT' && match) {
-    // Record-only: persists the seat's non-secret model choice; no container exec or model call.
+
     const body = await readBody(request);
     if (!body || typeof body !== 'object' || Array.isArray(body) || !Object.hasOwn(body, 'model')) throw badRequest('body must be { model }');
     const unsupported = Object.keys(body).filter((key) => key !== 'model');
@@ -171,8 +169,7 @@ async function bridgeTool(request, { config, store, docker, hermes, podSeats, ta
     return messaging.send(actor, args, { bridge: true });
   }
   if (!bearerMatches(request.headers.authorization, config.bridge.token)) throw forbidden('Waypoint bridge token is required');
-  // Peer mail can wake the CEO, but cannot authorize control-plane actions.
-  // The CEO user conversation is excluded by the same Hermes turn lock.
+
   if (hermes.mailboxTurnInFlight) throw forbidden('CEO control tools are unavailable during a peer-message turn');
   if (tool === 'health') return { ok: true, service: config.serviceName };
   if (tool === 'create_template') return store.createTemplate(args);
@@ -185,7 +182,7 @@ async function bridgeTool(request, { config, store, docker, hermes, podSeats, ta
   if (tool === 'link_mission') return store.linkMission(String(args.missionId || ''), args);
   if (tool === 'list_missions') return { missions: await store.listMissions() };
   if (tool === 'run_task') {
-    // Same service path as POST /tasks/:id/run, but the CEO passes only the task id: no prompt, files, or retry flags.
+
     const { plan: _plan, ...summary } = await taskRuns.start(bridgeTaskId(args), {});
     return summary;
   }
@@ -225,7 +222,6 @@ async function defaultPodModelFromCeo(store, hermes, instance) {
   return store.setPodDefaultModelIfMissing(instance.id, normalizeSeatModel({ provider, default: model, api_mode, base_url }, 'ceo'));
 }
 
-// Seat models come from stored seat, pod, or template records; the request never supplies credentials.
 async function podSeatsAction(store, podSeats, podId, mode, options) {
   const instance = await store.getInstance(podId);
   let template;

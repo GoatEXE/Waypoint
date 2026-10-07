@@ -278,7 +278,7 @@ export class PodSeatAuth {
           login.wrapperExitCode = complete.code;
           this.completeLoginFromWrapper(login, complete.code);
         }
-      } catch { /* ignore non-marker output */ }
+      } catch {   }
     }
   }
 
@@ -349,7 +349,7 @@ function parseJsonLine(stdout, message) {
   try {
     const parsed = JSON.parse(line);
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed;
-  } catch { /* fall through */ }
+  } catch {   }
   throw lifecycleError(message);
 }
 function safeLogMessage(message = '') {
@@ -486,10 +486,6 @@ except Exception: pass
 sys.stdout.write(json.dumps({'ok':True,'terminated':not alive(pid)})+'\n')
 `;
 
-// Runs as the hermes user inside the pod. It targets only /opt/data/profiles/<seatId> by
-// rebinding HERMES_HOME before importing Hermes helpers. The native helper preserves other .env
-// entries and reconciles the per-profile credential pool/config mirrors; it never receives secrets
-// through argv and this script prints no secret material.
 export const WRITE_SEAT_ENV_KEY_SCRIPT = String.raw`
 import json, os, re, stat, sys
 p=json.loads(sys.stdin.read() or '{}')
@@ -519,7 +515,6 @@ env_path=os.path.join(profile,'.env')
 est=lst(env_path)
 if est is None or not stat.S_ISREG(est.st_mode) or stat.S_ISLNK(est.st_mode) or (stat.S_IMODE(est.st_mode) & 0o077) != 0:
  raise SystemExit(5)
-# Scope all Hermes config/env/auth writes to this seat profile before importing Hermes modules.
 os.environ['HERMES_HOME']=profile
 os.environ.pop('HERMES_PROFILE',None)
 from hermes_cli.credential_lifecycle import save_provider_env_credential

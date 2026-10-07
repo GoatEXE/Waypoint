@@ -7,6 +7,8 @@
     "dev": "vite",
     "open": "node scripts/open.mjs",
     "approve": "node scripts/open.mjs --approve",
+    "lint": "node scripts/lint-comments.mjs",
+    "check": "npm run lint && npm test && npm run build",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "tsc -b",

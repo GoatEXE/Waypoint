@@ -107,7 +107,7 @@ export function PodSeatSetup({ pod, selectedSeatId, onPodChanged }: { pod: PodIn
     setLogin(null);
     setCode('');
     setApiKey('');
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, [selectedSeatId, selectedStatus?.model?.requested?.provider, selectedStatus?.model?.requested?.default, catalog]);
 
   useEffect(() => {

@@ -6,7 +6,6 @@ import path from 'node:path';
 import { PodStore } from '../src/store.js';
 import { resolveSeatModel } from '../src/podSeats.js';
 
-// Seat model persistence only: no pods are started, no model is called, and no auth is read.
 async function tmp() { return fs.mkdtemp(path.join(os.tmpdir(), 'waypoint-seat-model-')); }
 function planFactory({ podId }) { return { command: 'docker', args: [], labels: {}, volumeName: `vol-${podId}`, containerName: `ctr-${podId}` }; }
 

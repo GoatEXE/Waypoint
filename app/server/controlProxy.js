@@ -4,9 +4,6 @@ import http from 'node:http';
 import path from 'node:path';
 import { ensureControlDir, resolveControlChannel } from '../../service/src/controlChannel.js';
 
-// Dev/preview-server gate in front of the host-only control pipe. The Vite port is reachable
-// from Docker Desktop containers, so every /api request needs an HttpOnly session cookie that
-// only a host process (`npm run open`) can mint via a one-time bootstrap code.
 export const SESSION_COOKIE = 'waypoint_session';
 export const BOOTSTRAP_PATH = '/__waypoint/session';
 export const PAIR_PATH = '/__waypoint/pair';
@@ -20,7 +17,7 @@ const MAX_SESSIONS = 20;
 const HOP_HEADERS = ['connection', 'keep-alive', 'proxy-connection', 'upgrade', 'te', 'trailer'];
 
 const sha256 = (value) => createHash('sha256').update(String(value)).digest('hex');
-// Public, non-secret pairing label (~40 bits) derived from the browser-held pairing secret.
+
 function fingerprintOf(secret) {
   const bytes = createHash('sha256').update(`fingerprint:${secret}`).digest();
   const chars = Array.from(bytes.subarray(0, 8), (b) => FINGERPRINT_ALPHABET[b % FINGERPRINT_ALPHABET.length]).join('');
@@ -56,7 +53,7 @@ export function createSessionStore(dir, now = Date.now) {
       writeJson(bootstrapFile, { hash: sha256(code), expiresAt: now() + BOOTSTRAP_TTL_MS });
       return code;
     },
-    // Returns a new session token, or null. A code is single-use and short-lived.
+
     redeem(code) {
       if (typeof code !== 'string' || !code) return null;
       const pending = readJson(bootstrapFile, null);
@@ -67,8 +64,7 @@ export function createSessionStore(dir, now = Date.now) {
       fs.rmSync(bootstrapFile, { force: true });
       return mintSession();
     },
-    // Pairing: the browser keeps a secret in an HttpOnly cookie and displays only its fingerprint;
-    // a host process approves that fingerprint (`npm run approve -- XXXX-XXXX`). No secret is ever shown.
+
     startPairing() {
       ensureControlDir(dir);
       const secret = randomBytes(32).toString('base64url');
@@ -86,7 +82,7 @@ export function createSessionStore(dir, now = Date.now) {
       writeJson(pairingsFile, { pairings });
       return true;
     },
-    // Returns { state: 'approved', token } | { state: 'pending' } | { state: 'expired' }.
+
     completePairing(secret) {
       if (!secret) return { state: 'expired' };
       const hash = sha256(secret);

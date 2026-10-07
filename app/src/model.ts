@@ -23,7 +23,6 @@ export type Resolved = Record<string, 'yes' | 'no'>;
 export const projById = (id: ProjectId): Project | undefined => D.projects.find(p => p.id === id);
 export const projIdByName = (name: string) => D.projects.find(p => p.name === name)?.id;
 
-/** Task statuses after the user's real approvals and decisions are applied. */
 export function liveTasks(_resolved: Resolved): Task[] {
   return D.tasks;
 }
@@ -54,7 +53,6 @@ export const inboxParent = (i: InboxItem): ProjectId | undefined =>
 
 export interface Group<T> { key: string; label: string; sub: string; to: string; items: T[] }
 
-/** Groups items under their known project, with mission-level items first. Empty groups are dropped. */
 export function byParent<T>(items: T[], parentOf: (x: T) => ProjectId | undefined): Group<T>[] {
   const grouped = new Map<ProjectId | 'mission', T[]>();
   for (const item of items) {

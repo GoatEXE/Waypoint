@@ -9,7 +9,6 @@ import { api, type HermesStatus, type MissionPod, type TaskSummary } from '../ap
 import { sidebarHermesSummary } from '../hermesSidebarStatus';
 import { missionPods, sidebarMissionLabel } from '../missionsModel';
 
-// [view, label, icon width, icon height, icon radius, icon rotation]
 const WORKSPACE: [View, string, number, number, string, number][] = [
   ['inbox', 'Inbox', 12, 9, '2px', 0],
   ['routines', 'Routines', 11, 11, '50%', 0],
@@ -46,7 +45,7 @@ export function Sidebar() {
         setOrgPods(chart.pods.map(pod => ({ id: pod.podId, podName: pod.name, templateId: '', state: pod.state, seats: pod.seats.map(seat => ({ id: seat.seatId, role: seat.role })) })));
         setStoredTasks(taskList.tasks);
         if (deliveries) setDeliveryAttention(deliveries.messages.filter(message => !message.readAt && ['failed', 'outcome_unknown'].includes(message.wake?.state || '')).length);
-      } catch { /* keep last known navigation */ }
+      } catch {   }
     };
     void refresh();
     const timer = window.setInterval(() => void refresh(), 30000);

@@ -21,14 +21,14 @@ export async function createApp(env = process.env) {
   const store = new PodStore(config.dataDir);
   await store.ensure();
   const messaging = await MessagingService.create({ config, store });
-  // Runs left 'running' by a previous process become outcome_unknown before any request can claim a new run.
+
   const interrupted = await store.markInterruptedTaskRuns();
   if (interrupted.length) logger.warn('task_runs_interrupted', { count: interrupted.length, taskIds: interrupted.map((item) => item.taskId) });
   const docker = new DockerAdapter(config, logger);
   const hermes = new HermesRuntime(config, logger);
   const podSeats = new PodSeats({ config, docker, logger });
   const podSeatAuth = new PodSeatAuth({ config, docker, podSeats, logger });
-  // Exactly one executor per process: its task and seat locks only hold when every run shares it.
+
   const taskExecutor = new PodTaskExecutor({ config, docker, readiness: podSeatsReadiness(podSeats), logger });
   const taskRuns = new TaskRunService({ config, store, executor: taskExecutor, logger });
   const messageWakes = new MessageWakeService({ config, messaging, store, hermes, executor: taskExecutor, logger });
@@ -37,14 +37,14 @@ export async function createApp(env = process.env) {
       .then((result) => logger.info('hermes_reconciled', { action: result.action, executed: result.executed, state: result.status?.state, running: result.status?.running }))
       .catch((error) => logger.warn('hermes_reconcile_skipped', { message: error.message }));
   }
-  // server: full control API, host-only pipe/socket. bridgeServer: POST /bridge/tools only, TCP.
+
   const server = http.createServer(createHandler({ config, store, docker, hermes, podSeats, podSeatAuth, taskRuns, messaging, logger }));
   const bridgeServer = http.createServer(createBridgeHandler({ config, store, docker, hermes, podSeats, taskRuns, messaging, logger }));
   return { config, logger, store, docker, hermes, podSeats, podSeatAuth, taskExecutor, taskRuns, messaging, messageWakes, server, bridgeServer };
 }
 export async function main() {
   const { server, bridgeServer, config, logger, messageWakes } = await createApp();
-  // Bridge first: if another instance owns the port we fail before touching its control socket.
+
   await new Promise((resolve, reject) => {
     bridgeServer.once('error', reject);
     bridgeServer.listen(config.port, config.host, resolve);

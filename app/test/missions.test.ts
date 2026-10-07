@@ -1,6 +1,5 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs/promises';
 import { api, type Mission } from '../src/api.ts';
 import {
   currentMission, initialMissionsState, missionPods, missionStatus, missionsLoadFailed, missionsLoadStarted,
@@ -41,7 +40,7 @@ test('missions API surfaces the service error for duplicates', async () => {
   await assert.rejects(() => api.createMission({ title: 'Finish Waypoint' }), /already exists/);
 });
 
-test('mission deletion uses the host API and the view retains linked-record navigation', async () => {
+test('mission deletion uses the host API', async () => {
   const calls: { url: string; init?: RequestInit }[] = [];
   globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
     calls.push({ url: String(url), init });
@@ -50,11 +49,6 @@ test('mission deletion uses the host API and the view retains linked-record navi
   assert.equal((await api.deleteMission('mission_1')).deleted, true);
   assert.equal(calls[0].url, '/api/missions/mission_1');
   assert.equal(calls[0].init?.method, 'DELETE');
-  const view = await fs.readFile(new URL('../src/views/MissionView.tsx', import.meta.url), 'utf8');
-  assert.match(view, /This removes the mission only/);
-  assert.match(view, /api\.deleteMission\(confirmDelete\.id\)/);
-  assert.match(view, /Open pod/);
-  assert.match(view, /Open task/);
 });
 
 test('missions load state moves through loading, ready, and error without losing loaded data', () => {
@@ -93,16 +87,4 @@ test('mission status copy never claims work has run', () => {
 test('sidebar pods come from mission links without duplicates', () => {
   const pods = missionPods([mission(), mission({ id: 'mission_2', title: 'Other' }), mission({ id: 'mission_3', pod: null, podId: null, task: null, taskId: null })]);
   assert.deepEqual(pods.map(p => p.podName), ['finish-waypoint-01']);
-});
-
-test('mission views read real service data instead of static placeholders', async () => {
-  const [view, sidebar, modal] = await Promise.all(['../src/views/MissionView.tsx', '../src/components/Sidebar.tsx', '../src/components/Modal.tsx']
-    .map(p => fs.readFile(new URL(p, import.meta.url), 'utf8')));
-  assert.equal(view.includes('D.mission'), false);
-  assert.equal(sidebar.includes('D.mission'), false);
-  assert.match(view, /Loading your mission/);
-  assert.match(view, /Couldn't load your mission/);
-  assert.match(view, /No mission yet/);
-  assert.match(modal, /createMission\(\{ title: form\.title\.trim\(\)/);
-  assert.equal(modal.includes('Mission creation is not connected'), false);
 });

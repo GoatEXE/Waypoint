@@ -1,0 +1,8 @@
+{
+  "name": "waypoint",
+  "private": true,
+  "scripts": {
+    "lint": "npm --prefix app run lint",
+    "check": "npm --prefix app run lint && npm --prefix service run check && npm --prefix app test && npm --prefix app run build"
+  }
+}

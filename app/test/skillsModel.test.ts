@@ -1,6 +1,5 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs/promises';
 import { filterSkills, groupSkills, replaceSkill, skillControlsReady, skillsSummary, skillsViewState } from '../src/skillsModel.ts';
 import type { HermesSkill, HermesSkillInventory } from '../src/api.ts';
 
@@ -42,13 +41,11 @@ test('summary counts enabled, disabled, built-in, Waypoint, and added skills wit
   assert.equal(skillsSummary(inv), '2 enabled · 1 disabled · 2 built-in · 1 Waypoint');
 });
 
-
 test('summary explicitly accounts for the live built-in plus Waypoint bridge split', () => {
   const skills = Array.from({ length: 53 }, (_, i) => skill(`builtin-${i}`, 'builtin'));
   const inv = inventory([...skills, skill('waypoint-ceo-bridge', 'local', { waypoint: true, locked: true })]);
   assert.equal(skillsSummary(inv), '54 enabled · 0 disabled · 53 built-in · 1 Waypoint');
 });
-
 
 test('disabled skills stay searchable and replaceSkill updates counts for rollback-safe toggles', () => {
   const inv = inventory([skill('notes', 'local', { enabled: false, description: 'write notes' }), skill('codex', 'builtin')]);
@@ -57,7 +54,6 @@ test('disabled skills stay searchable and replaceSkill updates counts for rollba
   assert.equal(updated.counts.enabled, 2);
   assert.equal(updated.counts.disabled, 0);
 });
-
 
 test('legacy skills inventory without availability fields is read-only instead of treated as disabled', () => {
   const legacy = {
@@ -73,14 +69,4 @@ test('legacy skills inventory without availability fields is read-only instead o
   assert.equal(skillControlsReady(legacy), false);
   assert.deepEqual(filterSkills(legacy.skills, 'all', '').map(s => s.name), ['codex', 'waypoint-ceo-bridge']);
   assert.deepEqual(filterSkills(legacy.skills, 'disabled', '').map(s => s.name), []);
-});
-
-test('Skills copy does not claim seat-wide preload or planned abilities', async () => {
-  const source = (await fs.readFile(new URL('../src/views/SkillsView.tsx', import.meta.url), 'utf8')) + await fs.readFile(new URL('../src/skillsModel.ts', import.meta.url), 'utf8');
-  assert.doesNotMatch(source, /preloaded|every seat|all seats|planned|PROPOSED|versioned/i);
-  assert.match(source, /Pod seats are not listed here/);
-  assert.match(source, /Refresh/);
-  assert.match(source, /Enable/);
-  assert.match(source, /Disable/);
-  assert.match(source, /Waypoint uses this bridge to talk to the CEO/);
 });

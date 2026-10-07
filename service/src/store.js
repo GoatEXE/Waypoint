@@ -20,10 +20,9 @@ const STORED_ID_RE = {
 const MISSION_TITLE_MAX = 120;
 const MISSION_OUTCOME_MAX = 1000;
 const MISSION_SOURCES = new Set(['ceo', 'app']);
-// Task runs: at most one claimed run per task. Only these outcomes finish a run; a dry run or a preflight
-// failure (no model turn started) releases the claim with abortTaskRun instead.
+
 export const TASK_RUN_OUTCOMES = ['completed', 'failed', 'outcome_unknown'];
-// Task states that refuse a new claim unless the caller explicitly asks for a manual retry.
+
 const TASK_RUN_LOCKED_STATES = new Set(['running', ...TASK_RUN_OUTCOMES]);
 const SESSION_ID_RE = /^[A-Za-z0-9_.:-]{1,200}$/;
 const EVIDENCE_TYPE_RE = /^[a-z][a-z0-9_]{0,31}$/;
@@ -35,7 +34,7 @@ const RUN_EVIDENCE_PER_RUN = 8;
 const RUN_EVIDENCE_KEEP = 32;
 const RUNS_KEEP = 10;
 const MAX_DURATION_MS = 24 * 60 * 60 * 1000;
-// The only evidence fields a run persists; plans, command args, tool data, and stderr are dropped.
+
 const RUN_EVIDENCE_INT_FIELDS = ['exitCode', 'resultExitCode', 'toolCalls', 'partialTextChars', 'fixturesCreated', 'fixturesUnchanged'];
 const RUN_EVIDENCE_BOOL_FIELDS = ['timedOut', 'automaticRetry', 'partialTextTruncated', 'modelTurnStarted'];
 const HOST_PATH_RE = /(?:\b[A-Za-z]:[\\/]|\\\\)[^\s"'`<>|]*|(?<![\w/.])\/(?:home|Users|root|mnt|var|tmp|private|srv)\/[^\s"'`<>|]*/g;
@@ -164,7 +163,6 @@ function normalizeTarget(value) {
 }
 const sameTitle = (a, b) => a.trim().toLowerCase() === b.trim().toLowerCase();
 
-/** Redacts host paths (including the data dir) and secrets, strips control characters, and caps length. */
 function runText(value, max, dataDir) {
   if (typeof value !== 'string') return '';
   const scrubbed = (dataDir ? value.split(dataDir).join('[host-path]') : value).replace(HOST_PATH_RE, '[host-path]');
@@ -174,7 +172,7 @@ function runTimestamp(value, fallback) {
   const parsed = typeof value === 'string' && value.length <= 40 ? new Date(value) : null;
   return parsed && !Number.isNaN(parsed.getTime()) ? parsed.toISOString() : fallback;
 }
-/** Keeps only allowlisted, bounded evidence fields from an executor result and tags them with the run id. */
+
 function runEvidence(entries, runId, dataDir, now) {
   if (!Array.isArray(entries)) return [];
   return entries.filter((entry) => entry && typeof entry === 'object' && !Array.isArray(entry)).slice(0, RUN_EVIDENCE_PER_RUN).map((entry) => {
@@ -191,7 +189,7 @@ function runEvidence(entries, runId, dataDir, now) {
     return item;
   });
 }
-/** Delegation evidence (no runId) is always kept; run evidence keeps only the most recent entries. */
+
 function withRunEvidence(existing, added) {
   const list = Array.isArray(existing) ? existing : [];
   return [...list.filter((entry) => !entry?.runId), ...[...list.filter((entry) => entry?.runId), ...added].slice(-RUN_EVIDENCE_KEEP)];
@@ -201,9 +199,9 @@ export class PodStore {
   constructor(dataDir) {
     this.dataDir = dataDir;
     this.missionQueue = Promise.resolve();
-    // Per-resource write queues ('task:<id>', 'pod:<id>') so read-modify-write updates are not lost in this process.
+
     this.queues = new Map();
-    // Run ids claimed by this process and not yet finished; a persisted 'running' run outside this set is stale.
+
     this.activeTaskRuns = new Set();
   }
   async ensure() { await fs.mkdir(this.dataDir, { recursive: true }); }
@@ -294,16 +292,12 @@ export class PodStore {
     await writeJson(filePath, updated);
     return normalizeStoredInstance(updated, podId, this.dataDir, dockerPlanFactory);
   }
-  /**
-   * Sets (or clears with null) the durable Hermes model for one seat of a pod. The model is validated by
-   * podSeats.normalizeSeatModel (provider/default/api_mode/base_url only; secret-like or unknown fields are
-   * rejected) and stored on the seat; the rest of the manifest is preserved. Returns a path-free summary.
-   */
+
   async setSeatModel(podId, seatId, model) {
     podId = assertStoredId('pod', podId);
     const id = String(seatId ?? '');
     if (!NAME_RE.test(id)) throw badRequest('invalid seat id', { seatId: id.slice(0, 64) });
-    // Loaded lazily: podSeats.js imports store.js at evaluation time, so a static import would be a module cycle.
+
     const { normalizeSeatModel } = await import('./podSeats.js');
     const value = model == null ? null : normalizeSeatModel(model, 'seat');
     return this.#serialize(`pod:${podId}`, async () => {
@@ -322,7 +316,7 @@ export class PodStore {
       return { podId, podName: current.podName, seat: { id, role: typeof current.seats[index].role === 'string' ? current.seats[index].role : '', model: value } };
     });
   }
-  /** Capture the CEO model once for a pod that has no explicit pod or template model. */
+
   async setPodDefaultModelIfMissing(podId, model) {
     podId = assertStoredId('pod', podId);
     const { normalizeSeatModel } = await import('./podSeats.js');
@@ -380,12 +374,7 @@ export class PodStore {
     }
     return tasks.sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)) || b.id.localeCompare(a.id));
   }
-  /**
-   * Claims the next run of a task before any Hermes invocation and persists it as 'running' with a unique runId.
-   * Refuses while a run is running and after a run finished (completed, failed, outcome_unknown), including after
-   * a restart. `manualRetry: true` is an explicit operator decision: it allows a new run after a finished outcome,
-   * or closes a run left 'running' by a previous process as outcome_unknown. Nothing is ever retried automatically.
-   */
+
   claimTaskRun(taskId, { manualRetry = false } = {}) {
     return this.#withTaskRunLock(taskId, async (id) => {
       let task = await this.getTask(id);
@@ -403,12 +392,7 @@ export class PodStore {
       return { task: updated, runId: run.id };
     });
   }
-  /**
-   * Startup reconciliation: every task persisted as 'running' whose run is not owned by this process was
-   * interrupted by a previous service process, so it is closed as outcome_unknown (reason 'service_restarted').
-   * Nothing is retried or reported as completed; the task stays locked until a manual retry.
-   * Call once before accepting run requests. Returns the interrupted { taskId, runId } pairs.
-   */
+
   async markInterruptedTaskRuns() {
     const dir = path.join(this.dataDir, 'tasks');
     let names = [];
@@ -428,11 +412,7 @@ export class PodStore {
     }
     return interrupted;
   }
-  /**
-   * Persists the result of a model turn for the claimed run only. The reply and evidence are sanitized and capped;
-   * the task then stays locked in completed/failed/outcome_unknown. A dry run or a preflight failure must use
-   * abortTaskRun instead, so an unknown outcome string is rejected and the run stays 'running' (locked).
-   */
+
   finishTaskRun(taskId, runId, result) {
     return this.#withTaskRunLock(taskId, async (id) => {
       assertPlainObject(result, 'run result');
@@ -452,10 +432,7 @@ export class PodStore {
       return this.#closeRun(task, finished, result.outcome, runEvidence(result.evidence, run.id, this.dataDir, now), now);
     });
   }
-  /**
-   * Releases a claimed run when the caller knows no model turn started (dry run, readiness or workspace
-   * preflight error). The task returns to the state it had before the claim, normally 'delegated'.
-   */
+
   abortTaskRun(taskId, runId, { reason = 'preflight_failed' } = {}) {
     return this.#withTaskRunLock(taskId, async (id) => {
       const { task, run } = await this.#activeRun(id, runId);
@@ -473,7 +450,7 @@ export class PodStore {
     if (task.state !== 'running' || task.activeRunId !== id || !run) throw conflict('run is not the active run for this task', { taskId, runId: id });
     return { task, run };
   }
-  /** Closes a 'running' run left by a previous process as outcome_unknown. */
+
   #interruptRun(task) {
     const now = new Date().toISOString();
     const runs = Array.isArray(task.runs) ? task.runs : [];
@@ -491,7 +468,7 @@ export class PodStore {
     this.activeTaskRuns.delete(run.id);
     return updated;
   }
-  /** Serializes run state changes per task so a claim is check-and-set within this process. */
+
   async #withTaskRunLock(taskId, fn) {
     const id = assertStoredId('task', taskId);
     return this.#serialize(`task:${id}`, () => fn(id));
@@ -503,11 +480,7 @@ export class PodStore {
     settled.then(() => { if (this.queues.get(key) === settled) this.queues.delete(key); });
     return run;
   }
-  /**
-   * Records a mission and, optionally, the pod and delegated task working on it.
-   * Idempotent by title: repeating the same title with the same links returns the existing record.
-   * State only reflects what Waypoint has recorded ('planned' or 'delegated'); it never claims execution.
-   */
+
   createMission(input, { source = 'app' } = {}) {
     const run = this.missionQueue.then(() => this.#createMission(input, source));
     this.missionQueue = run.catch(() => {});
@@ -531,7 +504,7 @@ export class PodStore {
     await writeJson(this.missionPath(mission.id), mission);
     return { created: true, mission: await this.missionView(mission) };
   }
-  /** Attaches a pod and/or delegated task to a mission. Links can be added, not silently replaced. */
+
   linkMission(missionId, input) {
     const run = this.missionQueue.then(() => this.#linkMission(missionId, input));
     this.missionQueue = run.catch(() => {});
@@ -548,7 +521,7 @@ export class PodStore {
     await writeJson(this.missionPath(mission.id), updated);
     return this.missionView(updated);
   }
-  /** Validates optional pod/task ids against stored records; a task implies its own pod. */
+
   async resolveMissionLinks(input) {
     let podId = input.podId ? assertStoredId('pod', String(input.podId).trim()) : null;
     const taskId = input.taskId ? assertStoredId('task', String(input.taskId).trim()) : null;
@@ -569,7 +542,7 @@ export class PodStore {
     if (!mission) throw notFound('mission not found', { missionId });
     return this.missionView(mission);
   }
-  /** Removes only the mission record. Linked pods and tasks have independent lifecycles. */
+
   deleteMission(missionId) {
     const run = this.missionQueue.then(async () => {
       const file = this.missionPath(missionId);
@@ -581,7 +554,7 @@ export class PodStore {
     this.missionQueue = run.catch(() => {});
     return run;
   }
-  /** Newest first. Unreadable or foreign files in the missions folder are skipped. */
+
   async readMissions() {
     const dir = path.join(this.dataDir, 'missions');
     let names = [];
@@ -596,7 +569,7 @@ export class PodStore {
     }
     return missions.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
   }
-  /** Mission plus a short, path-free summary of its linked pod and task as they are stored right now. */
+
   async missionView(mission) {
     const missing = [];
     let pod = null;

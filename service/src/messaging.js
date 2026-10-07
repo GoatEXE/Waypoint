@@ -41,7 +41,7 @@ async function replacePrivateJson(file, value) {
     for (let attempt = 0; ; attempt++) {
       try { await fs.rename(temp, file); return; }
       catch (error) {
-        // Windows can briefly deny replacement while another reader has the old file open.
+
         if (!['EPERM', 'EACCES', 'EBUSY'].includes(error.code) || attempt >= 11) throw error;
         await new Promise((resolve) => setTimeout(resolve, Math.min(100, 10 * (attempt + 1))));
       }
@@ -150,8 +150,7 @@ export class MessagingService {
         for (const item of acknowledged.slice(0, names.length - MAX_MAILBOX_MESSAGES + 1)) await fs.unlink(path.join(dir, item.name));
         if (acknowledged.length < names.length - MAX_MAILBOX_MESSAGES + 1) throw conflict('recipient mailbox is full of unread messages', { to });
       }
-      // Host control sends are independent user actions, even during a CEO mailbox turn.
-      // Only a bridge tool call made while that actor is awake inherits reply depth.
+
       const depth = bridge ? this.activeWakeDepth.get(from) : undefined;
       const wakeDepth = depth === undefined ? 0 : depth + 1;
       const message = { id: `msg_${randomUUID()}`, from, to, text, createdAt: new Date().toISOString(), wake: { state: wakeDepth <= MAX_WAKE_DEPTH ? 'queued' : 'suppressed', depth: wakeDepth, attempts: 0 } };
@@ -163,7 +162,6 @@ export class MessagingService {
     return message;
   }
 
-  /** Only messages created with wake metadata are scheduled; older mail is never replayed. */
   async pendingWakes() {
     const root = path.join(this.config.dataDir, 'messages');
     const pending = [];
@@ -272,7 +270,6 @@ export class MessagingService {
     return { recipient: actor, messages: messages.slice(0, limit) };
   }
 
-  /** Host-only overview across mailboxes. Message content is capped by the send limit. */
   async listDeliveries({ limit = 100 } = {}) {
     if (!Number.isInteger(limit) || limit < 1 || limit > 200) throw badRequest('limit must be 1-200');
     const root = path.join(this.config.dataDir, 'messages');
@@ -293,7 +290,6 @@ export class MessagingService {
     return { messages: messages.slice(0, limit) };
   }
 
-  /** Marks an uncertain or failed delivery reviewed without replaying its model turn. */
   async reviewDelivery(address, messageId) {
     parseAddress(address);
     if (typeof messageId !== 'string' || !MESSAGE_FILE_RE.test(`${messageId}.json`)) throw badRequest('invalid message id');
@@ -328,7 +324,6 @@ export class MessagingService {
     });
   }
 
-  /** Installs a seat-scoped bridge credential and a small client after native profile provisioning. */
   async installSeatTools(instance, seatIds, podSeats) {
     if (this.config.dryRun) return { installed: false, reason: 'dry_run' };
     const target = podSeats.resolveTarget(instance, { seatIds, checkAuth: false });

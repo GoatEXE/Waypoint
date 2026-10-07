@@ -8,7 +8,7 @@ import { createApp } from '../src/index.js';
 async function start() {
   const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'waypoint-http-'));
   const app = await createApp({ PORT: '3081', HOST: '127.0.0.1', DATA_DIR: dataDir, WAYPOINT_CONTROL_DIR: path.join(dataDir, 'control'), LOG_LEVEL: 'error', HERMES_AUTO_START: 'false' });
-  // Control handler on ephemeral TCP for handler-level tests; production serves it only on the host pipe/socket.
+
   await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
   await new Promise((resolve) => app.bridgeServer.listen(0, '127.0.0.1', resolve));
   return { ...app, base: `http://127.0.0.1:${app.server.address().port}`, bridgeBase: `http://127.0.0.1:${app.bridgeServer.address().port}` };

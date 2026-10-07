@@ -20,7 +20,6 @@ export function parseRoute(path: string): Route {
 
 export const useRoute = () => parseRoute(useLocation().pathname);
 
-/** The thing the CEO chat is scoped to on the current page. */
 export function chatContextFor(r: Route): string {
   if ((r.v === 'task' || r.v === 'run') && r.id) return r.id;
   if (r.v === 'project') return D.projects.find(p => p.id === r.id)?.name || 'project';
@@ -28,7 +27,6 @@ export function chatContextFor(r: Route): string {
   return D.mission?.short || 'workspace';
 }
 
-/** Project the current page belongs to, if any (for sidebar highlighting). */
 export function activeProject(r: Route): string | null {
   if (r.v === 'project') return r.id!;
   if (r.v === 'task') return D.tasks.find(t => t.id === r.id)?.p || null;

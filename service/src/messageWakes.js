@@ -3,8 +3,6 @@ import { AppError } from './errors.js';
 const MAX_CONCURRENT = 2;
 const MAX_DAILY_TURNS = 12;
 
-/** Durable, bounded recipient turns for new Waypoint messages. One message is claimed at most once
- * for a model turn; a crash or uncertain result requires manual review rather than automatic replay. */
 export class MessageWakeService {
   constructor({ config, messaging, store, hermes, executor, logger, deliver = undefined, intervalMs = 15000 }) {
     this.config = config;
@@ -50,10 +48,9 @@ export class MessageWakeService {
     for (const message of await this.messaging.pendingWakes()) {
       if (this.jobs.size >= MAX_CONCURRENT) break;
       if (this.jobs.has(message.to)) continue;
-      // An interrupted turn may still be running inside Docker after this service restarts.
-      // Hold later work for that recipient until an operator reviews the uncertain outcome.
+
       if (await this.messaging.hasUnreviewedWake(message.to)) continue;
-      // Preserve a daily model-call budget per recipient across service restarts.
+
       const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
       if (await this.messaging.wakeStartsSince(message.to, since) >= MAX_DAILY_TURNS) continue;
       const claimed = await this.messaging.claimWake(message.to, message.id);
@@ -70,8 +67,7 @@ export class MessageWakeService {
     this.messaging.activeWakeDepth.set(message.to, message.wake.depth);
     try {
       const result = await this.deliver(message);
-      // The Hermes turn has ended. Later sends by the same actor are new work, even while
-      // acknowledgement and delivery-state persistence are still in progress.
+
       if (previous === undefined) this.messaging.activeWakeDepth.delete(message.to);
       else this.messaging.activeWakeDepth.set(message.to, previous);
       let outcome = ['completed', 'failed', 'outcome_unknown'].includes(result?.outcome) ? result.outcome : 'outcome_unknown';

@@ -5,7 +5,6 @@ const STATUS_EVIDENCE_KEEP = 8;
 const STATUS_REPLY_MAX = 4000;
 export const RUN_REQUIREMENTS = 'The pod must already be running, its seat provisioned with a model, and native provider auth ready for that seat. Waypoint never starts the pod or copies CEO credentials for a task run.';
 
-// Known pre-model refusals mapped to stable run-abort reasons; anything else falls back to preflight_<code>.
 const ABORT_REASONS = [
   [/fixture/i, 'workspace_fixture_conflict'],
   [/workspace/i, 'workspace_unavailable'],
@@ -17,10 +16,6 @@ const ABORT_REASONS = [
   [/ownership|refusing|unexpected image|different container/i, 'pod_safety_refused'],
 ];
 
-/**
- * Host-side task run orchestration. Claims a task run durably before dispatch, runs one bounded seat turn on the
- * shared PodTaskExecutor in the background, and persists the outcome through the store. Never retries automatically.
- */
 export class TaskRunService {
   constructor({ config, store, executor, logger = undefined }) {
     this.config = config;
@@ -31,10 +26,6 @@ export class TaskRunService {
     this.seats = new Set();
   }
 
-  /**
-   * Starts a run for a stored task. Dry run returns the executor plan without claiming. Live mode validates,
-   * claims, and returns { taskId, runId, state: 'running' } while the turn continues in the background.
-   */
   async start(taskId, body = {}, { manualRetry = false } = {}) {
     if (!body || typeof body !== 'object' || Array.isArray(body)) throw badRequest('body must be an object');
     const unsupported = Object.keys(body).filter((key) => !START_FIELDS.has(key));
@@ -44,7 +35,7 @@ export class TaskRunService {
     if (manualRetry && !['failed', 'outcome_unknown'].includes(task.state)) throw conflict('only a failed or uncertain task run can be retried after review', { taskId: task.id, state: task.state });
     const pod = await this.store.getInstance(task.podId);
     const template = await this.resolveTemplate(pod);
-    // Validates task/pod/seat/prompt/files without touching Docker, so bad input never claims a run.
+
     const target = this.executor.resolveTarget({ task, pod, files });
 
     if (this.config.dryRun) {
@@ -72,14 +63,13 @@ export class TaskRunService {
     return { taskId: task.id, runId, state: 'running', message: `Run claimed and executing in the background; poll the task for its outcome. ${RUN_REQUIREMENTS}` };
   }
 
-  /** Runs the claimed turn and persists exactly one terminal record: finish (model turn) or abort (no model turn). */
   async dispatch(task, runId, { pod, template, files }) {
     let result;
     try {
       result = await this.executor.execute({ task, pod, template, files });
     } catch (error) {
       if (error instanceof AppError) {
-        // The executor only throws before a model turn starts (validation, readiness, workspace).
+
         const reason = abortReason(error);
         this.logger?.info?.('task_run_aborted', { taskId: task.id, runId, reason });
         return this.store.abortTaskRun(task.id, runId, { reason });
@@ -102,7 +92,6 @@ export class TaskRunService {
     return publicTaskStatus(await this.store.getTask(taskId));
   }
 
-  /** Resolves when the background job for a task (if any) has persisted its outcome. */
   async settled(taskId) {
     await this.jobs.get(taskId);
   }
@@ -115,7 +104,6 @@ export class TaskRunService {
   }
 }
 
-/** Compact, already-sanitized task view for the CEO bridge: state, last run, and recent evidence only. */
 export function publicTaskStatus(task) {
   const runs = Array.isArray(task.runs) ? task.runs : [];
   const last = runs.find((run) => run?.id === task.lastRunId) || runs.at(-1);

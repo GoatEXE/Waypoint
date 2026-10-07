@@ -15,7 +15,7 @@ function loadOrCreateBridgeToken(dataDir) {
   fs.mkdirSync(dataDir, { recursive: true });
   const token = randomUUID().replaceAll('-', '');
   fs.writeFileSync(tokenPath, `${token}\n`, { mode: 0o600, flag: 'w' });
-  try { fs.chmodSync(tokenPath, 0o600); } catch { /* Windows may ignore POSIX mode */ }
+  try { fs.chmodSync(tokenPath, 0o600); } catch {   }
   return token;
 }
 
@@ -78,7 +78,7 @@ export function loadConfig(env = process.env, cwd = process.cwd()) {
       ceoMaxMessages: intFromEnv('HERMES_CEO_MAX_MESSAGES', env.HERMES_CEO_MAX_MESSAGES, 100, 2, 500),
       ceoOutputLimitBytes: intFromEnv('HERMES_CEO_OUTPUT_LIMIT_BYTES', env.HERMES_CEO_OUTPUT_LIMIT_BYTES, 262144, 8192, 1048576),
     },
-    // Host-only control API (named pipe / Unix socket). Never bound to TCP.
+
     control: resolveControlChannel(env),
     bridge: {
       token: env.WAYPOINT_BRIDGE_TOKEN || loadOrCreateBridgeToken(dataDir),

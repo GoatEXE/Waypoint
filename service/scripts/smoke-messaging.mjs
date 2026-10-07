@@ -1,4 +1,4 @@
-// Optional live check: one disposable pod, no provider login or model turn.
+
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';

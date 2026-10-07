@@ -48,7 +48,6 @@ export function App() {
   const { pathname } = useLocation();
   const mainRef = useRef<HTMLElement>(null);
 
-  // Each new page starts at the top.
   useEffect(() => { mainRef.current?.scrollTo(0, 0); }, [pathname]);
 
   return (
@@ -57,7 +56,7 @@ export function App() {
       <div className="main-col">
         <Header />
         <main ref={mainRef} className="main-scroll">
-          {/* keyed on the path so each page change replays the enter animation and resets local view state */}
+
           <div key={pathname} className="route-enter"><View /></div>
         </main>
       </div>

@@ -178,7 +178,6 @@ export class HermesRuntime {
     }
   }
 
-  /** A peer message gets its own bounded Hermes session and never enters the user's CEO conversation. */
   async runMailboxTurn(messageId, from) {
     if (this.ceoTurnInFlight) throw conflict('A CEO turn is already active.');
     this.ceoTurnInFlight = true;
@@ -701,9 +700,7 @@ const FALLBACK_MODEL_CATALOG = {
   'openai-api': ['gpt-6-sol', 'gpt-6-sol-pro', 'gpt-6-luna', 'gpt-6-luna-pro', 'gpt-5.6-sol', 'gpt-5.6-sol-pro', 'gpt-5.6-terra', 'gpt-5.6-terra-pro', 'gpt-5.6-luna', 'gpt-5.6-luna-pro', 'gpt-5.5', 'gpt-5.5-pro', 'gpt-5.4', 'gpt-5.4-mini', 'gpt-5.4-nano', 'gpt-5-mini', 'gpt-5.3-codex', 'gpt-4.1', 'gpt-4o', 'gpt-4o-mini'],
 };
 const VERIFIED_PROVIDER_COMPATIBILITY_MODELS = {
-  // Official Anthropic docs: https://platform.claude.com/docs/en/models/opus-5-5/overview
-  // Exact API id `claude-opus-5-5`, released Sep 22 and currently active. This is a selectable
-  // provider id compatibility addition only; Waypoint does not claim account availability/readiness.
+
   anthropic: ['claude-opus-5-5'],
 };
 const FALLBACK_DEFAULT_MODELS = { 'openai-codex': 'gpt-6-sol', anthropic: 'claude-opus-5-5', 'openai-api': 'gpt-6-sol' };
@@ -903,7 +900,7 @@ async function writePrivateJson(dataDir, target, value) {
   const tmp = `${target}.${process.pid}.${Date.now()}.tmp`;
   await fs.writeFile(tmp, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
   await fs.rename(tmp, target);
-  try { await fs.chmod(target, 0o600); } catch { /* Windows may ignore POSIX mode */ }
+  try { await fs.chmod(target, 0o600); } catch {   }
 }
 function freshCeoConversationName() {
   const stamp = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);
@@ -958,7 +955,7 @@ function runCeoChatChild(child, message, { timeoutMs, outputLimitBytes }) {
       setTimeout(() => child.kill?.('SIGKILL'), 2000).unref?.();
     }, outerTimeoutMs);
     child.stdout?.on('data', (chunk) => { stdout = append(stdout, chunk); });
-    child.stderr?.on('data', (chunk) => { /* drain without storing or exposing raw provider/tool output */ });
+    child.stderr?.on('data', (chunk) => {   });
     child.on?.('error', () => finish(reject, lifecycleError('Hermes CEO turn could not be started.')));
     child.on?.('close', (code, signal) => {
       if (timedOut) return finish(reject, timeoutError('Hermes CEO turn outcome is unknown because the Docker exec client exceeded its outer timeout. Do not automatically retry; refresh the conversation before sending a follow-up.', outcomeDetails({ timedOut: true })));
@@ -1009,7 +1006,6 @@ function isAssistantTextEvent(event = {}) {
   return !role || role === 'assistant' || role === 'ceo';
 }
 
-// Lists all installed skills through native Hermes discovery plus native per-profile disabled config.
 const LIST_SKILLS_SCRIPT = String.raw`
 import contextlib, io, json, logging, sys
 logging.disable(logging.CRITICAL)
@@ -1240,7 +1236,6 @@ path=os.path.join(home,'waypoint','bridge.json')
 open(path,'w',encoding='utf-8').write(json.dumps(bridge,indent=2))
 os.chmod(path,0o600)
 safe_chown(path)
-# Keep native Hermes profile/session/config paths writable by the non-root runtime user.
 for rel in ['config.yaml','.env','sessions','history','backups','backups/config']:
  fp=os.path.join(home,rel)
  if os.path.exists(fp):

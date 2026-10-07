@@ -15,7 +15,7 @@ async function start(env = {}) {
   const app = await createApp({ PORT: '3081', HOST: '127.0.0.1', DATA_DIR: dataDir, WAYPOINT_CONTROL_DIR: path.join(dataDir, 'control'), LOG_LEVEL: 'error', HERMES_AUTO_START: 'false', ...env });
   await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
   const calls = [];
-  // Any Docker call outside a test's explicit mock fails loudly.
+
   app.docker.runner = async (command, args) => { calls.push(['docker-adapter', ...args]); throw new Error('unexpected DockerAdapter call'); };
   app.podSeats.runner = async (command, args) => { calls.push(args); throw new Error('unexpected PodSeats call'); };
   return { ...app, calls, base: `http://127.0.0.1:${app.server.address().port}` };
@@ -34,7 +34,7 @@ async function createPod(app, model = MODEL) {
   assert.equal(pod.status, 201, pod.text);
   return JSON.parse(pod.text);
 }
-/** Live-mode Docker CLI mock for an owned, running pod whose seat profiles are ready and authenticated. */
+
 function liveRunner(app, pod, { missing = false } = {}) {
   const volumeName = app.docker.makeVolumeName(pod.id);
   return async (command, args, options = {}) => {

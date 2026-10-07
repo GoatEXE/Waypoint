@@ -5,8 +5,6 @@ import { byParent, inboxParent } from '../model';
 import { useStore } from '../store';
 import { GroupHead, OnDot, WorkspaceHead, useInboxItem } from '../components/ui';
 
-/* ── Inbox ─────────────────────────────────────────── */
-
 function InboxRow({ it }: { it: D.InboxItem }) {
   const a = useInboxItem(it);
   const nav = useNavigate();
@@ -56,8 +54,6 @@ export function InboxView() {
   );
 }
 
-/* ── Routines ──────────────────────────────────────── */
-
 export function RoutinesView() {
   const { state, set } = useStore();
   return (
@@ -91,8 +87,6 @@ export function RoutinesView() {
     </div>
   );
 }
-
-/* ── Artifacts ─────────────────────────────────────── */
 
 export function ArtifactsView() {
   const [filter, setFilter] = useState<'all' | D.ProjectId>('all');
@@ -131,8 +125,6 @@ export function ArtifactsView() {
     </div>
   );
 }
-
-/* ── Connectors ────────────────────────────────────── */
 
 export function ConnectorsView() {
   const { state, set } = useStore();

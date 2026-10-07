@@ -1,7 +1,4 @@
-// Application data starts empty. The UI should only show records that are created by
-// the real local service/runtime; do not seed demo missions, projects, tasks, pods,
-// seats, runs, inbox items, learnings, artifacts, chat, routines, skills, connectors,
-// or templates here.
+
 
 export type ProjectId = string;
 export type TaskStatus = 'running' | 'review' | 'done' | 'blocked' | 'queued' | 'decision';

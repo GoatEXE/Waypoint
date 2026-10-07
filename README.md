@@ -26,9 +26,11 @@ Current limits (details in `docs/status-and-limitations.md`):
 - `DRY_RUN=true` is the default. Pods, seat setup, and task runs only plan until it is deliberately set to `false`.
 - In the local shared-auth setup, the CEO and all pods use one provider credential store. Pod data volumes stay separate, but pods can read or alter those shared credentials.
 - A live provider-authenticated pod run and a fresh pod's automatic auth readiness have been verified. Standalone per-pod sign-in has not been verified against a real account.
-- Runs never retry automatically, and there is no retry button. A failed or unknown outcome needs manual review.
+- Runs never retry automatically. A failed or unknown outcome needs review before a person can use the task page's explicit retry action.
 
 ## Validate
+
+Install dependencies in `service/` and `app/`, then run `npm run check` from the repository root. It checks source comments, service and app behavior, and the app build.
 
 ```bash
 cd service
@@ -38,6 +40,7 @@ npm start   # bridge on 127.0.0.1:3080, control API on a host-only pipe/socket
 
 cd ../app
 npm install
+npm run check  # comment lint, app tests, and production build
 npm run dev     # http://127.0.0.1:5173
 npm run open    # in another shell: signs this browser in (one-time link) and opens the app
 # other browsers/tabs: open http://127.0.0.1:5173/__waypoint/pair, then npm run approve -- <fingerprint shown>

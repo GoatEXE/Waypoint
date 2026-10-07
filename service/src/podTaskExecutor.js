@@ -1,12 +1,6 @@
 import { spawn } from 'node:child_process';
 import { AppError, badRequest, conflict, lifecycleError } from './errors.js';
 
-// Bounded single-turn task execution on a pod seat against Hermes v0.21.5 (hermes_cli/stream_json.py):
-// `hermes chat --query-file - --format stream-json` writes one JSON object per stdout line:
-// system/init (session_id) -> text deltas / tool_use / tool_result -> one terminal `result`
-// ({ session_id, exit_code, text, error?, tokens, duration_ms }). Only init, text, and result are read;
-// tool_use/tool_result (tool inputs and outputs) and stderr are never parsed, stored, or returned.
-// The module never persists task state: callers persist the returned outcome themselves.
 export const CONTAINER_DATA_DIR = '/opt/data';
 export const TASK_WORKSPACE_ROOT = `${CONTAINER_DATA_DIR}/workspaces`;
 export const TASK_OUTCOMES = ['completed', 'failed', 'outcome_unknown', 'dry_run'];
@@ -24,7 +18,7 @@ export const DEFAULT_TASK_LIMITS = Object.freeze({
 const TASK_ID_RE = /^task_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const POD_ID_RE = /^pod_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const SEAT_ID_RE = /^[a-z][a-z0-9_-]{1,62}$/;
-// Mirrors the PodSeats reserved set for names Hermes or Waypoint use itself; readiness re-validates the seat.
+
 const RESERVED_SEAT_IDS = new Set(['hermes', 'default', 'test', 'tmp', 'root', 'sudo']);
 const SESSION_ID_RE = /^[A-Za-z0-9_.:-]{1,200}$/;
 const FILE_SEGMENT_RE = /^[A-Za-z0-9_][A-Za-z0-9._-]{0,63}$/;
@@ -39,16 +33,7 @@ const TIMEOUT_CODES = new Set([124, 137]);
 export const MANUAL_REVIEW_NOTICE = 'Manual review of the task workspace and Hermes session is required before any retry; Waypoint never retries automatically.';
 
 export class PodTaskExecutor {
-  /**
-   * @param {object} options
-   * @param {object} options.config service config (uses dryRun)
-   * @param {object} options.docker DockerAdapter; only makeContainerName is used
-   * @param {{ check: Function }} options.readiness
-   *   check({ pod, seatId, template, containerName }) => { owned, running, containerName, seat: { seatId, ready, provider, model, authenticated, blockers } }
-   *   Must confirm Waypoint ownership labels, a running container, and native provider auth for the seat's configured model.
-   *   See podSeatsReadiness() for the PodSeats-backed implementation.
-   * @param {Function} [options.runner] (command, args, { input, timeoutMs, outputLimitBytes }) => { code, signal, stdout, timedOut }
-   */
+
   constructor({ config, docker, readiness, runner = tailRunner, logger = undefined, limits = {}, now = Date.now }) {
     if (typeof readiness?.check !== 'function') throw new TypeError('PodTaskExecutor requires a readiness checker');
     this.config = config;
@@ -59,17 +44,10 @@ export class PodTaskExecutor {
     this.limits = normalizeLimits(limits);
     this.now = now;
     this.activeTasks = new Set();
-    // One turn per pod seat: separate task sessions still share the seat profile (state.db, memories, config),
-    // and concurrent Hermes runs on one profile are unverified.
+
     this.activeSeats = new Set();
   }
 
-  /**
-   * Runs one Hermes turn for a task on its seat. Throws a safe AppError (nothing executed in the model)
-   * when validation, ownership, readiness, or workspace preparation fails. Once the model turn starts it
-   * always resolves to { outcome, text, sessionId, durationMs, evidence }; outcomes other than
-   * 'completed' must not be retried automatically.
-   */
   async execute({ task, pod, template = undefined, prompt = undefined, files = [], turnLimits = undefined } = {}) {
     const target = this.resolveTarget({ task, pod, prompt, files, turnLimits });
     if (this.config?.dryRun) return this.dryRunResult(target);
@@ -219,7 +197,6 @@ export class PodTaskExecutor {
   }
 }
 
-/** Readiness checker backed by PodSeats.inspect (ownership + running + seat profile/model + native auth). */
 export function podSeatsReadiness(podSeats) {
   return {
     async check({ pod, seatId, template }) {
@@ -229,7 +206,7 @@ export function podSeatsReadiness(podSeats) {
       const requested = seat?.model?.requested;
       const provider = requested?.provider || '';
       return {
-        // PodSeats.verifyPod throws unless the container and volume carry matching ownership labels and the container runs.
+
         owned: true,
         running: true,
         containerName: report.containerName,
@@ -262,7 +239,6 @@ export function taskSessionName(taskId) {
   return `waypoint-task-${taskId.slice('task_'.length)}`;
 }
 
-/** argv for one bounded seat turn; every value is validated or derived, and no secret is ever an argument. */
 export function buildTaskChatArgs({ containerName, seatId, taskId, timeoutSeconds, runBudgetSeconds, maxTurns }) {
   return [
     'exec', '-i', '--user', 'hermes', containerName,
@@ -275,7 +251,6 @@ export function buildTaskChatArgs({ containerName, seatId, taskId, timeoutSecond
   ];
 }
 
-/** Reads only system/init, assistant text deltas, and the terminal result; tool and user events are skipped. */
 export function parseTaskStream(stdout, { maxTextChars = DEFAULT_TASK_LIMITS.maxResponseChars } = {}) {
   const out = { sessionId: '', text: '', textTruncated: false, result: null, initialized: false, toolCalls: 0 };
   for (const line of String(stdout || '').split(/\r?\n/)) {
@@ -402,10 +377,6 @@ function isPlainObject(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
-/**
- * Keeps the last `limit` bytes of a byte stream and decodes UTF-8 only once at the end, so multibyte
- * characters split across chunks stay intact. The cut is moved forward to a character boundary.
- */
 export class ByteTail {
   constructor(limit) {
     this.limit = limit;
@@ -433,7 +404,6 @@ export class ByteTail {
   }
 }
 
-/** Bounded subprocess keeping only the stdout tail (the terminal result is last), discarding stderr; never throws. */
 export function tailRunner(command, args, options = {}) {
   return new Promise((resolve) => {
     const limit = options.outputLimitBytes || WORKSPACE_OUTPUT_LIMIT;
@@ -442,7 +412,7 @@ export function tailRunner(command, args, options = {}) {
     let timedOut = false;
     let settled = false;
     child.stdout.on('data', (chunk) => stdout.push(chunk));
-    child.stderr.on('data', () => { /* drained, never stored: may carry tool or provider diagnostics */ });
+    child.stderr.on('data', () => {   });
     const timer = setTimeout(() => {
       timedOut = true;
       child.kill('SIGTERM');
@@ -461,11 +431,6 @@ export function tailRunner(command, args, options = {}) {
   });
 }
 
-// Runs as the hermes user inside the pod. Creates only /opt/data/workspaces/<taskId> (refusing symlinks
-// and non-directories at every level) and writes optional tiny fixture files received on stdin.
-// Non-destructive on reuse: every fixture is checked before anything is written; an existing file with
-// identical bytes is left alone, a different or non-regular one refuses the whole request, and new files
-// are created with O_EXCL. Prior seat edits are never truncated or overwritten.
 export const TASK_WORKSPACE_SCRIPT = String.raw`
 import json, os, re, stat, sys
 ROOT='/opt/data'

@@ -35,7 +35,7 @@ function cleanPane(saved: Partial<AppState>): AppState['pane'] {
 
 function initialState(): AppState {
   let saved: Partial<AppState> = {};
-  try { saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'); } catch { /* ignore */ }
+  try { saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'); } catch {   }
   return {
     pane: cleanPane(saved),
     resolved: {}, picks: {}, seat: '', podStopped: false, missionOpen: Boolean(saved.missionOpen), routinesOff: {}, connected: {},
@@ -52,7 +52,7 @@ function useAppStore() {
   useEffect(() => {
     const out: Record<string, unknown> = {};
     for (const k of PERSISTED) out[k] = state[k];
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(out)); } catch { /* ignore */ }
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(out)); } catch {   }
   }, [state]);
 
   const toastTimer = useRef<number>();
@@ -78,7 +78,7 @@ function useAppStore() {
         set(s => ({ missions: missionsLoadFailed(s.missions, err instanceof Error ? err.message : String(err)) }));
       }
     },
-    /** Saves a mission on the service, then reloads the list so every view shows the stored record. */
+
     createMission: async (input: MissionInput) => {
       try {
         await api.createMission(input);
@@ -127,7 +127,6 @@ function useAppStore() {
     },
   }), [set]);
 
-  // Missions come from the local service; load once when the app opens.
   useEffect(() => { void actions.loadMissions(); }, [actions]);
 
   const derived = useMemo(() => ({

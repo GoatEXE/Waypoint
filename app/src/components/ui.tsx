@@ -9,7 +9,6 @@ export function Dot({ status, size = 8, style }: { status: Status; size?: number
   return <div className="dot" style={{ width: size, height: size, background: s.bg, borderColor: s.bd, ...style }} />;
 }
 
-/** A plain on/off dot: filled accent when on, hollow grey when off. */
 export function OnDot({ on, size = 7, style }: { on: boolean; size?: number; style?: CSSProperties }) {
   return <div className="dot" style={{ width: size, height: size, background: on ? ACC : 'transparent', borderColor: on ? ACC : '#4a4e56', ...style }} />;
 }
@@ -43,7 +42,6 @@ export function PaneGroupHead<T>({ g }: { g: Group<T> }) {
   );
 }
 
-/** Resolution state and handlers for one inbox item; shared by the Inbox, task page, chat and side pane. */
 export function useInboxItem(it: InboxItem) {
   const { state, resolve } = useStore();
   const r = state.resolved[it.id];
@@ -56,7 +54,6 @@ export function useInboxItem(it: InboxItem) {
   };
 }
 
-/** The accent approval card used on the task page and inline in CEO chat. */
 export function ApprovalCard({ it, gap }: { it: InboxItem; gap: number }) {
   const a = useInboxItem(it);
   return (

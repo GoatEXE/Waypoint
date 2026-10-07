@@ -358,7 +358,6 @@ test('podSeatsReadiness maps PodSeats.inspect output and refuses dry-run or unco
   assert.deepEqual(inspectCalls[0], { seatIds: ['coder'], template: undefined, checkAuth: true });
   assert.deepEqual(ready, readyStatus());
 
-  // Template without a model: PodSeats reports model_unconfigured; the executor must stop before any exec.
   const unconfigured = podSeatsReadiness(fake(report({ seatId: 'coder', ready: false, blockers: ['model_unconfigured'], model: { requested: null }, auth: { providers: { 'openai-codex': { authenticated: true } } } })));
   const h = harness();
   h.executor.readiness = unconfigured;
@@ -375,7 +374,7 @@ test('concurrent turns on the same pod seat are refused even for different task 
   let release;
   const gate = new Promise((resolve) => { release = resolve; });
   const h = harness();
-  // Echo the requested seat/container so other seats and pods are ready too.
+
   h.executor.readiness = { check: async ({ seatId, containerName }) => { h.checks.push({ seatId }); return readyStatus({ containerName }, { seatId }); } };
   const original = h.executor.runner;
   let inFlight = 0;
@@ -396,7 +395,6 @@ test('concurrent turns on the same pod seat are refused even for different task 
   assert.equal(h.checks.length, checksBefore, 'refused before readiness');
   assert.equal(h.calls.length, callsBefore, 'refused before workspace or model call');
 
-  // A different seat on the same pod, and the same seat id on another pod, are not blocked.
   assert.equal((await h.executor.execute({ task: task({ id: OTHER_TASK_ID, seatId: 'lead' }), pod: pod() })).outcome, 'completed');
   const otherPod = pod({ id: OTHER_POD_ID });
   assert.equal((await h.executor.execute({ task: task({ id: THIRD_TASK_ID, podId: OTHER_POD_ID }), pod: otherPod })).outcome, 'completed');
@@ -448,19 +446,16 @@ test('real workspace script is non-destructive on repeat and changed workspaces'
     assert.deepEqual(run(fixtures), { ok: true, path: ws, created: true, files: 2, unchanged: 0 });
     assert.deepEqual(run(fixtures), { ok: true, path: ws, created: false, files: 0, unchanged: 2 });
 
-    // The seat edits a fixture during a failed turn; a manual retry must not erase that edit or write anything.
     fs.writeFileSync(path.join(ws, 'dir/b.txt'), 'seat edit');
     assert.deepEqual(run([...fixtures, { path: 'c.txt', content: 'new' }]), { ok: false, error: 'fixture_conflict' });
     assert.equal(fs.readFileSync(path.join(ws, 'dir/b.txt'), 'utf8'), 'seat edit');
     assert.equal(fs.existsSync(path.join(ws, 'c.txt')), false, 'no partial writes after a refusal');
 
-    // Same length, different bytes still conflicts; a fixture the seat deleted is recreated.
     fs.writeFileSync(path.join(ws, 'a.txt'), 'ONE');
     assert.deepEqual(run([fixtures[0]]), { ok: false, error: 'fixture_conflict' });
     fs.rmSync(path.join(ws, 'a.txt'));
     assert.deepEqual(run([fixtures[0]]), { ok: true, path: ws, created: false, files: 1, unchanged: 0 });
 
-    // Symlinked fixture paths and workspaces are refused, never followed.
     fs.writeFileSync(path.join(root, 'outside.txt'), 'outside');
     fs.symlinkSync(path.join(root, 'outside.txt'), path.join(ws, 'link.txt'));
     assert.deepEqual(run([{ path: 'link.txt', content: 'outside' }]), { ok: false, error: 'not_a_file' });

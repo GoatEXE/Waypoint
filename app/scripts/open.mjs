@@ -1,7 +1,5 @@
-// Host-only browser sign-in for the session-gated /api proxy. Never prints a secret by default.
-//   npm run open                      mint a one-time code and open the default browser with it (single-use, 2 minutes)
-//   npm run open -- --print           print that one-time link instead (for browsers you drive yourself)
-//   npm run approve -- XXXX-XXXX      approve a browser showing that fingerprint at /__waypoint/pair
+
+
 import { spawn } from 'node:child_process';
 import { resolveControlChannel } from '../../service/src/controlChannel.js';
 import { BOOTSTRAP_PATH, createSessionStore, normalizeFingerprint } from '../server/controlProxy.js';

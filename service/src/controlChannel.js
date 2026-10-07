@@ -3,9 +3,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-// Host-only control channel shared by the service (listener) and the app dev proxy (client).
-// Windows uses a named pipe; macOS/Linux use a Unix socket inside a 0700 directory.
-// Containers cannot reach either, unlike loopback TCP on Docker Desktop.
 const DEFAULT_CONTROL_DIR = fileURLToPath(new URL('../runtime/control', import.meta.url));
 const MAX_UNIX_SOCKET_PATH = 100;
 
@@ -26,7 +23,7 @@ export function resolveControlChannel(env = process.env, platform = process.plat
 
 export function ensureControlDir(dir) {
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-  try { fs.chmodSync(dir, 0o700); } catch { /* Windows ignores POSIX modes; the dir inherits the user profile ACL */ }
+  try { fs.chmodSync(dir, 0o700); } catch {   }
 }
 
 export async function listenControl(server, channel) {

@@ -3,14 +3,6 @@ import { badRequest, conflict, lifecycleError } from './errors.js';
 import { HERMES_RESERVED_PROFILE_NAMES } from './store.js';
 import { verifySharedAuthVolume } from './authVolume.js';
 
-// Live pod seat provisioning against Hermes v0.21.5 profile contracts (hermes_cli/profiles.py):
-// - a seat profile is /opt/data/profiles/<seatId>; Hermes lists it once any identity marker exists
-//   (config.yaml, .env, SOUL.md, profile.yaml, auth.json, state.db). No registration step exists.
-// - `hermes profile create` refuses any existing dir, and Waypoint seeds these dirs before start,
-//   so this module applies the native bootstrap layout itself instead of calling create.
-// - without shared auth, Hermes reads pod-root /opt/data/auth.json as a profile fallback.
-//   With shared auth enabled, the Waypoint image overlay points all processes to one
-//   separately mounted native auth store and refresh lock.
 export const CONTAINER_DATA_DIR = '/opt/data';
 export const SEAT_PROFILE_ROOT = `${CONTAINER_DATA_DIR}/profiles`;
 export const HERMES_PROFILE_SUBDIRS = ['memories', 'sessions', 'skills', 'skins', 'logs', 'plans', 'workspace', 'cron', 'home'];
@@ -19,7 +11,7 @@ export const MAX_SEATS_PER_CALL = 32;
 
 const POD_ID_RE = /^pod_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const SEAT_ID_RE = /^[a-z][a-z0-9_-]{1,62}$/;
-// Hermes _RESERVED_NAMES plus Waypoint's own reserved profile names.
+
 const RESERVED_SEAT_IDS = new Set([...HERMES_RESERVED_PROFILE_NAMES, 'hermes', 'default', 'test', 'tmp', 'root', 'sudo']);
 const PROVIDER_ALIASES = { openai: 'openai-api' };
 const MODEL_RE = /^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,127}$/;
@@ -34,12 +26,7 @@ const SCRIPT_OUTPUT_LIMIT = 64 * 1024;
 const AUTH_OUTPUT_LIMIT = 8 * 1024;
 
 export class PodSeats {
-  /**
-   * @param {object} options
-   * @param {object} options.config service config (uses dryRun and docker.labelNamespace)
-   * @param {object} options.docker DockerAdapter; only makeContainerName/makeVolumeName are used
-   * @param {Function} [options.runner] (command, args, { input, timeoutMs, outputLimitBytes }) => { code, stdout, stderr, timedOut }
-   */
+
   constructor({ config, docker, runner = boundedRunner, logger = undefined }) {
     this.config = config;
     this.docker = docker;
@@ -48,12 +35,10 @@ export class PodSeats {
     this.locks = new Map();
   }
 
-  /** Read-only seat profile, model, and native auth readiness. Never writes to the pod volume. */
   async inspect(instance, options = {}) {
     return this.run(instance, options, 'inspect');
   }
 
-  /** Idempotent: bootstraps native profile layout, private .env placeholder, and the non-secret model block. */
   async provision(instance, options = {}) {
     const podId = assertPodId(instance?.id);
     const previous = this.locks.get(podId) || Promise.resolve();
@@ -64,7 +49,6 @@ export class PodSeats {
     return run;
   }
 
-  /** argv plan for the given seats; contains no secrets and needs no container. */
   plan(instance, options = {}, mode = 'provision') {
     const target = this.resolveTarget(instance, options);
     return {
@@ -200,7 +184,6 @@ export class PodSeats {
   }
 }
 
-/** Model precedence: seat.model, then instance.model, then template.config.model. Only non-secret fields are used. */
 export function resolveSeatModel({ instance = {}, template = undefined, seat = {} }) {
   const candidates = [['seat', seat.model], ['instance', instance.model], ['template', template?.config?.model]];
   for (const [source, value] of candidates) {
@@ -252,10 +235,6 @@ function authStatus(state, message) {
   return { checked: false, authenticated: false, state, message };
 }
 
-/**
- * API projection: per-seat profile/model/auth readiness and blockers only. Drops container/volume
- * names, in-container paths, symlink/ownership counters, and the dry-run plan's stdin payload.
- */
 export function publicSeatsResult(result) {
   const body = {
     podId: result.podId,
@@ -371,7 +350,7 @@ function parseJsonLine(stdout, message) {
   try {
     const parsed = JSON.parse(line);
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed;
-  } catch { /* fall through */ }
+  } catch {   }
   throw lifecycleError(message);
 }
 
@@ -413,7 +392,6 @@ function isPlainObject(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
-/** Bounded subprocess: capped stdout/stderr, SIGTERM at timeout then SIGKILL, never throws. */
 export function boundedRunner(command, args, options = {}) {
   return new Promise((resolve) => {
     const limit = options.outputLimitBytes || AUTH_OUTPUT_LIMIT;
@@ -443,8 +421,6 @@ export function boundedRunner(command, args, options = {}) {
   });
 }
 
-// Runs as the hermes user inside the pod. Reads only profile layout metadata and the seat's own
-// config.yaml model block; never reads .env or auth.json contents and never touches the CEO home.
 export const SEAT_PROFILE_SCRIPT = String.raw`
 import json, os, re, stat, sys
 from pathlib import Path

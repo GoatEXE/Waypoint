@@ -5,7 +5,6 @@ import os from 'node:os';
 import path from 'node:path';
 import { PodStore } from '../src/store.js';
 
-// Task-run persistence only: no pods are started, no model is called, and no auth is read.
 async function tmp() { return fs.mkdtemp(path.join(os.tmpdir(), 'waypoint-runs-')); }
 function planFactory({ podId }) { return { command: 'docker', args: [], labels: {}, volumeName: `vol-${podId}`, containerName: `ctr-${podId}` }; }
 
@@ -46,7 +45,7 @@ test('concurrent claims on one task yield exactly one running run', async () => 
 test('a persisted running run refuses new claims after restart unless manually retried', async () => {
   const { dataDir, store, task } = await setup();
   const { runId } = await store.claimTaskRun(task.id);
-  // The owning process still holds the run: even a manual retry is refused.
+
   await assert.rejects(store.claimTaskRun(task.id, { manualRetry: true }), (error) => error.status === 409);
 
   const restarted = new PodStore(dataDir);
@@ -59,7 +58,7 @@ test('a persisted running run refuses new claims after restart unless manually r
   assert.equal(stored.activeRunId, retried.runId);
   assert.equal(stored.runs.find((run) => run.id === runId).state, 'outcome_unknown');
   assert.ok(stored.evidence.some((entry) => entry.type === 'run_interrupted' && entry.runId === runId));
-  // The old run can no longer be finished.
+
   await assert.rejects(restarted.finishTaskRun(task.id, runId, completed()), (error) => error.status === 409);
 });
 
@@ -88,7 +87,7 @@ test('finish and abort only accept the active run id', async () => {
   await assert.rejects(store.finishTaskRun(task.id, '../escape', completed()), (error) => error.status === 400);
   await assert.rejects(store.abortTaskRun(task.id, 'run_00000000-0000-4000-8000-000000000000'), (error) => error.status === 409);
   await store.finishTaskRun(task.id, runId, completed());
-  // A second finish of the same run is stale.
+
   await assert.rejects(store.finishTaskRun(task.id, runId, completed({ outcome: 'failed' })), (error) => error.status === 409);
   await assert.rejects(store.abortTaskRun(task.id, runId), (error) => error.status === 409);
   assert.equal((await store.getTask(task.id)).state, 'completed');
@@ -233,12 +232,11 @@ test('startup reconciliation marks runs from a previous process as outcome_unkno
   await store.finishTaskRun(done.id, doneRun.runId, completed());
   const failedRun = await store.claimTaskRun(failed.id);
   await store.finishTaskRun(failed.id, failedRun.runId, completed({ outcome: 'failed', text: '' }));
-  // Foreign files in the tasks folder are ignored.
+
   await fs.writeFile(path.join(dataDir, 'tasks', 'notes.json'), JSON.stringify({ state: 'running' }));
   await fs.writeFile(path.join(dataDir, 'tasks', 'task_bad.json'), JSON.stringify({ state: 'running' }));
   const before = await Promise.all([delegated, done, failed].map((task) => store.getTask(task.id)));
 
-  // The owning process never reconciles its own in-flight run.
   assert.deepEqual(await store.markInterruptedTaskRuns(), []);
   assert.equal((await store.getTask(interrupted.id)).state, 'running');
 

@@ -40,7 +40,6 @@ function safeVolume(names, overrides = {}) {
   return { owned: 'true', podId: POD_ID, name: names.volume, driver: 'local', options: {}, ...overrides };
 }
 
-/** Mock Docker CLI: Waypoint-owned running pod by default; script/auth output is configurable per test. */
 function mockRunner({ container = {}, volume = {}, profiles, authText = (provider) => `${provider}: logged in\n  auth_type: oauth\n`, scriptCode = 0 } = {}) {
   const calls = [];
   const names = { container: `waypoint-pod-${POD_ID.replace('_', '-')}`, volume: `waypoint-pod-data-${POD_ID.replace('_', '-')}` };
