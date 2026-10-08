@@ -184,7 +184,7 @@ export const api = {
   projects: () => json<{ projects: Project[] }>('/projects'),
   updateProject: (id: string, body: Partial<Pick<Project, 'name' | 'missionId' | 'localPath' | 'repo' | 'githubSeats'>>) => json<Project>(`/projects/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
   deleteProject: (id: string) => json<{ deleted: true; projectId: string }>(`/projects/${encodeURIComponent(id)}`, { method: 'DELETE', body: '{}' }),
-  folders: (path: string) => json<FolderListing>(`/folders${path ? `?path=${encodeURIComponent(path)}` : ''}`),
+  pickFolder: (start: string) => json<{ path: string | null; cancelled: boolean }>('/folders/pick', { method: 'POST', body: JSON.stringify({ start }) }),
   inspectLocalPath: (localPath: string) => json<LocalRepoInfo>('/projects/inspect', { method: 'POST', body: JSON.stringify({ localPath }) }),
   githubStatus: (fresh = false) => json<GitHubStatus>(`/github${fresh ? '?fresh=1' : ''}`),
   githubManifest: (origin: string, owner: string) => json<{ state: string; url: string; manifest: object }>('/github/manifest', { method: 'POST', body: JSON.stringify({ origin, owner }) }),
@@ -238,7 +238,6 @@ export interface TaskSummary {
 }
 export interface TaskInput { summary?: string; description?: string; status?: TaskStatus; podId?: string | null; seatId?: string | null; projectId?: string | null; labels?: string[]; parentId?: string | null; blockedBy?: string[] }
 export interface Project { id: string; name: string; missionId?: string | null; localPath?: string | null; repo?: string | null; githubSeats?: string[]; createdAt: string; updatedAt: string }
-export interface FolderListing { path: string | null; parent: string | null; isGit?: boolean; entries: { name: string; path: string; isGit: boolean }[]; truncated?: boolean }
 export interface LocalRepoInfo { localPath: string; exists: boolean; isGit: boolean; root: string | null; remote: string | null; repo: string | null; branch: string | null }
 export interface GitHubStatus { connected: boolean; app: { appId: number; slug: string; name: string; htmlUrl: string; owner: string | null } | null; installUrl: string | null; installations: { id: number; account: string; selection: string; repos: string[] }[]; error?: string | null }
 export interface MessageDelivery {

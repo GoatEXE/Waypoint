@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, type GitHubStatus, type LocalRepoInfo } from '../api';
 import { useStore } from '../store';
-import { FolderPicker } from './FolderPicker';
 import { RepoSelect } from './RepoSelect';
 
 export function repoHint(info: LocalRepoInfo | null) {
@@ -14,13 +13,23 @@ export function repoHint(info: LocalRepoInfo | null) {
 
 export function FolderField({ value, onChange, info, onInspect, disabled }: { value: string; onChange: (path: string) => void; info: LocalRepoInfo | null; onInspect: (path: string) => void; disabled?: boolean }) {
   const [browsing, setBrowsing] = useState(false);
+  const [pickError, setPickError] = useState('');
+  const browse = async () => {
+    setBrowsing(true); setPickError('');
+    try {
+      const picked = await api.pickFolder(value.trim());
+      if (picked.path) { onChange(picked.path); onInspect(picked.path); }
+    } catch (e) { setPickError(e instanceof Error ? e.message : String(e)); }
+    finally { setBrowsing(false); }
+  };
   return (
     <div className="field"><span className="field-label">Local folder</span>
       <div style={{ display: 'flex', gap: 6 }}>
-        <input className="input mono" style={{ flex: 1, minWidth: 0 }} value={value} onChange={e => onChange(e.target.value)} onBlur={() => onInspect(value)} placeholder="E:\Repositories\project" disabled={disabled} />
-        <button type="button" className="btn btn-ghost" disabled={disabled} onClick={() => setBrowsing(v => !v)}>Browse…</button>
+        <input className="input mono" style={{ flex: 1, minWidth: 0 }} value={value} onChange={e => onChange(e.target.value)} onBlur={() => onInspect(value)} placeholder="E:\Repositories\project" disabled={disabled || browsing} />
+        <button type="button" className="btn btn-ghost" disabled={disabled || browsing} onClick={() => void browse()}>{browsing ? 'Choosing…' : 'Browse…'}</button>
       </div>
-      {browsing && <FolderPicker value={value} onClose={() => setBrowsing(false)} onPick={path => { setBrowsing(false); onChange(path); onInspect(path); }} />}
+      {browsing && <span style={{ fontSize: 11.5, color: 'var(--faint)' }}>Choose the folder in the window that opened on your desktop.</span>}
+      {pickError && <span role="alert" style={{ fontSize: 11.5, color: 'var(--text)' }}>{pickError}</span>}
       {info && <span style={{ fontSize: 11.5, color: 'var(--faint)' }}>{repoHint(info)}</span>}
     </div>
   );
