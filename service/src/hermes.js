@@ -160,7 +160,7 @@ export class HermesRuntime {
     const id = normalizeThreadId(threadId);
     const conversation = await this.readCeoConversation(id);
     const live = this.liveTurn?.threadId === id ? publicLiveTurn(this.liveTurn) : null;
-    return { threadId: id, ...conversation, live, busyThreadId: this.liveTurn?.threadId || null };
+    return { threadId: id, sessionId: conversation.sessionId, messages: live ? conversation.messages : markInterruptedTurn(conversation.messages), live, busyThreadId: this.liveTurn?.threadId || null };
   }
 
   async listCeoThreads() {
@@ -192,9 +192,12 @@ export class HermesRuntime {
     let before = { sessionId: null, messages: [] };
     const turn = { threadId, startedAt: new Date().toISOString(), message: redactSensitiveText(message, [this.config.bridge.token]), activity: [] };
     this.liveTurn = turn;
+    let pendingWritten = false;
     try {
-      await this.assertCeoTurnReady();
       before = await this.readCeoConversation(threadId);
+      await this.writeCeoConversation({ sessionId: before.sessionId, messages: capMessages([...before.messages, { role: 'user', text: turn.message, at: turn.startedAt, status: 'sent' }], this.config.hermes.ceoMaxMessages) }, threadId);
+      pendingWritten = true;
+      await this.assertCeoTurnReady();
       const prompt = !before.sessionId && context ? `${context}\n\n${message}` : message;
       const result = await this.runCeoChat(prompt, before.sessionId, threadId, (event) => this.recordStreamEvent(turn, event));
       const sessionId = result.sessionId || before.sessionId;
@@ -209,6 +212,7 @@ export class HermesRuntime {
       return { threadId, sessionId, reply, messages };
     } catch (error) {
       if (error?.details?.outcomeUnknown) await this.persistCeoOutcomeUnknown(before, turn, error).catch((persistError) => this.logger?.warn?.('ceo_outcome_marker_failed', { message: persistError.message }));
+      else if (pendingWritten) await this.writeCeoConversation(before, threadId).catch((restoreError) => this.logger?.warn?.('ceo_pending_restore_failed', { message: restoreError.message }));
       throw error;
     } finally {
       if (this.liveTurn === turn) this.liveTurn = null;
@@ -979,6 +983,11 @@ function normalizeThreadId(value) {
   const id = value == null || value === '' ? GENERAL_THREAD : String(value);
   if (id !== GENERAL_THREAD && !TASK_THREAD_RE.test(id)) throw badRequest('threadId must be general or a task id');
   return id;
+}
+export function markInterruptedTurn(messages) {
+  const last = messages.at(-1);
+  if (last?.role !== 'user' || last.status !== 'sent') return messages;
+  return [...messages.slice(0, -1), { ...last, status: 'outcome_unknown' }];
 }
 function activityMessage(turn) {
   if (!turn.activity.length) return [];

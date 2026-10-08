@@ -313,6 +313,11 @@ test('CEO conversation creates a named Hermes session, persists messages, and re
   assert.notEqual(firstConversationName, 'waypoint-ceo');
   assert.equal(spawns[0].includes('--resume'), false);
   assert.equal(firstChild.stdinText, 'Say one safe sentence.');
+  const during = await hermes.ceoConversation();
+  assert.deepEqual(during.messages.map((m) => [m.role, m.text, m.status]), [['user', 'Say one safe sentence.', 'sent']]);
+  assert.equal(during.live.message, 'Say one safe sentence.');
+  const restarted = new HermesRuntime(hermes.config, undefined, readyConversationRunner([]), () => { throw new Error('unused'); });
+  assert.deepEqual((await restarted.ceoConversation()).messages.map((m) => m.status), ['outcome_unknown']);
   firstChild.stdout.emit('data', '{"type":"start","subtype":"init","session_id":"sess_abc123"}\n');
   firstChild.stdout.emit('data', '{"type":"text","text":"I coordinate Waypoint work."}\n');
   firstChild.stdout.emit('data', '{"type":"result","session_id":"sess_abc123","text":"I coordinate Waypoint work.","tokens":{"redactedByTest":true}}\n');
