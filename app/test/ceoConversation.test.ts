@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ceoLoadSucceeded, ceoSendFailed, ceoSendStarted, ceoSendSucceeded, emptyCeoState } from '../src/ceoConversation.ts';
+import { createdTaskRef, ceoLoadSucceeded, ceoSendFailed, ceoSendStarted, ceoSendSucceeded, emptyCeoState } from '../src/ceoConversation.ts';
 
 test('failed CEO send keeps user text for manual review outside durable history', () => {
   const sending = ceoSendStarted(emptyCeoState, 'Ship the plan');
@@ -80,4 +80,12 @@ test('live activity updates leave messages and pending text untouched', async ()
   assert.equal(live.sending, true);
   assert.equal(live.live?.items.length, 1);
   assert.equal(ceoSendFailed(live, 'boom').live, null);
+});
+
+test('createdTaskRef finds the task ref from a successful create_task action', () => {
+  const action = (name: string, detail: string, status: 'ok' | 'error' = 'ok') => ({ kind: 'action' as const, name, detail, status });
+  assert.equal(createdTaskRef([action('list_tasks', '3 tasks'), action('create_task', 'SUN-5 Rename the button')]), 'SUN-5');
+  assert.equal(createdTaskRef([action('create_task', 'summary must be text', 'error')]), null);
+  assert.equal(createdTaskRef([{ kind: 'tool', name: 'create_task', detail: 'SUN-5 x', status: 'ok' }]), null);
+  assert.equal(createdTaskRef(undefined), null);
 });

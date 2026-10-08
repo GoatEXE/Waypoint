@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { api, type MissionInput, type OrganizationInput, type OrganizationState, type Project } from './api';
-import { ceoLiveUpdated, ceoLoadFailed, ceoLoadStarted, ceoLoadSucceeded, ceoSendFailed, ceoSendStarted, ceoSendSucceeded, cleanCeoMessage, emptyCeoState, type CeoState } from './ceoConversation';
+import { createdTaskRef, ceoLiveUpdated, ceoLoadFailed, ceoLoadStarted, ceoLoadSucceeded, ceoSendFailed, ceoSendStarted, ceoSendSucceeded, cleanCeoMessage, emptyCeoState, type CeoState } from './ceoConversation';
 import type { LessonPick } from './data';
 import { liveTasks, pendingInbox, type Resolved } from './model';
 import { initialMissionsState, missionsLoadFailed, missionsLoadStarted, missionsLoadSucceeded, type MissionsState } from './missionsModel';
@@ -137,15 +137,23 @@ function useAppStore() {
         .catch(err => set(s => s.ceoThread === thread ? { ceo: ceoLoadFailed(s.ceo, err instanceof Error ? err.message : String(err)) } : {}));
       return true;
     },
-    sendCeoMessage: async (message: string, openPane = false) => {
+    sendCeoMessage: async (message: string, openPane = false, onTaskCreated?: (ref: string) => void) => {
       const text = cleanCeoMessage(message);
       if (!text) return { ok: false, error: 'Message is empty' };
       if (ceoSendingRef.current) return { ok: false, error: 'A CEO message is already sending' };
       ceoSendingRef.current = true;
       ceoSendVersionRef.current += 1;
       const thread = ceoThreadRef.current;
+      let followed = false;
+      const follow = (items: Parameters<typeof createdTaskRef>[0]) => {
+        const ref = !followed && onTaskCreated ? createdTaskRef(items) : null;
+        if (ref) { followed = true; onTaskCreated?.(ref); }
+      };
       const poll = window.setInterval(() => {
-        void api.threadConversation(thread).then(conversation => set(s => s.ceoThread === thread && s.ceo.sending ? { ceo: ceoLiveUpdated(s.ceo, conversation) } : {})).catch(() => undefined);
+        void api.threadConversation(thread).then(conversation => {
+          follow(conversation.live?.items);
+          set(s => s.ceoThread === thread && s.ceo.sending ? { ceo: ceoLiveUpdated(s.ceo, conversation) } : {});
+        }).catch(() => undefined);
       }, 1500);
       set(s => ({
         ceo: ceoSendStarted(s.ceo, text),
@@ -153,6 +161,7 @@ function useAppStore() {
       }));
       try {
         const response = await api.sendThreadMessage(text, thread);
+        follow(response.messages.filter(m => m.role === 'activity').at(-1)?.items);
         set(s => ({ ceo: ceoSendSucceeded(s.ceo, response), ...(openPane ? { pane: { ...s.pane, open: true, tab: 'ceo' as const } } : {}) }));
         return { ok: true };
       } catch (err) {
