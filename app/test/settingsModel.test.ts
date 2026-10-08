@@ -26,3 +26,12 @@ test('saved current model hydrates only while the settings form is clean', () =>
   const saved = statusWithSavedModel('openai', 'gpt-4o');
   assert.deepEqual(applySavedModelIfClean(cleanInitial, saved, false), { provider: 'openai-api', default: 'gpt-4o', base_url: '', api_mode: DEFAULTS['openai-codex'].api_mode });
 });
+
+test('default model only picks a model the signed-in account lists', async () => {
+  const { defaultModelForProvider } = await import('../src/settingsModel.ts');
+  const codex = { id: 'openai-codex', label: 'Codex', nativeProvider: 'openai-codex', default: 'gpt-6-sol', api_mode: 'codex_responses', source: 'native-hermes', models: [{ id: 'gpt-6-luna', name: 'GPT 6 Luna' }, { id: 'gpt-6-luna-900k', name: '900k' }, { id: 'gpt-5.6-terra', name: 'Terra' }] };
+  assert.equal(defaultModelForProvider('openai-codex', codex, ['gpt-6-sol', 'gpt-6-luna']), 'gpt-6-luna');
+  assert.equal(defaultModelForProvider('openai-codex', codex, ['gpt-6-sol']), 'gpt-6-luna');
+  assert.equal(defaultModelForProvider('openai-codex', { ...codex, models: [{ id: 'gpt-6-luna-900k', name: '900k' }, { id: 'gpt-5.6-terra', name: 'Terra' }] }, []), 'gpt-5.6-terra');
+  assert.equal(defaultModelForProvider('openai-codex', { ...codex, models: [{ id: 'gpt-6-sol', name: 'Sol' }] }, ['gpt-6-sol']), 'gpt-6-sol');
+});
