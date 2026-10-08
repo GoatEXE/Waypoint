@@ -3,6 +3,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { badRequest, conflict, notFound } from './errors.js';
 import { sanitizeResponse } from './podTaskExecutor.js';
+import { normalizeActivity } from './activity.js';
 import { TASK_EDIT_FIELDS, TASK_REF_RE, projectName, publicTask, statusAfterRun, taskBlockers, taskDescription, taskLabels, taskStatus, taskTitle } from './taskQueue.js';
 
 export const ALLOWED_BASELINE_FILES = ['SOUL.md', 'memories/MEMORY.md', 'memories/USER.md'];
@@ -550,6 +551,7 @@ export class PodStore {
         sessionId: typeof result.sessionId === 'string' && SESSION_ID_RE.test(result.sessionId) ? result.sessionId : null,
         reply: fullReply.length > RUN_REPLY_MAX ? sanitizeResponse(fullReply, RUN_REPLY_MAX) : fullReply,
         replyTruncated: fullReply.length > RUN_REPLY_MAX,
+        activity: normalizeActivity(result.activity),
       };
       return this.#closeRun(task, finished, result.outcome, runEvidence(result.evidence, run.id, this.dataDir, now), now);
     });

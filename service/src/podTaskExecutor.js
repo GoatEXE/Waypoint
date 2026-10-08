@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { AppError, badRequest, conflict, lifecycleError } from './errors.js';
 import { guardDockerExecArgs, guardPrompt } from './hostDisconnectGuard.js';
 import { taskPrompt } from './taskQueue.js';
+import { applyStreamEvent, finalActivity, streamLineReader } from './activity.js';
 
 export const CONTAINER_DATA_DIR = '/opt/data';
 export const TASK_WORKSPACE_ROOT = `${CONTAINER_DATA_DIR}/workspaces`;
@@ -50,9 +51,10 @@ export class PodTaskExecutor {
     this.activeSeats = new Set();
   }
 
-  async execute({ task, pod, template = undefined, prompt = undefined, files = [], turnLimits = undefined, guardHostDisconnect = false } = {}) {
+  async execute({ task, pod, template = undefined, prompt = undefined, files = [], turnLimits = undefined, guardHostDisconnect = false, activity = undefined } = {}) {
     const target = this.resolveTarget({ task, pod, prompt, files, turnLimits });
     target.guardHostDisconnect = guardHostDisconnect === true;
+    target.activity = Array.isArray(activity) ? activity : [];
     if (this.config?.dryRun) return this.dryRunResult(target);
     const seatKey = `${target.podId}/${target.seatId}`;
     if (this.activeTasks.has(target.taskId)) throw conflict('task already has an active Hermes turn', { taskId: target.taskId });
@@ -65,7 +67,7 @@ export class PodTaskExecutor {
       const turn = await this.runTurn(target);
       evidence.push(turn.evidence);
       this.logger?.info?.('pod task turn finished', { podId: target.podId, taskId: target.taskId, seatId: target.seatId, outcome: turn.outcome, durationMs: turn.durationMs });
-      return { outcome: turn.outcome, text: turn.text, sessionId: turn.sessionId, durationMs: turn.durationMs, evidence };
+      return { outcome: turn.outcome, text: turn.text, sessionId: turn.sessionId, durationMs: turn.durationMs, evidence, activity: finalActivity(target.activity) };
     } finally {
       this.activeTasks.delete(target.taskId);
       this.activeSeats.delete(seatKey);
@@ -164,7 +166,7 @@ export class PodTaskExecutor {
     const timeoutMs = target.timeoutSeconds * 1000 + KILL_AFTER_SECONDS * 1000 + HOST_TIMEOUT_MARGIN_MS;
     let result;
     const args = buildTaskChatArgs(target);
-    try { result = await this.runner('docker', target.guardHostDisconnect ? guardDockerExecArgs(args) : args, { input: target.guardHostDisconnect ? guardPrompt(target.prompt) : target.prompt, keepStdinOpen: target.guardHostDisconnect, timeoutMs, outputLimitBytes: this.limits.stdoutLimitBytes }); }
+    try { result = await this.runner('docker', target.guardHostDisconnect ? guardDockerExecArgs(args) : args, { input: target.guardHostDisconnect ? guardPrompt(target.prompt) : target.prompt, keepStdinOpen: target.guardHostDisconnect, timeoutMs, outputLimitBytes: this.limits.stdoutLimitBytes, onStdout: streamLineReader((event) => applyStreamEvent(target.activity, event)) }); }
     catch { result = { code: null, stdout: '', timedOut: false, runnerError: true }; }
     const durationMs = Math.max(0, this.now() - started);
     const stream = parseTaskStream(result?.stdout, { maxTextChars: this.limits.maxResponseChars });
@@ -415,7 +417,7 @@ export function tailRunner(command, args, options = {}) {
     const stdout = new ByteTail(limit);
     let timedOut = false;
     let settled = false;
-    child.stdout.on('data', (chunk) => stdout.push(chunk));
+    child.stdout.on('data', (chunk) => { stdout.push(chunk); options.onStdout?.(chunk); });
     child.stderr.on('data', () => {   });
     const timer = setTimeout(() => {
       timedOut = true;

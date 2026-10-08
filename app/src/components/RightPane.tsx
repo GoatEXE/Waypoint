@@ -2,7 +2,9 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import * as D from '../data';
 import { byParent, projById, st } from '../model';
-import { chatContextFor, useRoute } from '../routes';
+import { api, type CeoThread } from '../api';
+import { ActivityBlock, ActivityList } from './Activity';
+import { addressLabel, buildTimeline, type TaskThreadExtras, type TimelineEntry } from '../threadTimeline';
 import { useStore, useViewport, type PaneTab } from '../store';
 import { ceoNameOf } from '../orgModel';
 import { Dot, PaneGroupHead } from './ui';
@@ -35,13 +37,101 @@ function CeoBubble({ text, at }: { text: string; at: string }) {
   );
 }
 
+function useElapsed(since: string | null) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    if (!since) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [since]);
+  if (!since) return '';
+  const seconds = Math.max(0, Math.round((now - new Date(since).getTime()) / 1000));
+  return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+}
+
+function threadName(thread: CeoThread | undefined, id: string) {
+  if (id === 'general') return 'General';
+  if (!thread) return 'Task thread';
+  return `${thread.ref ? `${thread.ref} · ` : ''}${thread.title}`;
+}
+
+function ThreadBar({ threads, current, busy, disabled, onPick }: { threads: CeoThread[]; current: string; busy: string | null; disabled: boolean; onPick: (id: string) => void }) {
+  const nav = useNavigate();
+  const known = threads.some(t => t.threadId === current) ? threads : [...threads, { threadId: current, title: current === 'general' ? 'General' : 'Task thread', ref: null, status: null, messageCount: 0, updatedAt: null, lastText: '' }];
+  const thread = known.find(t => t.threadId === current);
+  return (
+    <div className="thread-bar">
+      <span className="thread-label">THREAD</span>
+      <select className="thread-select" value={current} disabled={disabled} onChange={e => onPick(e.target.value)} aria-label="Conversation thread">
+        {known.map(t => <option key={t.threadId} value={t.threadId}>{threadName(t, t.threadId)}{busy === t.threadId ? ' (working)' : ''}</option>)}
+      </select>
+      {current !== 'general' && <button type="button" className="icon-btn" title="Open task" onClick={() => nav('/tasks/' + encodeURIComponent(thread?.ref || current))}>↗</button>}
+    </div>
+  );
+}
+
+function runLabel(state: string) {
+  if (state === 'running') return 'running';
+  if (state === 'completed') return 'completed';
+  if (state === 'failed') return 'failed';
+  if (state === 'outcome_unknown') return 'outcome unknown';
+  return state.replaceAll('_', ' ');
+}
+
+function RunEntry({ entry, seatId }: { entry: Extract<TimelineEntry, { kind: 'run' }>; seatId: string | null }) {
+  const { run, live } = entry;
+  const seconds = run.durationMs != null ? Math.round(run.durationMs / 1000) : null;
+  return (
+    <div className="thread-run">
+      <div className="thread-run-head">
+        <span className={'act-glyph' + (run.state === 'running' ? ' running' : run.state === 'completed' ? ' ok' : run.state === 'failed' ? ' err' : '')}>{run.state === 'running' ? '' : run.state === 'completed' ? '✓' : run.state === 'failed' ? '✕' : '?'}</span>
+        <span className="mono">{seatId || 'seat'}</span><span>run {runLabel(run.state)}</span>
+        {seconds != null && <span className="act-time">{seconds}s</span>}
+        <span className="act-time" style={{ marginLeft: 'auto' }}>{messageTime(entry.at)}</span>
+      </div>
+      {live ? (live.length ? <ActivityList items={live} /> : <div className="act-hint">Waiting for the seat's first step…</div>) : run.activity?.length ? <ActivityBlock items={run.activity} /> : null}
+      {run.reply && <div className="thread-run-reply">{run.reply.length > 400 ? run.reply.slice(0, 400) + '…' : run.reply}</div>}
+    </div>
+  );
+}
+
+function PeerEntry({ entry, ceoName }: { entry: Extract<TimelineEntry, { kind: 'peer' }>; ceoName: string }) {
+  const { message } = entry;
+  return (
+    <div className="thread-peer">
+      <div className="thread-run-head"><span className="mono">{addressLabel(message.from, ceoName)} → {addressLabel(message.to, ceoName)}</span><span className="act-time" style={{ marginLeft: 'auto' }}>{messageTime(message.createdAt)}</span></div>
+      <div className="thread-peer-text">{message.text}</div>
+    </div>
+  );
+}
+
+function useTaskThreadExtras(threadId: string, refreshKey: unknown) {
+  const [extras, setExtras] = useState<TaskThreadExtras | null>(null);
+  useEffect(() => {
+    if (threadId === 'general') { setExtras(null); return; }
+    let active = true;
+    const load = async () => {
+      try {
+        const [task, messages] = await Promise.all([api.task(threadId), api.taskMessages(threadId)]);
+        if (active) setExtras({ seatId: task.seatId, runs: task.runs || [], live: task.liveActivity || null, messages: messages.messages });
+      } catch {   }
+    };
+    void load();
+    const timer = window.setInterval(() => void load(), 4000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [threadId, refreshKey]);
+  return extras;
+}
+
 function CeoChat() {
-  const { state, loadCeoConversation, sendCeoMessage } = useStore();
-  const ctx = chatContextFor(useRoute());
+  const { state, loadCeoConversation, sendCeoMessage, setCeoThread } = useStore();
   const [draft, setDraft] = useState('');
+  const [threads, setThreads] = useState<CeoThread[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const loadedRef = useRef(false);
   const ceo = state.ceo;
+  const ceoName = ceoNameOf(state.org.organization);
+  const elapsed = useElapsed(ceo.sending ? ceo.live?.startedAt || null : null);
 
   useEffect(() => {
     if (loadedRef.current || ceo.messages.length || ceo.sending || ceo.pendingMessage || ceo.failedMessage) return;
@@ -50,9 +140,23 @@ function CeoChat() {
   }, [loadCeoConversation, ceo.messages.length, ceo.sending, ceo.pendingMessage, ceo.failedMessage]);
 
   useEffect(() => {
+    let active = true;
+    const thread = state.ceoThread;
+    void (async () => {
+      const { threads: list } = await api.ceoThreads();
+      if (thread !== 'general' && !list.some(t => t.threadId === thread)) {
+        const task = await api.task(thread).catch(() => null);
+        if (task) list.push({ threadId: thread, title: task.summary, ref: task.ref, status: task.status, messageCount: 0, updatedAt: null, lastText: '' });
+      }
+      if (active) setThreads(list);
+    })().catch(() => undefined);
+    return () => { active = false; };
+  }, [state.ceoThread, ceo.sending]);
+
+  useEffect(() => {
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [ceo.messages.length, ceo.loading, ceo.sending, ceo.pendingMessage, ceo.failedMessage, ceo.sendError]);
+  }, [ceo.messages.length, ceo.loading, ceo.sending, ceo.pendingMessage, ceo.failedMessage, ceo.sendError, ceo.live?.items.length]);
 
   const send = () => {
     const text = draft.trim();
@@ -62,24 +166,34 @@ function CeoChat() {
   };
   const refreshConversation = () => { if (!ceo.loading) void loadCeoConversation(); };
   const hasVisibleMessages = ceo.messages.length > 0 || ceo.pendingMessage || ceo.failedMessage;
+  const otherBusy = !ceo.sending && ceo.busyThreadId && ceo.busyThreadId !== state.ceoThread;
+  const currentThread = threads.find(t => t.threadId === state.ceoThread);
+  const extras = useTaskThreadExtras(state.ceoThread, ceo.messages.length);
+  const timeline = buildTimeline(ceo.messages, extras);
 
   return (
     <>
+      <ThreadBar threads={threads} current={state.ceoThread} busy={ceo.sending ? state.ceoThread : ceo.busyThreadId} disabled={ceo.sending} onPick={id => setCeoThread(id)} />
       <div ref={scrollRef} className="pane-body" style={{ padding: '20px 18px', gap: 16 }} aria-live="polite">
-        {ceo.loading && !ceo.messages.length && <div className="empty">Loading CEO conversation…</div>}
+        {ceo.loading && !ceo.messages.length && <div className="empty">Loading conversation…</div>}
         {ceo.loadError && (
           <div className="empty" role="alert">
             <div>{ceo.loadError}</div>
             <button className="btn sm btn-ghost" style={{ marginTop: 10 }} onClick={loadCeoConversation}>Retry</button>
           </div>
         )}
-        {!ceo.loading && !ceo.loadError && !hasVisibleMessages && (
-          <div className="empty">No CEO messages yet. Send a message to start the conversation.</div>
+        {!ceo.loading && !ceo.loadError && !hasVisibleMessages && !timeline.length && (
+          <div className="empty">{state.ceoThread === 'general' ? `No messages yet. Send ${ceoName} a message to start.` : `No messages in this task thread yet. ${ceoName} will get the task details with your first message.`}</div>
         )}
-        {ceo.messages.map((m, i) => m.role === 'user'
-          ? <UserBubble key={`${m.at}-${i}`} text={m.text} meta={messageTime(m.at)} />
-          : <CeoBubble key={`${m.at}-${i}`} text={m.text} at={m.at} />)}
-        {ceo.pendingMessage && <UserBubble text={ceo.pendingMessage} meta="Sending…" />}
+        {timeline.map((entry, i) => {
+          if (entry.kind === 'run') return <RunEntry key={`run-${entry.run.id}`} entry={entry} seatId={extras?.seatId || null} />;
+          if (entry.kind === 'peer') return <PeerEntry key={`peer-${entry.message.id}`} entry={entry} ceoName={ceoName} />;
+          const m = entry.message;
+          if (m.role === 'activity') return <ActivityBlock key={`${m.at}-${i}`} items={m.items || []} />;
+          if (m.role === 'user') return <UserBubble key={`${m.at}-${i}`} text={m.text || ''} meta={messageTime(m.at)} />;
+          return <CeoBubble key={`${m.at}-${i}`} text={m.text || ''} at={m.at} />;
+        })}
+        {ceo.pendingMessage && <UserBubble text={ceo.pendingMessage} meta="Sent" />}
         {ceo.failedMessage && (
           <UserBubble text={ceo.failedMessage} meta="Reply not confirmed">
             <div className="stack" style={{ gap: 6, alignItems: 'flex-end' }}>
@@ -88,25 +202,31 @@ function CeoChat() {
             </div>
           </UserBubble>
         )}
-        {ceo.sending && !ceo.pendingMessage && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--faint)' }}>
-            <div className="ceo-mark" style={{ animation: 'wp-pulse 1s infinite' }} />Sending…
+        {ceo.sending && (
+          <div className="stack" style={{ gap: 8 }}>
+            <div className="working-line">
+              <div className="ceo-mark" style={{ animation: 'wp-pulse 1s infinite' }} />
+              <span>{ceoName} is working{elapsed ? ` · ${elapsed}` : ''}</span>
+              {ceo.live?.items.length ? <span className="act-time">{ceo.live.items.length} step{ceo.live.items.length === 1 ? '' : 's'}</span> : null}
+            </div>
+            {ceo.live?.items.length ? <ActivityList items={ceo.live.items} /> : <div className="act-hint">Waiting for the first step…</div>}
           </div>
         )}
       </div>
       <div style={{ padding: '12px 14px 14px', borderTop: '1px solid var(--line)' }}>
+        {otherBusy && <div className="act-hint" style={{ marginBottom: 8 }}>{ceoName} is working in another thread. You can send here when it finishes.</div>}
         <div className="composer">
           <textarea
             rows={2}
             value={draft}
-            placeholder={`Message ${ceoNameOf(state.org.organization)}…`}
+            placeholder={`Message ${ceoName}…`}
             disabled={ceo.sending}
             onChange={e => setDraft(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
           />
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11.5, color: 'var(--fainter)' }}>
-            <span>Context: <span className="mono" style={{ color: 'var(--muted)' }}>{ctx}</span></span>
-            <button className="btn btn-primary" style={{ marginLeft: 'auto', padding: '5px 11px', borderRadius: 6, fontSize: 12, opacity: draft.trim() && !ceo.sending ? 1 : 0.45 }} disabled={!draft.trim() || ceo.sending} onClick={send}>{ceo.sending ? 'Sending…' : 'Send'}</button>
+            <span className="ellipsis">Thread: <span style={{ color: 'var(--muted)' }}>{threadName(currentThread, state.ceoThread)}</span></span>
+            <button className="btn btn-primary" style={{ marginLeft: 'auto', padding: '5px 11px', borderRadius: 6, fontSize: 12, opacity: draft.trim() && !ceo.sending ? 1 : 0.45 }} disabled={!draft.trim() || ceo.sending} onClick={send}>{ceo.sending ? 'Working…' : 'Send'}</button>
           </div>
         </div>
       </div>

@@ -58,9 +58,12 @@ export interface HermesSkillInventory {
 }
 export type HermesSkillUpdateResponse = HermesSkill | { skill: HermesSkill };
 
-export interface CeoMessage { role: 'user' | 'ceo'; text: string; at: string; status?: 'sent' | 'confirmed' | 'outcome_unknown' }
-export interface CeoConversation { sessionId: string | null; messages: CeoMessage[] }
+export interface ActivityItem { kind: 'tool' | 'action'; name: string; detail: string; status: 'running' | 'ok' | 'error' | 'unknown'; durationMs?: number; at?: string }
+export interface CeoMessage { role: 'user' | 'ceo' | 'activity'; text?: string; at: string; status?: 'sent' | 'confirmed' | 'outcome_unknown'; items?: ActivityItem[] }
+export interface CeoLiveTurn { startedAt: string; message: string; items: ActivityItem[] }
+export interface CeoConversation { threadId?: string; sessionId: string | null; messages: CeoMessage[]; live?: CeoLiveTurn | null; busyThreadId?: string | null }
 export interface CeoSendResponse extends CeoConversation { sessionId: string; reply: string }
+export interface CeoThread { threadId: string; title: string; ref: string | null; status: TaskStatus | null; messageCount: number; updatedAt: string | null; lastText: string }
 
 const inflightGets = new Map<string, Promise<unknown>>();
 
@@ -135,8 +138,9 @@ export const api = {
   cancelLogin: (provider: string, id: string) => json<HermesLogin>(`/hermes/providers/${encodeURIComponent(provider)}/login/${encodeURIComponent(id)}`, { method: 'DELETE', body: JSON.stringify({}) }),
   hermesSkills: () => json<HermesSkillInventory>('/hermes/skills'),
   setHermesSkillEnabled: (name: string, enabled: boolean) => json<HermesSkillUpdateResponse>(`/hermes/skills/${encodeURIComponent(name)}`, { method: 'PUT', body: JSON.stringify({ enabled }) }),
-  ceoConversation: () => json<CeoConversation>('/hermes/ceo/conversation'),
-  sendCeoMessage: (message: string) => json<CeoSendResponse>('/hermes/ceo/messages', { method: 'POST', body: JSON.stringify({ message }) }),
+  ceoConversation: (threadId = 'general') => json<CeoConversation>(`/hermes/ceo/conversation?threadId=${encodeURIComponent(threadId)}`),
+  ceoThreads: () => json<{ threads: CeoThread[]; busyThreadId: string | null }>('/hermes/ceo/threads'),
+  sendCeoMessage: (message: string, threadId = 'general') => json<CeoSendResponse>('/hermes/ceo/messages', { method: 'POST', body: JSON.stringify({ message, threadId }) }),
   missions: () => json<{ missions: Mission[] }>('/missions'),
   orgChart: () => json<{ pods: { podId: string; name: string; state: string; seats: { seatId: string; role: string }[] }[] }>('/org-chart'),
   tasks: () => json<{ tasks: TaskSummary[] }>('/tasks'),
@@ -161,6 +165,7 @@ export const api = {
   cancelSeatLogin: (podId: string, seatId: string, provider: string, loginId: string) => json<PodSeatLogin>(`/pod-instances/${encodeURIComponent(podId)}/seats/${encodeURIComponent(seatId)}/providers/${encodeURIComponent(provider)}/login/${encodeURIComponent(loginId)}`, { method: 'DELETE', body: JSON.stringify({}) }),
   saveSeatApiKey: (podId: string, seatId: string, provider: string, apiKey: string) => json<PodSeatApiKeyResponse>(`/pod-instances/${encodeURIComponent(podId)}/seats/${encodeURIComponent(seatId)}/providers/${encodeURIComponent(provider)}/api-key`, { method: 'PUT', body: JSON.stringify({ apiKey }) }),
   task: (id: string) => json<TaskRecord>(`/tasks/${encodeURIComponent(id)}`),
+  taskMessages: (id: string) => json<{ messages: MessageDelivery[] }>(`/tasks/${encodeURIComponent(id)}/messages`),
   createTask: (body: TaskInput) => json<TaskRecord>('/tasks', { method: 'POST', body: JSON.stringify(body) }),
   updateTask: (id: string, body: TaskInput) => json<TaskRecord>(`/tasks/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
   projects: () => json<{ projects: Project[] }>('/projects'),
@@ -217,6 +222,7 @@ export interface MessageDelivery {
   from: string;
   to: string;
   text: string;
+  taskId?: string | null;
   createdAt: string;
   readAt: string | null;
   wake: { state: string; depth: number; attempts: number; startedAt?: string; finishedAt?: string; reason?: string; nextAttemptAt?: string } | null;
@@ -271,10 +277,12 @@ export interface TaskRunRecord {
   reason?: string | null;
   reply?: string;
   replyTruncated?: boolean;
+  activity?: ActivityItem[];
   fromState?: string;
   manualRetry?: boolean;
 }
 export interface TaskRecord extends TaskSummary {
+  liveActivity?: { runId: string; items: ActivityItem[] } | null;
   activeRunId?: string;
   lastRunId?: string;
   runs?: TaskRunRecord[];

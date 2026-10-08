@@ -71,3 +71,13 @@ test('accepted CEO send replaces pending state with durable server messages only
   assert.equal(accepted.failedMessage, null);
   assert.deepEqual(accepted.messages.map(m => m.role), ['user', 'ceo']);
 });
+
+test('live activity updates leave messages and pending text untouched', async () => {
+  const { ceoLiveUpdated } = await import('../src/ceoConversation.ts');
+  const sending = ceoSendStarted(emptyCeoState, 'Plan it');
+  const live = ceoLiveUpdated(sending, { sessionId: 's', messages: [], live: { startedAt: 'now', message: 'Plan it', items: [{ kind: 'tool', name: 'terminal', detail: 'ls', status: 'running' }] }, busyThreadId: 'general' });
+  assert.equal(live.pendingMessage, 'Plan it');
+  assert.equal(live.sending, true);
+  assert.equal(live.live?.items.length, 1);
+  assert.equal(ceoSendFailed(live, 'boom').live, null);
+});

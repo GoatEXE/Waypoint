@@ -634,3 +634,37 @@ test('CEO bridge skill seed documents run_task and task_status truthfully', asyn
   }
   assert.ok(skill.endsWith('Stay in CEO scope: delegate/provision/monitor. Pods execute.\n'));
 });
+
+test('CEO task threads use their own session, task context, and live tool activity', async () => {
+  const general = new FakeChild();
+  const taskChild = new FakeChild();
+  const { hermes, spawns, dir } = await conversationHermes([taskChild, general]);
+  const threadId = 'task_00000000-0000-4000-8000-000000000001';
+  const turn = hermes.sendCeoMessage({ message: 'Plan it.', threadId, context: 'This conversation is about Waypoint task SUN-1: Ship it' });
+  await waitFor(() => spawns.length === 1);
+  assert.equal(spawns[0][spawns[0].indexOf('--continue') + 1], `waypoint-ceo-${threadId}`);
+  assert.equal(taskChild.stdinText, 'This conversation is about Waypoint task SUN-1: Ship it\n\nPlan it.');
+  taskChild.stdout.emit('data', '{"type":"system","subtype":"init","session_id":"sess_task1"}\n{"type":"tool_use","name":"terminal","tool_call_id":"c1","input":{"command":"curl -H \\"Authorization: Bearer abcdefghijklmnop1234\\" bridge"}}\n');
+  hermes.recordCeoAction('create_task', 'SUN-2 Write tests');
+  let live = await hermes.ceoConversation(threadId);
+  assert.equal(live.busyThreadId, threadId);
+  assert.deepEqual(live.live.items.map((item) => [item.kind, item.name, item.status]), [['tool', 'terminal', 'running'], ['action', 'create_task', 'ok']]);
+  assert.equal(live.live.items[0].detail.includes('abcdefghijklmnop1234'), false);
+  assert.equal((await hermes.ceoConversation()).live, null);
+  taskChild.stdout.emit('data', '{"type":"tool_result","name":"terminal","tool_call_id":"c1","output":"secret output","duration_ms":42,"is_error":false}\n');
+  taskChild.stdout.emit('data', '{"type":"result","session_id":"sess_task1","text":"Planned."}\n');
+  taskChild.emit('close', 0);
+  const result = await turn;
+  assert.deepEqual(result.messages.map((m) => m.role), ['user', 'activity', 'ceo']);
+  assert.equal(result.messages[0].text, 'Plan it.');
+  assert.deepEqual(result.messages[1].items[0], { kind: 'tool', name: 'terminal', detail: result.messages[1].items[0].detail, status: 'ok', durationMs: 42 });
+  assert.equal(JSON.stringify(result.messages).includes('secret output'), false);
+  const stored = JSON.parse(await fs.readFile(path.join(dir, 'ceo-threads', `${threadId}.json`), 'utf8'));
+  assert.equal(stored.sessionId, 'sess_task1');
+  assert.equal((await hermes.ceoConversation()).messages.length, 0);
+  const { threads, busyThreadId } = await hermes.listCeoThreads();
+  assert.equal(busyThreadId, null);
+  assert.deepEqual(threads.map((t) => [t.threadId, t.messageCount]), [['general', 0], [threadId, 2]]);
+  hermes.recordCeoAction('create_task', 'ignored outside a turn');
+  await assert.rejects(hermes.sendCeoMessage({ message: 'x', threadId: '../etc' }), /threadId/);
+});
