@@ -4,8 +4,16 @@
   "private": true,
   "type": "module",
   "description": "Waypoint backend foundation for credential-free Hermes pod planning.",
-  "engines": { "node": ">=22" },
-  "scripts": { "start": "node --env-file-if-exists=.env src/index.js", "test": "node --test", "check": "npm test", "migrate-shared-auth": "node --env-file-if-exists=.env scripts/migrate-shared-auth.mjs" },
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node --env-file-if-exists=.env src/index.js",
+    "test": "node --test",
+    "check": "npm test",
+    "migrate-shared-auth": "node --env-file-if-exists=.env scripts/migrate-shared-auth.mjs",
+    "reset": "node --env-file-if-exists=.env scripts/reset.mjs"
+  },
   "dependencies": {},
   "devDependencies": {}
 }
