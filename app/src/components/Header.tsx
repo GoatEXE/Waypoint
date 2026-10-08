@@ -9,7 +9,7 @@ interface Crumb { label: string; to: string; mono?: boolean }
 
 const WS: Partial<Record<Route['v'], string>> = { routines: 'Routines', artifacts: 'Artifacts', skills: 'Skills', connectors: 'Connectors', settings: 'Settings' };
 
-function crumbsFor(r: Route): Crumb[] {
+function crumbsFor(r: Route, projectName?: string): Crumb[] {
   const m: Crumb = { label: D.mission?.short || 'Workspace', to: '/' };
   const projCrumb = (pid: D.ProjectId): Crumb => {
     const p = projById(pid);
@@ -21,7 +21,7 @@ function crumbsFor(r: Route): Crumb[] {
   };
   switch (r.v) {
     case 'mission': return [m];
-    case 'project': return [m, projCrumb(r.id as D.ProjectId)];
+    case 'project': return [m, { label: projectName || 'Project', to: '/projects/' + r.id }];
     case 'task': return taskCrumbs(r.id!);
     case 'run': return D.runs[r.id!] ? [...taskCrumbs(D.runs[r.id!].task), { label: r.id!, to: '/runs/' + r.id, mono: true }] : [m, { label: 'Run not found', to: '/', mono: true }];
     case 'pod': return [{ label: 'Pods', to: '/pods/' + r.id }, { label: r.id!, to: '/pods/' + r.id, mono: true }];
@@ -34,7 +34,8 @@ function crumbsFor(r: Route): Crumb[] {
 export function Header() {
   const { state, setPane } = useStore();
   const nav = useNavigate();
-  const crumbs = crumbsFor(useRoute());
+  const route = useRoute();
+  const crumbs = crumbsFor(route, route.v === 'project' ? state.projects.find(p => p.id === route.id)?.name : undefined);
   return (
     <header className="topbar">
       <nav className="crumbs">

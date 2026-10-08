@@ -507,6 +507,17 @@ export class PodStore {
       return updated;
     });
   }
+  deleteProject(projectId) {
+    const id = assertStoredId('project', projectId);
+    return this.#serialize('projects', async () => {
+      const projects = await this.readProjects();
+      if (!projects.some((project) => project.id === id)) throw notFound('project not found', { projectId: id });
+      const used = (await this.#readTasks()).filter((task) => task.projectId === id).length;
+      if (used) throw conflict(`${used} task${used === 1 ? ' uses' : 's use'} this project; move them to another project first`, { projectId: id, tasks: used });
+      await writeJson(path.join(this.dataDir, 'projects.json'), { projects: projects.filter((project) => project.id !== id) });
+      return { deleted: true, projectId: id };
+    });
+  }
   async getProject(projectId) {
     const id = assertStoredId('project', projectId);
     const project = (await this.readProjects()).find((item) => item.id === id);
@@ -514,12 +525,14 @@ export class PodStore {
     return project;
   }
   async #projectFields(input, current, projects) {
-    const extra = Object.keys(input).filter((key) => !['name', 'localPath', 'repo', 'githubSeats'].includes(key));
+    const extra = Object.keys(input).filter((key) => !['name', 'missionId', 'localPath', 'repo', 'githubSeats'].includes(key));
     if (extra.length) throw badRequest('unsupported project fields', { fields: extra.slice(0, 10).map((key) => key.slice(0, 64)) });
     const has = (key) => Object.hasOwn(input, key);
     const name = has('name') ? projectName(input.name) : current?.name;
     if (!name) throw badRequest('project name is required');
     if (projects.some((project) => project.id !== current?.id && project.name.toLocaleLowerCase() === name.toLocaleLowerCase())) throw conflict('a project with this name already exists', { name });
+    const missionId = has('missionId') ? (input.missionId ? assertStoredId('mission', String(input.missionId)) : null) : current?.missionId ?? null;
+    if (has('missionId') && missionId && !(await readJson(this.missionPath(missionId)))) throw badRequest('missionId does not match a stored mission', { missionId });
     const localPath = has('localPath') ? (input.localPath ? String(input.localPath).trim().slice(0, 1000) : null) : current?.localPath ?? null;
     const repo = has('repo') ? (input.repo ? normalizeRepo(input.repo) : null) : current?.repo ?? null;
     let githubSeats = current?.githubSeats ?? [];
@@ -534,7 +547,7 @@ export class PodStore {
         if (!githubSeats.includes(`${podId}/${seatId}`)) githubSeats.push(`${podId}/${seatId}`);
       }
     }
-    return { name, localPath, repo, githubSeats };
+    return { name, missionId, localPath, repo, githubSeats };
   }
   async seatGithubRepos(address) {
     return [...new Set((await this.readProjects()).filter((project) => project.repo && (project.githubSeats || []).includes(address)).map((project) => project.repo))];

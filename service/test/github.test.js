@@ -130,3 +130,20 @@ test('only seats designated on a project can get tokens or call the API for its 
     assert.deepEqual(pr.body, { status: 201, body: { number: 3, title: 'Fix' } });
   } finally { await new Promise((resolve) => app.bridgeServer.close(resolve)); }
 });
+
+test('projects belong to missions and validate the mission', async () => {
+  const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'waypoint-project-mission-'));
+  const app = await createApp({ DATA_DIR: dataDir, HERMES_AUTO_START: 'false', LOG_LEVEL: 'error' });
+  const { mission } = await app.store.createMission({ title: 'Ship v1' }, { source: 'app' });
+  const project = await app.store.createProject({ name: 'Goat Ops', missionId: mission.id, repo: 'GoatEXE/goat-ops' });
+  assert.equal(project.missionId, mission.id);
+  const moved = await app.store.updateProject(project.id, { localPath: 'E:\Repositories\goat-ops' });
+  assert.equal(moved.missionId, mission.id);
+  assert.equal((await app.store.updateProject(project.id, { missionId: null })).missionId, null);
+  await assert.rejects(app.store.createProject({ name: 'Bad', missionId: 'mission_00000000-0000-4000-8000-000000000000' }), /does not match a stored mission/);
+  const task = await app.store.createTask({ summary: 'Uses it', projectId: project.id });
+  await assert.rejects(app.store.deleteProject(project.id), /1 task uses this project/);
+  await app.store.updateTask(task.id, { projectId: null });
+  assert.deepEqual(await app.store.deleteProject(project.id), { deleted: true, projectId: project.id });
+  assert.deepEqual(await app.store.listProjects(), []);
+});

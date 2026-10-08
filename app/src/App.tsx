@@ -1,6 +1,5 @@
 import { useEffect, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
-import * as D from './data';
 import { parseRoute } from './routes';
 import { useStore } from './store';
 import { Sidebar } from './components/Sidebar';
@@ -19,6 +18,7 @@ import { SkillsView } from './views/SkillsView';
 import { ConnectorsView } from './views/ConnectorsView';
 import { SettingsView } from './views/SettingsView';
 import { TasksView } from './views/TasksView';
+import { ProjectDialog } from './components/ProjectDialog';
 import { OrgChartView } from './views/OrgChartView';
 import { GitHubCallbackView } from './views/GitHubCallbackView';
 import { OrgSetupView } from './views/OrgSetupView';
@@ -27,7 +27,7 @@ function View() {
   const r = parseRoute(useLocation().pathname);
   switch (r.v) {
     case 'mission': return <MissionView />;
-    case 'project': return <ProjectView id={r.id as D.ProjectId} />;
+    case 'project': return <ProjectView id={r.id!} />;
     case 'tasks': return <TasksView />;
     case 'org': return <OrgChartView />;
     case 'github': return <GitHubCallbackView step={r.id!} />;
@@ -71,7 +71,7 @@ export function App() {
         </main>
       </div>
       {state.pane.open && <RightPane />}
-      {state.modal && <Modal kind={state.modal} />}
+      {state.modal === 'project' ? <ProjectDialog /> : state.modal && <Modal kind={state.modal} />}
       {state.toast && (
         <div className="toast" role="status"><div style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--acc)' }} />{state.toast}</div>
       )}

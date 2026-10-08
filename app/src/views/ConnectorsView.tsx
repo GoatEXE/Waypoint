@@ -4,7 +4,7 @@ import { OnDot, WorkspaceHead } from '../components/ui';
 import { isActiveLogin, isMissingLoginError, shouldApplyMissingLoginRecovery, shouldClearLoginPrompt, shouldShowLoginPromptMaterial, statusHasUncheckedNativeAuth, toConnectorProvider } from '../connectorsModel';
 import { providerReadiness } from '../providerConfig';
 import type { Provider } from '../settingsModel';
-import { GitHubSetup, ProjectRepos, githubReadiness, githubRepos, useGitHubStatus } from './GitHubConnector';
+import { GitHubSetup, githubReadiness, githubRepos, useGitHubStatus } from './GitHubConnector';
 
 type ProviderGroupId = 'openai' | 'anthropic';
 type Method = 'subscription' | 'api_key';
@@ -246,8 +246,6 @@ export function ConnectorsView() {
         </aside>
         )}
       </div>
-
-      {showGithub && github.status?.connected && <ProjectRepos installedRepos={githubRepos(github.status)} />}
 
       {login && <section className="provider-login-panel" aria-label="Pending sign-in">
         <div className="kind">SIGN IN · {providerLabel(login.provider)}</div>

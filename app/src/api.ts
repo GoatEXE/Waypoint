@@ -182,13 +182,14 @@ export const api = {
   createTask: (body: TaskInput) => json<TaskRecord>('/tasks', { method: 'POST', body: JSON.stringify(body) }),
   updateTask: (id: string, body: TaskInput) => json<TaskRecord>(`/tasks/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
   projects: () => json<{ projects: Project[] }>('/projects'),
-  updateProject: (id: string, body: Partial<Pick<Project, 'name' | 'localPath' | 'repo' | 'githubSeats'>>) => json<Project>(`/projects/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  updateProject: (id: string, body: Partial<Pick<Project, 'name' | 'missionId' | 'localPath' | 'repo' | 'githubSeats'>>) => json<Project>(`/projects/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  deleteProject: (id: string) => json<{ deleted: true; projectId: string }>(`/projects/${encodeURIComponent(id)}`, { method: 'DELETE', body: '{}' }),
   inspectLocalPath: (localPath: string) => json<LocalRepoInfo>('/projects/inspect', { method: 'POST', body: JSON.stringify({ localPath }) }),
   githubStatus: () => json<GitHubStatus>('/github'),
   githubManifest: (origin: string, owner: string) => json<{ state: string; url: string; manifest: object }>('/github/manifest', { method: 'POST', body: JSON.stringify({ origin, owner }) }),
   githubComplete: (code: string, state: string) => json<GitHubStatus>('/github/complete', { method: 'POST', body: JSON.stringify({ code, state }) }),
   githubDisconnect: () => json<{ connected: false }>('/github', { method: 'DELETE', body: '{}' }),
-  createProject: (name: string) => json<Project>('/projects', { method: 'POST', body: JSON.stringify({ name }) }),
+  createProject: (body: { name: string; missionId?: string | null; localPath?: string | null; repo?: string | null }) => json<Project>('/projects', { method: 'POST', body: JSON.stringify(body) }),
   runTask: (id: string) => json<TaskRunStartResponse>(`/tasks/${encodeURIComponent(id)}/run`, { method: 'POST', body: JSON.stringify({}) }),
   retryTaskAfterReview: (id: string) => json<TaskRunStartResponse>(`/tasks/${encodeURIComponent(id)}/manual-retry`, { method: 'POST', body: JSON.stringify({ reviewed: true }) }),
 };
@@ -235,7 +236,7 @@ export interface TaskSummary {
   updatedAt: string;
 }
 export interface TaskInput { summary?: string; description?: string; status?: TaskStatus; podId?: string | null; seatId?: string | null; projectId?: string | null; labels?: string[]; parentId?: string | null; blockedBy?: string[] }
-export interface Project { id: string; name: string; localPath?: string | null; repo?: string | null; githubSeats?: string[]; createdAt: string; updatedAt: string }
+export interface Project { id: string; name: string; missionId?: string | null; localPath?: string | null; repo?: string | null; githubSeats?: string[]; createdAt: string; updatedAt: string }
 export interface LocalRepoInfo { localPath: string; exists: boolean; isGit: boolean; root: string | null; remote: string | null; repo: string | null; branch: string | null }
 export interface GitHubStatus { connected: boolean; app: { appId: number; slug: string; name: string; htmlUrl: string; owner: string | null } | null; installUrl: string | null; installations: { id: number; account: string; selection: string; repos: string[] }[]; error?: string | null }
 export interface MessageDelivery {

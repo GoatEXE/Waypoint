@@ -159,7 +159,7 @@ Updates only the given fields (the same fields as `POST /tasks`; `null` clears a
 
 ## `GET /projects` and `POST /projects`
 
-`GET` returns `{ "projects": [...] }` sorted by name. `POST` takes `{ "name": "Website" }` (1–80 characters, unique ignoring case) and returns the project with its `project_<uuid>` id.
+`GET` returns `{ "projects": [...] }` sorted by name. `POST` takes `{ "name": "Website", "missionId": "mission_<uuid>" }` (name 1–80 characters, unique ignoring case; `missionId` optional and must be a stored mission) plus the optional repository fields below, and returns the project with its `project_<uuid>` id. Projects belong to a mission; the app lists them under their mission and creates them there. `GET`, `PATCH`, and `DELETE /projects/:id` read, update, and remove one project. Deleting is refused with `409` while tasks still use the project. Saving `githubSeats` installs the seat GitHub tools on newly designated seats whose pod is running and returns their addresses as `toolsInstalled`.
 
 ## `GET /missions`
 

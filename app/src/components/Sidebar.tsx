@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import * as D from '../data';
-import { ACC, missionPct, projStats, seatStatus } from '../model';
+import { ACC, seatStatus } from '../model';
 import { activeProject, useRoute, type View } from '../routes';
 import { useStore } from '../store';
 import { Dot, OnDot } from './ui';
@@ -26,7 +26,7 @@ function AddButton({ onClick }: { onClick: () => void }) {
 }
 
 export function Sidebar() {
-  const { state, set, setPane, openModal, tasks } = useStore();
+  const { state, set, setPane, openModal } = useStore();
   const nav = useNavigate();
   const route = useRoute();
   const activeProj = activeProject(route);
@@ -57,6 +57,10 @@ export function Sidebar() {
   const { label: hermesLabel, ready: hermesReady } = sidebarHermesSummary(hermes, hermesChecked);
   const missionLabel = sidebarMissionLabel(state.missions);
   const pods = orgPods ?? missionPods(state.missions.missions);
+  const currentMissionId = state.missions.missions[0]?.id;
+  const missionProjects = state.projects.filter(p => currentMissionId && p.missionId === currentMissionId);
+  const unfiledProjects = state.projects.filter(p => !p.missionId || !state.missions.missions.some(m => m.id === p.missionId));
+  const openCount = (projectId: string) => storedTasks.filter(t => t.projectId === projectId && t.status !== 'done' && t.status !== 'canceled').length;
 
   return (
     <aside className="sidebar">
@@ -93,18 +97,27 @@ export function Sidebar() {
             <div className="sb-mission-link" onClick={() => nav('/')}>
               <div className="diamond" />
               <span className="ellipsis" style={{ fontWeight: 500 }} title={missionLabel}>{missionLabel}</span>
-              {D.projects.length > 0 && <span className="sb-meta">{missionPct(tasks)}%</span>}
+              {missionProjects.length > 0 && <span className="sb-meta">{missionProjects.length}</span>}
             </div>
           </div>
           {state.missionOpen && (
             <div className="sb-children">
-              {!D.projects.length && <div className="sb-item" style={{ color: 'var(--faint)', cursor: 'default' }}>No projects</div>}
-              {D.projects.map(p => (
+              {missionProjects.map(p => (
                 <div key={p.id} className={'sb-item' + (activeProj === p.id ? ' active' : '')} onClick={() => nav('/projects/' + p.id)}>
                   <span className="sb-name">{p.name}</span>
-                  <span className="sb-meta">{projStats(p, tasks).pct}%</span>
+                  <span className="sb-meta">{openCount(p.id) || ''}</span>
                 </div>
               ))}
+              {unfiledProjects.length > 0 && <div className="sb-item" style={{ color: 'var(--faint)', cursor: 'default', fontSize: 11 }}>Not in a mission</div>}
+              {unfiledProjects.map(p => (
+                <div key={p.id} className={'sb-item' + (activeProj === p.id ? ' active' : '')} style={{ color: 'var(--muted)' }} onClick={() => nav('/projects/' + p.id)}>
+                  <span className="sb-name">{p.name}</span>
+                  <span className="sb-meta">{openCount(p.id) || ''}</span>
+                </div>
+              ))}
+              <div className="sb-item" style={{ color: 'var(--faint)' }} onClick={() => openModal('project')}>
+                <span className="sb-name">+ Add project</span>
+              </div>
             </div>
           )}
         </div>

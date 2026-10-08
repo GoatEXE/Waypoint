@@ -6,7 +6,9 @@ import { useStore, type ModalKind } from '../store';
 interface Form { text: string; title: string; date: string; scope: string; hire: string; repos: string[]; tpl: string; proj: string; role: string; pod: string; ident: string; secrets: string[] }
 
 const BLANK: Form = { text: '', title: '', date: '', scope: '', hire: '', repos: [], tpl: '', proj: '', role: '', pod: '', ident: '', secrets: [] };
-const DEFAULTS: Record<ModalKind, Partial<Form>> = {
+type FormKind = Exclude<ModalKind, 'project'>;
+
+const DEFAULTS: Record<FormKind, Partial<Form>> = {
   assignment: { scope: 'workspace', hire: 'ask' },
   mission: {},
   pod: {},
@@ -37,7 +39,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 const Hint = ({ children }: { children: React.ReactNode }) => <div style={{ fontSize: 12, color: 'var(--faint)' }}>{children}</div>;
 
-export function Modal({ kind }: { kind: ModalKind }) {
+export function Modal({ kind }: { kind: FormKind }) {
   const { closeModal, sendCeoMessage, createMission, flash } = useStore();
   const ctx = chatContextFor(useRoute());
   const [form, setForm] = useState<Form>({ ...BLANK, ...DEFAULTS[kind] });

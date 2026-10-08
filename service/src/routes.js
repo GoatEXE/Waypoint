@@ -157,10 +157,18 @@ async function route(request, url, { config, store, organization, docker, hermes
   if (request.method === 'POST' && url.pathname === '/tasks') return { status: 201, body: await store.createTask(await readBody(request)) };
   if (request.method === 'GET' && url.pathname === '/tasks') return { body: { tasks: await store.listTasks() } };
   if (request.method === 'GET' && url.pathname === '/projects') return { body: { projects: await store.listProjects() } };
-  if (request.method === 'POST' && url.pathname === '/projects') return { status: 201, body: await store.createProject(await withDetectedRepo(await readBody(request))) };
+  if (request.method === 'POST' && url.pathname === '/projects') {
+    const project = await store.createProject(await withDetectedRepo(await readBody(request)));
+    return { status: 201, body: { ...project, toolsInstalled: await installGithubTools(project.githubSeats, [], { config, store, podSeats, messaging, logger }) } };
+  }
   match = url.pathname.match(/^\/projects\/([^/]+)$/);
   if (request.method === 'GET' && match) return { body: await store.getProject(decodeRouteParam(match[1])) };
-  if (request.method === 'PATCH' && match) return { body: await store.updateProject(decodeRouteParam(match[1]), await withDetectedRepo(await readBody(request))) };
+  if (request.method === 'DELETE' && match) return { body: await store.deleteProject(decodeRouteParam(match[1])) };
+  if (request.method === 'PATCH' && match) {
+    const before = await store.getProject(decodeRouteParam(match[1]));
+    const project = await store.updateProject(before.id, await withDetectedRepo(await readBody(request)));
+    return { body: { ...project, toolsInstalled: await installGithubTools(project.githubSeats, before.githubSeats || [], { config, store, podSeats, messaging, logger }) } };
+  }
   match = url.pathname.match(/^\/tasks\/([^/]+)$/);
   if (request.method === 'GET' && match) {
     const task = await store.getTaskView(decodeRouteParam(match[1]));
@@ -286,6 +294,27 @@ function actionSummary(tool, args = {}, result = {}) {
   if (['pod_status', 'pod_start', 'pod_stop'].includes(tool)) return `${value(args.podId)} ${value(result.status?.state)}`;
   if (tool === 'list_tasks') return `${result.tasks?.length ?? 0} tasks`;
   return '';
+}
+async function installGithubTools(seats = [], previous = [], { config, store, podSeats, messaging, logger }) {
+  const added = seats.filter((address) => !previous.includes(address));
+  if (!added.length || config.dryRun || !messaging || !podSeats) return [];
+  const installed = [];
+  const byPod = new Map();
+  for (const address of added) {
+    const [podId, seatId] = address.split('/');
+    byPod.set(podId, [...(byPod.get(podId) || []), seatId]);
+  }
+  for (const [podId, seatIds] of byPod) {
+    try {
+      const instance = await store.getInstance(podId);
+      if (instance.state !== 'running') continue;
+      await messaging.installSeatTools(instance, seatIds, podSeats);
+      installed.push(...seatIds.map((seatId) => `${podId}/${seatId}`));
+    } catch (error) {
+      logger?.warn?.('github_tools_install_failed', { podId, message: String(error.message || error).slice(0, 200) });
+    }
+  }
+  return installed;
 }
 async function withDetectedRepo(body) {
   if (!body || typeof body !== 'object' || Array.isArray(body) || !body.localPath || Object.hasOwn(body, 'repo')) return body;
