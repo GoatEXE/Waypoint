@@ -668,3 +668,17 @@ test('CEO task threads use their own session, task context, and live tool activi
   hermes.recordCeoAction('create_task', 'ignored outside a turn');
   await assert.rejects(hermes.sendCeoMessage({ message: 'x', threadId: '../etc' }), /threadId/);
 });
+
+test('CEO home seed installs the onboarding skill and lists it as a Waypoint skill', async () => {
+  const calls = [];
+  const hermes = new HermesRuntime(config(), undefined, async (command, args, options = {}) => {
+    calls.push({ command, args, options });
+    return { code: 0, stdout: '', stderr: '' };
+  });
+  await hermes.seedCeoHome();
+  const payload = JSON.parse(calls[0].options.input);
+  assert.match(payload.onboardingSkill, /^---\nname: waypoint-onboarding\n/);
+  assert.match(payload.onboardingSkill, /Never create, start, or run anything without the user's explicit approval/);
+  const script = String(calls[0].args.at(-1));
+  assert.ok(script.includes("os.path.join(home,'skills','waypoint-onboarding')"));
+});
