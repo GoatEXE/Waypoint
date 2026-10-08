@@ -5,20 +5,20 @@ import { ACC, seatStatus } from '../model';
 import { activeProject, useRoute, type View } from '../routes';
 import { useStore } from '../store';
 import { Dot, OnDot } from './ui';
+import { NavIcon, type NavIconName } from './NavIcon';
 import { api, type HermesStatus, type MissionPod, type TaskSummary } from '../api';
 import { sidebarHermesSummary } from '../hermesSidebarStatus';
 import { missionPods, sidebarMissionLabel } from '../missionsModel';
 import { ceoNameOf } from '../orgModel';
 
-const WORKSPACE: [View, string, number, number, string, number][] = [
-  ['tasks', 'Tasks', 11, 9, '2px', 0],
-  ['org', 'Organization', 10, 10, '3px', 45],
-  ['inbox', 'Inbox', 12, 9, '2px', 0],
-  ['routines', 'Routines', 11, 11, '50%', 0],
-  ['artifacts', 'Artifacts', 10, 10, '2px', 0],
-  ['skills', 'Skills', 8, 8, '1px', 45],
-  ['connectors', 'Connectors', 12, 7, '4px', 0],
-  ['settings', 'Settings', 12, 12, '50%', 0],
+const WORKSPACE: [View & NavIconName, string][] = [
+  ['tasks', 'Tasks'],
+  ['org', 'Organization'],
+  ['inbox', 'Inbox'],
+  ['routines', 'Routines'],
+  ['artifacts', 'Artifacts'],
+  ['skills', 'Skills'],
+  ['connectors', 'Connectors'],
 ];
 
 function AddButton({ onClick }: { onClick: () => void }) {
@@ -67,7 +67,6 @@ export function Sidebar() {
       <div className="brand">
         {state.org.organization?.logo ? <img className="brand-logo" src={state.org.organization.logo} alt="" /> : <div className="brand-mark" />}
         <div className="brand-name" title={state.org.organization?.name}>{state.org.organization?.name || 'Waypoint'}</div>
-        <div className="brand-env">LOCAL</div>
       </div>
       <div className="new-assign-wrap">
         <button className="new-assign" onClick={() => openModal('assignment')}>
@@ -79,9 +78,9 @@ export function Sidebar() {
       <div className="sb-scroll">
         <div className="sb-section">
           <div className="sb-label sb-label-pad">WORKSPACE</div>
-          {WORKSPACE.map(([v, label, iw, ih, ir, rot]) => (
+          {WORKSPACE.map(([v, label]) => (
             <div key={v} className={'sb-item' + (route.v === v ? ' active' : '')} onClick={() => nav('/' + v)}>
-              <div className="sb-icon"><div style={{ width: iw, height: ih, borderRadius: ir, transform: `rotate(${rot}deg)` }} /></div>
+              <div className="sb-icon"><NavIcon name={v} /></div>
               <span>{label}</span>
               {v === 'inbox' && deliveryAttention > 0 && <span className="sb-count">{deliveryAttention}</span>}
             </div>
@@ -166,21 +165,14 @@ export function Sidebar() {
             </div>
           ))}
         </div>
-        <div className="sb-section">
-          <div className="sb-label-row"><span className="sb-label">TASKS</span></div>
-          {!storedTasks.length && <div className="sb-item" style={{ color: 'var(--faint)', cursor: 'default' }}>No tasks</div>}
-          {storedTasks.slice(0, 12).map(task => (
-            <div key={task.id} className={'sb-item' + (route.v === 'task' && route.id === task.id ? ' active' : '')} title={task.summary} onClick={() => nav('/tasks/' + task.id)}>
-              <span className="sb-name ellipsis">{task.summary}</span>
-              <span className="sb-meta">{task.state.replaceAll('_', ' ')}</span>
-            </div>
-          ))}
-        </div>
       </div>
 
       <div className="sb-footer">
         <div><div style={{ width: 6, height: 6, borderRadius: '50%', background: hermesReady ? ACC : 'transparent', border: hermesReady ? 'none' : '1.5px solid var(--fainter)' }} />{hermesLabel}</div>
-        <div><div style={{ width: 6, height: 6, borderRadius: '50%', border: '1.5px solid var(--fainter)' }} />Provider auth in Connectors</div>
+        <div className={'sb-item' + (route.v === 'settings' ? ' active' : '')} onClick={() => nav('/settings')}>
+          <div className="sb-icon"><NavIcon name="settings" /></div>
+          <span>Settings</span>
+        </div>
       </div>
     </aside>
   );
