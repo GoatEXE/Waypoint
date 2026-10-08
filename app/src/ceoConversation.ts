@@ -1,4 +1,4 @@
-import type { CeoConversation, CeoLiveTurn, CeoMessage, CeoSendResponse } from './api';
+import type { ActivityItem, CeoConversation, CeoLiveTurn, CeoMessage, CeoSendResponse } from './api';
 
 export interface CeoState {
   sessionId: string | null;
@@ -27,6 +27,15 @@ export const emptyCeoState: CeoState = {
 };
 
 export const cleanCeoMessage = (text: string) => text.trim();
+
+export function createdTaskRef(items: ActivityItem[] | undefined): string | null {
+  for (const item of items || []) {
+    if (item.kind !== 'action' || item.name !== 'create_task' || item.status !== 'ok') continue;
+    const ref = item.detail.trim().split(/\s+/)[0] || '';
+    if (/^[A-Z][A-Z0-9]{1,5}-[1-9][0-9]*$/.test(ref)) return ref;
+  }
+  return null;
+}
 
 export function ceoLoadStarted(state: CeoState): CeoState {
   return { ...state, loading: true, loadError: null };

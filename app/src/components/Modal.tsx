@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import * as D from '../data';
 import { chatContextFor, useRoute } from '../routes';
 import { useStore, type ModalKind } from '../store';
@@ -40,7 +41,8 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 const Hint = ({ children }: { children: React.ReactNode }) => <div style={{ fontSize: 12, color: 'var(--faint)' }}>{children}</div>;
 
 export function Modal({ kind }: { kind: FormKind }) {
-  const { closeModal, sendCeoMessage, createMission, flash } = useStore();
+  const { state, closeModal, sendCeoMessage, createMission, flash } = useStore();
+  const nav = useNavigate();
   const ctx = chatContextFor(useRoute());
   const [form, setForm] = useState<Form>({ ...BLANK, ...DEFAULTS[kind] });
   const [submitting, setSubmitting] = useState(false);
@@ -66,12 +68,9 @@ export function Modal({ kind }: { kind: FormKind }) {
   const submit = async () => {
     if (!meta.ok || submitting) return;
     if (kind === 'assignment') {
-      setSubmitting(true);
-      setError(null);
-      const result = await sendCeoMessage(form.text.trim(), true);
-      setSubmitting(false);
-      if (result.ok) closeModal();
-      else setError(result.error || 'Message was not accepted.');
+      if (state.ceo.sending) { setError('The CEO is still working on the previous message. Send this when it finishes.'); return; }
+      closeModal();
+      void sendCeoMessage(form.text.trim(), true, ref => nav('/tasks/' + encodeURIComponent(ref)));
     }
     if (kind === 'mission') {
       setSubmitting(true);
