@@ -1,49 +1,30 @@
 import { useEffect, useState } from 'react';
 import { api, type HermesModelCatalog } from '../api';
-import { PROVIDERS, RECOMMENDED_MODELS } from '../providerConfig';
-import { DEFAULTS, defaultModelForProvider, modelFromStatus, type Provider } from '../settingsModel';
+import { RECOMMENDED_MODELS } from '../providerConfig';
+import { DEFAULTS, defaultModelForProvider, type Provider } from '../settingsModel';
 import { useStore } from '../store';
 import { KEY_RE, cleanKey, deriveOrgKey } from '../orgModel';
+import { ProviderConnect } from '../components/ProviderConnect';
 
-const STEPS = ['Organization', 'CEO', 'Model', 'Team'];
+const STEPS = ['Organization', 'CEO', 'Connect', 'Team'];
 export const ONBOARDING_KICKOFF = "Let's get me onboarded. Use your waypoint-onboarding skill.";
 
 export function OrgSetupView() {
   const { saveOrganization, flash, setCeoThread, sendCeoMessage } = useStore();
-  const [skipModel, setSkipModel] = useState(false);
   const [step, setStep] = useState(0);
   const [name, setName] = useState('');
   const [key, setKey] = useState('');
   const [keyEdited, setKeyEdited] = useState(false);
   const [ceoName, setCeoName] = useState('CEO');
-  const [provider, setProvider] = useState<Provider>('openai-codex');
-  const [model, setModel] = useState(DEFAULTS['openai-codex'].default);
+  const [provider, setProvider] = useState<Provider | null>(null);
   const [catalog, setCatalog] = useState<HermesModelCatalog | null>(null);
-  const [saved, setSaved] = useState<{ provider: Provider; model: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
-  useEffect(() => {
-    api.hermesModelCatalog().then(setCatalog).catch(() => setCatalog(null));
-    api.hermesStatus().then(status => {
-      const current = modelFromStatus(status);
-      if (!current) return;
-      setProvider(current.provider); setModel(current.default); setSaved({ provider: current.provider, model: current.default });
-    }).catch(() => undefined);
-  }, []);
+  useEffect(() => { api.hermesModelCatalog().then(setCatalog).catch(() => setCatalog(null)); }, []);
 
   const shownKey = keyEdited ? key : deriveOrgKey(name);
-  const catalogProvider = catalog?.providers.find(p => p.id === provider);
-  const listed = catalogProvider?.models || [];
-  const ids = RECOMMENDED_MODELS[provider].includes(model) ? RECOMMENDED_MODELS[provider] : [model, ...RECOMMENDED_MODELS[provider]];
-  const models = ids.map(id => listed.find(m => m.id === id) || { id, name: id });
-
-  const pickProvider = (next: Provider) => {
-    setProvider(next);
-    setModel(defaultModelForProvider(next, catalog?.providers.find(p => p.id === next), RECOMMENDED_MODELS[next]));
-  };
-
-  const ok = step === 0 ? name.trim() && KEY_RE.test(shownKey) : step === 1 ? ceoName.trim() : true;
+  const ok = step === 0 ? name.trim() && KEY_RE.test(shownKey) : step === 1 ? ceoName.trim() : step === 2 ? Boolean(provider) : true;
 
   const finish = async (onboard: boolean) => {
     setBusy(true); setError('');
@@ -54,12 +35,12 @@ export function OrgSetupView() {
       setBusy(false);
       return;
     }
-    if (!skipModel && !(saved?.provider === provider && saved.model === model)) {
-      const fallback = DEFAULTS[provider];
+    if (provider) {
+      const catalogProvider = catalog?.providers.find(p => p.id === provider);
       try {
-        await api.saveModel({ provider, default: model, api_mode: catalogProvider?.api_mode || fallback.api_mode, base_url: '' });
+        await api.saveModel({ provider, default: defaultModelForProvider(provider, catalogProvider, RECOMMENDED_MODELS[provider]), api_mode: catalogProvider?.api_mode || DEFAULTS[provider].api_mode, base_url: '' });
       } catch (e) {
-        flash(`Model not saved: ${e instanceof Error ? e.message : 'unavailable'}. Set it in Settings.`);
+        flash(`Model not saved: ${e instanceof Error ? e.message : 'unavailable'}`);
       }
     }
     if (!onboard) return;
@@ -69,7 +50,6 @@ export function OrgSetupView() {
 
   const next = () => {
     if (!ok || busy) return;
-    if (step === 2) setSkipModel(false);
     if (step < STEPS.length - 1) setStep(step + 1);
     else void finish(true);
   };
@@ -106,15 +86,10 @@ export function OrgSetupView() {
 
         {step === 2 && <>
           <div className="stack" style={{ gap: 6 }}>
-            <div className="eyebrow">PREFERRED MODEL</div>
-            <h1 className="h1">Pick {ceoName.trim() || 'the CEO'}'s model</h1>
+            <div className="eyebrow">CONNECT</div>
+            <h1 className="h1">Connect {ceoName.trim() || 'the CEO'} to a model</h1>
           </div>
-          <div className="chips">
-            {PROVIDERS.map(p => <button key={p.id} type="button" className={'chip' + (provider === p.id ? ' on' : '')} aria-pressed={provider === p.id} onClick={() => pickProvider(p.id)}>{p.name}</button>)}
-          </div>
-          <div className="chips">
-            {models.map(m => <button key={m.id} type="button" className={'chip mono' + (model === m.id ? ' on' : '')} aria-pressed={model === m.id} onClick={() => setModel(m.id)}>{m.name || m.id}</button>)}
-          </div>
+          <ProviderConnect onChange={setProvider} />
         </>}
 
         {step === 3 && <>
@@ -128,7 +103,7 @@ export function OrgSetupView() {
 
         <div className="setup-actions">
           {step > 0 && <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => setStep(step - 1)}>Back</button>}
-          {step === 2 && <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => { setSkipModel(true); setStep(3); }} style={{ marginLeft: 'auto' }}>Skip for now</button>}
+          {step === 2 && <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => { setProvider(null); setStep(3); }} style={{ marginLeft: 'auto' }}>Skip for now</button>}
           {step === 3 && <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => void finish(false)} style={{ marginLeft: 'auto' }}>Skip</button>}
           <button type="submit" className="btn btn-primary lg" disabled={!ok || busy} style={step >= 2 ? undefined : { marginLeft: 'auto' }}>
             {step < 3 ? 'Continue' : busy ? 'Saving…' : 'Start onboarding'}
