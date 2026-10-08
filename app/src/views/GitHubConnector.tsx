@@ -1,6 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { api, type GitHubStatus, type LocalRepoInfo, type Project } from '../api';
-import { OnDot } from '../components/ui';
 import type { OrgPod } from '../taskQueueModel';
 
 function submitManifest(url: string, manifest: object) {
@@ -16,14 +15,30 @@ function submitManifest(url: string, manifest: object) {
   form.submit();
 }
 
-export function GitHubCard() {
+export function githubRepos(status: GitHubStatus | null) {
+  return status?.installations.flatMap(i => i.repos) || [];
+}
+
+export function githubReadiness(status: GitHubStatus | null) {
+  if (!status) return { label: 'Checking', on: false };
+  if (!status.connected) return { label: 'Not connected', on: false };
+  if (status.error) return { label: 'Needs attention', on: false };
+  return githubRepos(status).length ? { label: 'Connected', on: true } : { label: 'Not installed', on: false };
+}
+
+export function useGitHubStatus() {
   const [status, setStatus] = useState<GitHubStatus | null>(null);
+  const [error, setError] = useState('');
+  const reload = useCallback(() => api.githubStatus().then(next => { setStatus(next); setError(''); }).catch(e => setError(e instanceof Error ? e.message : String(e))), []);
+  useEffect(() => { void reload(); }, [reload]);
+  return { status, setStatus, error, reload };
+}
+
+export function GitHubSetup({ status, setStatus, reload, loadError }: { status: GitHubStatus | null; setStatus: (s: GitHubStatus) => void; reload: () => void; loadError: string }) {
   const [owner, setOwner] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-
-  const load = () => api.githubStatus().then(setStatus).catch(e => setError(e instanceof Error ? e.message : String(e)));
-  useEffect(() => { void load(); }, []);
+  const repos = githubRepos(status);
 
   const connect = async () => {
     setBusy(true); setError('');
@@ -38,42 +53,30 @@ export function GitHubCard() {
     try { setStatus(await api.githubDisconnect() as GitHubStatus); } finally { setBusy(false); }
   };
 
-  const repos = status?.installations.flatMap(i => i.repos) || [];
   return (
-    <section className="card stack" style={{ padding: 16, gap: 14 }} aria-label="GitHub">
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
-        <span className="provider-mark">GH</span>
-        <div className="stack" style={{ gap: 4, minWidth: 0 }}>
-          <h2 style={{ margin: 0, fontSize: 14, fontWeight: 600 }}>GitHub</h2>
-          <div style={{ color: 'var(--muted)', fontSize: 12.5 }}>A Waypoint GitHub App gives designated seats short-lived access to chosen repositories.</div>
-        </div>
-        <span className="status-badge" style={{ marginLeft: 'auto', color: status?.connected ? 'var(--text-3)' : 'var(--faint)' }}><OnDot on={Boolean(status?.connected && repos.length)} />{!status ? 'Checking' : !status.connected ? 'Not connected' : repos.length ? 'Connected' : 'Not installed'}</span>
+    <div className="provider-method-card stack" style={{ gap: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div className="section-title">GitHub App</div>
+        <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--faint)' }}>{githubReadiness(status).label}</span>
       </div>
-      {error && <div role="alert" style={{ fontSize: 12.5, color: 'var(--text)' }}>{error}</div>}
-      {status && !status.connected && (
-        <div className="stack" style={{ gap: 10 }}>
-          <p style={{ margin: 0, fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.45 }}>Connecting creates a private GitHub App with repository contents, pull request, and issue access. GitHub asks you to confirm, then you choose which repositories to install it on.</p>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-            <input className="input" style={{ width: 240 }} value={owner} onChange={e => setOwner(e.target.value)} placeholder="GitHub organization (optional)" aria-label="GitHub organization" />
-            <button className="btn btn-primary" disabled={busy} onClick={() => void connect()}>{busy ? 'Opening GitHub…' : 'Connect GitHub'}</button>
-          </div>
-          <span style={{ fontSize: 12, color: 'var(--faint)' }}>Leave the organization empty to create the app under your personal account.</span>
+      {(error || loadError) && <div role="alert" style={{ fontSize: 12.5, color: 'var(--text)' }}>{error || loadError}</div>}
+      {status && !status.connected && <>
+        <p style={{ margin: 0, fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.45 }}>Creates a private GitHub App with repository contents, pull request, and issue access. GitHub asks you to confirm, then you choose which repositories to install it on.</p>
+        <input className="input" value={owner} onChange={e => setOwner(e.target.value)} placeholder="GitHub organization (optional)" aria-label="GitHub organization" />
+        <span style={{ fontSize: 12, color: 'var(--faint)' }}>Leave empty to create the app under your personal account.</span>
+        <button className="btn btn-primary" disabled={busy} onClick={() => void connect()}>{busy ? 'Opening GitHub…' : 'Connect GitHub'}</button>
+      </>}
+      {status?.connected && status.app && <>
+        <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>App <a href={status.app.htmlUrl} target="_blank" rel="noreferrer" className="mono">{status.app.slug}</a>{status.app.owner ? ` · ${status.app.owner}` : ''}</div>
+        {status.error && <div role="alert" style={{ fontSize: 12.5, color: 'var(--text)' }}>{status.error}</div>}
+        {repos.length ? <div className="chips">{repos.map(r => <span key={r} className="chip mono" style={{ cursor: 'default' }}>{r}</span>)}</div> : <div style={{ fontSize: 12.5, color: 'var(--faint)' }}>Not installed on any repository yet.</div>}
+        <a className="btn btn-primary" style={{ textAlign: 'center' }} href={status.installUrl || '#'}>{repos.length ? 'Change repositories' : 'Install on repositories'}</a>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="btn btn-ghost" onClick={reload}>Refresh</button>
+          <button className="btn btn-ghost" disabled={busy} onClick={() => void disconnect()}>Disconnect</button>
         </div>
-      )}
-      {status?.connected && status.app && (
-        <div className="stack" style={{ gap: 10 }}>
-          <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>App <a href={status.app.htmlUrl} target="_blank" rel="noreferrer" className="mono">{status.app.slug}</a>{status.app.owner ? ` · owned by ${status.app.owner}` : ''}</div>
-          {status.error && <div role="alert" style={{ fontSize: 12.5, color: 'var(--text)' }}>{status.error}</div>}
-          {repos.length ? <div className="chips">{repos.map(r => <span key={r} className="chip mono" style={{ cursor: 'default' }}>{r}</span>)}</div> : <div style={{ fontSize: 12.5, color: 'var(--faint)' }}>Not installed on any repository yet.</div>}
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <a className="btn btn-primary" href={status.installUrl || '#'}>{repos.length ? 'Change repositories' : 'Install on repositories'}</a>
-            <button className="btn btn-ghost" onClick={() => void load()}>Refresh</button>
-            <button className="btn btn-ghost" disabled={busy} onClick={() => void disconnect()}>Disconnect</button>
-          </div>
-        </div>
-      )}
-      {status?.connected && <ProjectRepos installedRepos={repos} />}
-    </section>
+      </>}
+    </div>
   );
 }
 
@@ -128,7 +131,7 @@ function ProjectRow({ project, pods, installedRepos, onSaved }: { project: Proje
   );
 }
 
-function ProjectRepos({ installedRepos }: { installedRepos: string[] }) {
+export function ProjectRepos({ installedRepos }: { installedRepos: string[] }) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [pods, setPods] = useState<OrgPod[]>([]);
   const [name, setName] = useState('');
@@ -142,7 +145,7 @@ function ProjectRepos({ installedRepos }: { installedRepos: string[] }) {
     catch (e) { setError(e instanceof Error ? e.message : String(e)); }
   };
   return (
-    <div className="stack" style={{ gap: 10, borderTop: '1px solid var(--border)', paddingTop: 14 }}>
+    <section className="card stack" style={{ padding: 16, gap: 10 }} aria-label="Project repositories">
       <div className="section-title">Project repositories</div>
       <p style={{ margin: 0, fontSize: 12.5, color: 'var(--muted)' }}>Point a project at its local folder to detect the repository. Seats clone it into their own pod and push branches; your folder is never mounted into a pod.</p>
       {projects.map(project => <ProjectRow key={project.id} project={project} pods={pods} installedRepos={installedRepos} onSaved={p => setProjects(ps => ps.map(x => x.id === p.id ? p : x))} />)}
@@ -151,6 +154,6 @@ function ProjectRepos({ installedRepos }: { installedRepos: string[] }) {
         <button className="btn btn-ghost" onClick={() => void add()}>Add project</button>
       </div>
       {error && <div role="alert" style={{ fontSize: 12.5, color: 'var(--text)' }}>{error}</div>}
-    </div>
+    </section>
   );
 }
