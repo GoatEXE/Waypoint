@@ -176,3 +176,32 @@ test('a host-origin CEO message remains an initial wake while a CEO mailbox turn
     await waitFor(async () => (await readMessage(f.messaging, BUILDER, independent.id))?.wake?.state === 'completed');
   } finally { release?.(); wakes.stop(); await wakes.settled(); await f.close(); }
 });
+
+test('a recipient reply links to the original message and shows in the sender outbox with delivery state', async () => {
+  const f = await fixture();
+  const wakes = new MessageWakeService({ ...f, deliver: async (message) => {
+    if (message.to === LEAD) {
+      await f.messaging.send(LEAD, { to: 'ceo', text: 'Reviewed: looks good.' }, { bridge: true });
+      return { outcome: 'completed', text: 'Read the request and replied to the CEO.' };
+    }
+    return { outcome: 'completed', reply: 'Noted the reply.' };
+  }, intervalMs: 20 });
+  try {
+    const sent = await f.messaging.send('ceo', { to: LEAD, text: 'Please review the plan.' });
+    assert.equal((await f.messaging.outbox('ceo')).messages[0].delivery, 'queued');
+    await wakes.start();
+    await waitFor(async () => (await readMessage(f.messaging, LEAD, sent.id))?.wake?.state === 'completed');
+    const { messages } = await f.messaging.outbox('ceo');
+    assert.equal(messages.length, 1);
+    assert.equal(messages[0].delivery, 'answered');
+    assert.equal(messages[0].reply, 'Read the request and replied to the CEO.');
+    assert.deepEqual(messages[0].replies.map((reply) => [reply.from, reply.text]), [[LEAD, 'Reviewed: looks good.']]);
+    const replyDelivery = (await f.messaging.listDeliveries()).messages.find((message) => message.from === LEAD);
+    assert.equal(replyDelivery.replyTo, sent.id);
+    await assert.rejects(f.messaging.outbox('ceo', { limit: 0 }), /limit/);
+  } finally {
+    wakes.stop();
+    await wakes.settled();
+    await f.close();
+  }
+});

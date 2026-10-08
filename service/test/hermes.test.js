@@ -313,6 +313,11 @@ test('CEO conversation creates a named Hermes session, persists messages, and re
   assert.notEqual(firstConversationName, 'waypoint-ceo');
   assert.equal(spawns[0].includes('--resume'), false);
   assert.equal(firstChild.stdinText, 'Say one safe sentence.');
+  const during = await hermes.ceoConversation();
+  assert.deepEqual(during.messages.map((m) => [m.role, m.text, m.status]), [['user', 'Say one safe sentence.', 'sent']]);
+  assert.equal(during.live.message, 'Say one safe sentence.');
+  const restarted = new HermesRuntime(hermes.config, undefined, readyConversationRunner([]), () => { throw new Error('unused'); });
+  assert.deepEqual((await restarted.ceoConversation()).messages.map((m) => m.status), ['outcome_unknown']);
   firstChild.stdout.emit('data', '{"type":"start","subtype":"init","session_id":"sess_abc123"}\n');
   firstChild.stdout.emit('data', '{"type":"text","text":"I coordinate Waypoint work."}\n');
   firstChild.stdout.emit('data', '{"type":"result","session_id":"sess_abc123","text":"I coordinate Waypoint work.","tokens":{"redactedByTest":true}}\n');
@@ -357,7 +362,7 @@ test('CEO mailbox turn is bounded, isolated from user conversation, and carries 
   child.stdout.emit('data', '{"type":"start","subtype":"init","session_id":"mailbox_1"}\n');
   child.stdout.emit('data', '{"type":"result","session_id":"mailbox_1","text":"Message handled."}\n');
   child.emit('close', 0);
-  assert.deepEqual(await turn, { outcome: 'completed', sessionId: 'mailbox_1' });
+  assert.deepEqual(await turn, { outcome: 'completed', sessionId: 'mailbox_1', reply: 'Message handled.' });
   await assert.rejects(() => fs.readFile(path.join(dir, 'hermes-ceo-conversation.json'), 'utf8'), { code: 'ENOENT' });
 });
 
@@ -621,6 +626,10 @@ test('CEO bridge skill seed documents run_task and task_status truthfully', asyn
   assert.match(skill, /pod_start also prepares every seat profile, applies its saved or template model/);
   assert.match(skill, /Waypoint captures the CEO current model as that pod's default when pod_start runs/);
   assert.match(skill, /explicit seat and template models take priority/);
+  assert.match(skill, /## Work requests become tasks\n\nWhen the user asks for work to be done .* create a task for it instead of messaging a seat/);
+  assert.match(skill, /Use send_message only for coordination and questions .* never to hand off work/);
+  assert.match(skill, /move its status back to todo \(or backlog\) only after the user approves another run/);
+  assert.match(script, /## outbox\nPayload: .*\nReturns messages you sent, newest first, each with delivery/);
   assert.match(skill, /run_task never starts the pod or provisions seats/);
   assert.match(skill, /Returns promptly .*"state": "running" \} \(accepted for background execution, like HTTP 202\)\. It does not wait for the result/);
   assert.match(skill, /Never retry automatically\. Do not call run_task again for a task that failed or has an unknown outcome/);

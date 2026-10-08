@@ -7,6 +7,7 @@ import { ceoNameOf } from '../orgModel';
 import { buildOrgTree, type OrgChartData } from '../orgChartModel';
 import { taskLabel } from '../taskQueueModel';
 import { ONBOARDING_KICKOFF } from './OrgSetupView';
+import { HermesPortalLink } from '../components/HermesPortalLink';
 
 function TaskChip({ task }: { task: TaskSummary }) {
   const nav = useNavigate();
@@ -73,6 +74,7 @@ export function OrgChartView() {
               </div>
               <span className="org-state"><OnDot on={Boolean(ceo?.runtime.running)} />{ceo ? (ceo.runtime.running ? 'running' : ceo.runtime.state) : '…'}</span>
             </button>
+            {ceo?.runtime.running && <HermesPortalLink target="ceo" />}
           </div>
           {tree.unassigned.length > 0 && (
             <div className="org-unassigned">
@@ -100,6 +102,7 @@ export function OrgChartView() {
                         <span className="org-name mono">{seat.seatId}</span>
                         <span className="org-sub ellipsis">{seat.role}</span>
                       </div>
+                      {pod.state === 'running' && <HermesPortalLink target={`${pod.podId}/${seat.seatId}`} />}
                       {seat.running ? <span className="org-working">working on {taskLabel(seat.running)}</span> : <span className="org-sub">{seat.open.length ? `${seat.open.length} open` : 'idle'}</span>}
                       {seat.open.length > 0 && <div className="org-tasks">{seat.open.slice(0, 4).map(t => <TaskChip key={t.id} task={t} />)}{seat.open.length > 4 && <span className="org-sub">+{seat.open.length - 4} more</span>}</div>}
                     </div>

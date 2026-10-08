@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { badRequest, conflict, notFound } from './errors.js';
 import { finalActivity, normalizeActivity, publicActivity, redactActivityText } from './activity.js';
+import { markInterruptedTurn } from './hermes.js';
 
 const THREADS_DIR = 'seat-threads';
 const POD_ID_RE = /^pod_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -64,7 +65,8 @@ export class SeatChatService {
     await this.resolve(podId, seatId);
     const threadId = seatThreadId(podId, seatId);
     const live = this.live.get(threadId);
-    return { threadId, sessionId: null, messages: await this.read(podId, seatId), live: live ? { startedAt: live.startedAt, message: live.message, items: publicActivity(live.items) } : null, busyThreadId: live ? threadId : null };
+    const messages = await this.read(podId, seatId);
+    return { threadId, sessionId: null, messages: live ? messages : markInterruptedTurn(messages), live: live ? { startedAt: live.startedAt, message: live.message, items: publicActivity(live.items) } : null, busyThreadId: live ? threadId : null };
   }
 
   async send(podId, seatId, input = {}) {
@@ -80,7 +82,9 @@ export class SeatChatService {
     const turn = { startedAt: new Date().toISOString(), message: redactActivityText(text), items: [] };
     const prompt = before.length ? text : `The Waypoint user is talking with you directly as seat ${seatId} (${String(seat.role || 'seat').slice(0, 80)}). This is a conversation, not an assigned task: answer questions and discuss work, and only change files or run tools when the user asks.\n\n${text}`;
     this.live.set(threadId, turn);
+    let delivered = false;
     try {
+      await this.write(podId, seatId, [...before, { role: 'user', text: turn.message, at: turn.startedAt, status: 'sent' }]);
       const result = await this.executor.execute({ task: { id: seatChatTaskId(podId, seatId), podId, seatId, summary: 'Direct chat with the Waypoint user' }, pod, template, prompt, activity: turn.items });
       const confirmed = result.outcome === 'completed';
       const items = finalActivity(turn.items);
@@ -91,9 +95,11 @@ export class SeatChatService {
         { role: 'seat', text: confirmed ? result.text : (result.text || UNKNOWN_MARKER), at: new Date().toISOString(), status: confirmed ? 'confirmed' : 'outcome_unknown' },
       ];
       await this.write(podId, seatId, messages);
+      delivered = true;
       this.logger?.info?.('seat_chat_turn_finished', { podId, seatId, outcome: result.outcome, steps: items.length });
       return { threadId, sessionId: null, reply: messages.at(-1).text, messages: normalizeMessages(messages) };
     } finally {
+      if (!delivered) await this.write(podId, seatId, before).catch((error) => this.logger?.warn?.('seat_chat_pending_restore_failed', { message: error.message }));
       this.live.delete(threadId);
     }
   }

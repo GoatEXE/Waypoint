@@ -4,7 +4,7 @@ import * as D from '../data';
 import { byParent, projById, st } from '../model';
 import { api, parseSeatThread, type CeoThread } from '../api';
 import { ActivityBlock, ActivityList } from './Activity';
-import { addressLabel, buildTimeline, type TaskThreadExtras, type TimelineEntry } from '../threadTimeline';
+import { addressLabel, buildTimeline, deliveryLabel, generalThreadMessages, type TaskThreadExtras, type TimelineEntry } from '../threadTimeline';
 import { useStore, useViewport, type PaneTab } from '../store';
 import { ceoNameOf } from '../orgModel';
 import { Dot, PaneGroupHead } from './ui';
@@ -105,10 +105,22 @@ function RunEntry({ entry, seatId }: { entry: Extract<TimelineEntry, { kind: 'ru
 
 function PeerEntry({ entry, ceoName }: { entry: Extract<TimelineEntry, { kind: 'peer' }>; ceoName: string }) {
   const { message } = entry;
+  const delivery = deliveryLabel(message);
   return (
     <div className="thread-peer">
-      <div className="thread-run-head"><span className="mono">{addressLabel(message.from, ceoName)} → {addressLabel(message.to, ceoName)}</span><span className="act-time" style={{ marginLeft: 'auto' }}>{messageTime(message.createdAt)}</span></div>
+      <div className="thread-run-head">
+        <span className="mono">{addressLabel(message.from, ceoName)} → {addressLabel(message.to, ceoName)}</span>
+        {message.replyTo && <span>reply</span>}
+        <span className={'delivery-pill ' + delivery.tone}>{delivery.label}</span>
+        <span className="act-time" style={{ marginLeft: 'auto' }}>{messageTime(message.createdAt)}</span>
+      </div>
       <div className="thread-peer-text">{message.text}</div>
+      {message.wake?.reply && (
+        <div className="thread-peer-reply">
+          <span className="mono">{addressLabel(message.to, ceoName)}</span>
+          <div className="thread-peer-text">{message.wake.reply}</div>
+        </div>
+      )}
     </div>
   );
 }
@@ -116,10 +128,16 @@ function PeerEntry({ entry, ceoName }: { entry: Extract<TimelineEntry, { kind: '
 function useTaskThreadExtras(threadId: string, refreshKey: unknown) {
   const [extras, setExtras] = useState<TaskThreadExtras | null>(null);
   useEffect(() => {
-    if (!threadId.startsWith('task_')) { setExtras(null); return; }
+    const general = threadId === 'general';
+    if (!general && !threadId.startsWith('task_')) { setExtras(null); return; }
     let active = true;
     const load = async () => {
       try {
+        if (general) {
+          const { messages } = await api.messageDeliveries();
+          if (active) setExtras({ seatId: null, runs: [], live: null, messages: generalThreadMessages(messages) });
+          return;
+        }
         const [task, messages] = await Promise.all([api.task(threadId), api.taskMessages(threadId)]);
         if (active) setExtras({ seatId: task.seatId, runs: task.runs || [], live: task.liveActivity || null, messages: messages.messages });
       } catch {   }
@@ -141,7 +159,8 @@ function CeoChat() {
   const ceoName = ceoNameOf(state.org.organization);
   const seatThread = parseSeatThread(state.ceoThread);
   const agentName = seatThread ? seatThread.seatId : ceoName;
-  const elapsed = useElapsed(ceo.sending ? ceo.live?.startedAt || null : null);
+  const working = ceo.sending || Boolean(ceo.live);
+  const elapsed = useElapsed(working ? ceo.live?.startedAt || null : null);
 
   useEffect(() => {
     if (loadedRef.current || ceo.messages.length || ceo.sending || ceo.pendingMessage || ceo.failedMessage) return;
@@ -164,6 +183,13 @@ function CeoChat() {
     return () => { active = false; };
   }, [state.ceoThread, ceo.sending]);
 
+  const resuming = !ceo.sending && Boolean(ceo.live);
+  useEffect(() => {
+    if (!resuming) return;
+    const timer = window.setInterval(() => void loadCeoConversation(), 1500);
+    return () => window.clearInterval(timer);
+  }, [resuming, loadCeoConversation]);
+
   useEffect(() => {
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
@@ -171,20 +197,20 @@ function CeoChat() {
 
   const send = () => {
     const text = draft.trim();
-    if (!text || ceo.sending) return;
+    if (!text || working) return;
     setDraft('');
     void sendCeoMessage(text);
   };
   const refreshConversation = () => { if (!ceo.loading) void loadCeoConversation(); };
   const hasVisibleMessages = ceo.messages.length > 0 || ceo.pendingMessage || ceo.failedMessage;
-  const otherBusy = !ceo.sending && ceo.busyThreadId && ceo.busyThreadId !== state.ceoThread;
+  const otherBusy = !working && ceo.busyThreadId && ceo.busyThreadId !== state.ceoThread;
   const currentThread = threads.find(t => t.threadId === state.ceoThread);
   const extras = useTaskThreadExtras(state.ceoThread, ceo.messages.length);
   const timeline = buildTimeline(ceo.messages, extras);
 
   return (
     <>
-      <ThreadBar threads={threads} current={state.ceoThread} busy={ceo.sending ? state.ceoThread : ceo.busyThreadId} disabled={ceo.sending} onPick={id => setCeoThread(id)} />
+      <ThreadBar threads={threads} current={state.ceoThread} busy={working ? state.ceoThread : ceo.busyThreadId} disabled={ceo.sending} onPick={id => setCeoThread(id)} />
       <div ref={scrollRef} className="pane-body" style={{ padding: '20px 18px', gap: 16 }} aria-live="polite">
         {ceo.loading && !ceo.messages.length && <div className="empty">Loading conversation…</div>}
         {ceo.loadError && (
@@ -213,7 +239,7 @@ function CeoChat() {
             </div>
           </UserBubble>
         )}
-        {ceo.sending && (
+        {working && (
           <div className="stack" style={{ gap: 8 }}>
             <div className="working-line">
               <div className="ceo-mark" style={{ animation: 'wp-pulse 1s infinite' }} />
@@ -231,13 +257,13 @@ function CeoChat() {
             rows={2}
             value={draft}
             placeholder={`Message ${agentName}…`}
-            disabled={ceo.sending}
+            disabled={working}
             onChange={e => setDraft(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
           />
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11.5, color: 'var(--fainter)' }}>
             <span className="ellipsis">Thread: <span style={{ color: 'var(--muted)' }}>{threadName(currentThread, state.ceoThread)}</span></span>
-            <button className="btn btn-primary" style={{ marginLeft: 'auto', padding: '5px 11px', borderRadius: 6, fontSize: 12, opacity: draft.trim() && !ceo.sending ? 1 : 0.45 }} disabled={!draft.trim() || ceo.sending} onClick={send}>{ceo.sending ? 'Working…' : 'Send'}</button>
+            <button className="btn btn-primary" style={{ marginLeft: 'auto', padding: '5px 11px', borderRadius: 6, fontSize: 12, opacity: draft.trim() && !working ? 1 : 0.45 }} disabled={!draft.trim() || working} onClick={send}>{working ? 'Working…' : 'Send'}</button>
           </div>
         </div>
       </div>

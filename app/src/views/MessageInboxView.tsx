@@ -41,6 +41,7 @@ export function MessageInboxView() {
               <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--faint)' }}>{new Date(message.createdAt).toLocaleString()}</span>
             </div>
             <div style={{ fontSize: 13, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{message.text}</div>
+            {message.wake?.reply && <div className="thread-peer-reply"><span className="mono">Reply</span><div className="thread-peer-text">{message.wake.reply}</div></div>}
             <div style={{ fontSize: 12, color: 'var(--muted)' }}>
               {message.wake?.reason && <>Reason: {message.wake.reason.replaceAll('_', ' ')} · </>}
               {state === 'queued' && message.wake?.nextAttemptAt ? `Waiting until ${new Date(message.wake.nextAttemptAt).toLocaleString()}` : `${message.wake?.attempts || 0} turn attempt(s)`}

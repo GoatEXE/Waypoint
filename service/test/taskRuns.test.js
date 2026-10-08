@@ -75,7 +75,7 @@ test('failed and outcome_unknown results lock the task, including after restart'
     const retry = await new PodStore(dataDir).claimTaskRun(task.id, { manualRetry: true });
     const stored = await store.getTask(task.id);
     assert.equal(stored.runs.length, 2);
-    assert.deepEqual(stored.runs.at(-1), { id: retry.runId, state: 'running', startedAt: stored.runs.at(-1).startedAt, fromState: outcome, manualRetry: true });
+    assert.deepEqual(stored.runs.at(-1), { id: retry.runId, state: 'running', startedAt: stored.runs.at(-1).startedAt, fromState: outcome, fromStatus: 'in_progress', manualRetry: true });
   }
 });
 
@@ -267,4 +267,50 @@ test('startup reconciliation marks runs from a previous process as outcome_unkno
 test('startup reconciliation tolerates a missing tasks folder', async () => {
   const store = new PodStore(await tmp());
   assert.deepEqual(await store.markInterruptedTaskRuns(), []);
+});
+
+test('status changes follow allowed transitions and leave an audit trail with the actor', async () => {
+  const { store, task } = await setup();
+  const { runId } = await store.claimTaskRun(task.id);
+  await assert.rejects(store.updateTask(task.id, { status: 'done' }, { actor: 'ceo' }), (error) => error.status === 409 && /while a run is in progress/.test(error.message));
+  await store.finishTaskRun(task.id, runId, completed());
+  const reviewed = await store.getTaskView(task.id);
+  assert.equal(reviewed.status, 'in_review');
+  assert.equal(reviewed.state, 'completed');
+  await assert.rejects(store.claimTaskRun(task.id), (error) => error.status === 409);
+
+  const reopened = await store.updateTask(task.id, { status: 'todo' }, { actor: 'ceo' });
+  assert.equal(reopened.state, 'delegated');
+  assert.equal(reopened.evidence.at(-1).type, 'reopened');
+  const rerun = await store.claimTaskRun(task.id);
+  await store.finishTaskRun(task.id, rerun.runId, completed());
+  const done = await store.updateTask(task.id, { status: 'done' });
+  await assert.rejects(store.updateTask(task.id, { status: 'canceled' }), (error) => error.status === 400 && /allowed: todo, in_review/.test(error.message));
+  assert.deepEqual(done.statusHistory.map(({ from, to, by, reason }) => [from, to, by, reason ?? null]), [
+    [null, 'todo', 'user', 'created'],
+    ['todo', 'in_progress', 'system', 'run_started'],
+    ['in_progress', 'in_review', 'system', 'run_completed'],
+    ['in_review', 'todo', 'ceo', null],
+    ['todo', 'in_progress', 'system', 'run_started'],
+    ['in_progress', 'in_review', 'system', 'run_completed'],
+    ['in_review', 'done', 'user', null],
+  ]);
+  assert.ok(done.statusHistory.every((entry) => !Number.isNaN(Date.parse(entry.at))));
+});
+
+test('moving a failed task back to todo does not bypass manual review', async () => {
+  const { store, task } = await setup();
+  const { runId } = await store.claimTaskRun(task.id);
+  await store.finishTaskRun(task.id, runId, completed({ outcome: 'failed' }));
+  const moved = await store.updateTask(task.id, { status: 'todo' }, { actor: 'ceo' });
+  assert.equal(moved.state, 'failed');
+  await assert.rejects(store.claimTaskRun(task.id), (error) => error.status === 409 && /manual review/.test(error.message));
+});
+
+test('a run released before any model turn restores the prior status', async () => {
+  const { store, task } = await setup();
+  const { runId } = await store.claimTaskRun(task.id);
+  const released = await store.abortTaskRun(task.id, runId, { reason: 'pod_not_running' });
+  assert.equal(released.status, 'todo');
+  assert.deepEqual(released.statusHistory.slice(-2).map(({ to, reason }) => [to, reason]), [['in_progress', 'run_started'], ['todo', 'run_aborted']]);
 });

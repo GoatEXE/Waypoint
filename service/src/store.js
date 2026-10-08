@@ -6,7 +6,7 @@ import { sanitizeResponse } from './podTaskExecutor.js';
 import { normalizeActivity } from './activity.js';
 import { normalizeRepo } from './github.js';
 import { assertProjectFolder } from './projectMounts.js';
-import { TASK_EDIT_FIELDS, TASK_REF_RE, projectName, publicTask, statusAfterRun, taskBlockers, taskDescription, taskLabels, taskStatus, taskTitle } from './taskQueue.js';
+import { TASK_EDIT_FIELDS, TASK_REF_RE, assertStatusTransition, projectName, publicTask, stateAfterStatus, statusAfterRun, taskBlockers, taskDescription, taskLabels, taskStatus, taskTitle, withStatusChange } from './taskQueue.js';
 
 export const ALLOWED_BASELINE_FILES = ['SOUL.md', 'memories/MEMORY.md', 'memories/USER.md'];
 const NAME_RE = /^[a-z][a-z0-9_-]{1,62}$/;
@@ -38,6 +38,7 @@ const RUN_ERROR_MAX = 200;
 const RUN_EVIDENCE_PER_RUN = 8;
 const RUN_EVIDENCE_KEEP = 32;
 const RUNS_KEEP = 10;
+const STATUS_RESTORABLE = new Set(['backlog', 'todo', 'in_progress', 'in_review']);
 const MAX_DURATION_MS = 24 * 60 * 60 * 1000;
 
 const RUN_EVIDENCE_INT_FIELDS = ['exitCode', 'resultExitCode', 'toolCalls', 'partialTextChars', 'fixturesCreated', 'fixturesUnchanged'];
@@ -358,24 +359,29 @@ export class PodStore {
       if (manifest?.podName === podName) throw conflict('podName already exists', { podName });
     }
   }
-  async createTask(input) {
+  async createTask(input, { actor = 'user' } = {}) {
     assertTaskFields(input);
     const fields = await this.#taskFields(input, null);
     const now = new Date().toISOString();
     const number = await this.#nextTaskNumber();
     const message = fields.podId ? 'Delegation recorded only; no Hermes execution performed.' : 'Task recorded; no pod is assigned yet.';
-    const task = withoutEmptyLinks({ id: safeId('task'), number, ...fields, state: 'delegated', evidence: [{ type: 'record', message, at: now }], createdAt: now, updatedAt: now });
+    const task = withoutEmptyLinks(withStatusChange({ id: safeId('task'), number, ...fields, state: 'delegated', evidence: [{ type: 'record', message, at: now }], createdAt: now, updatedAt: now }, null, fields.status, actor, now, 'created'));
     await writeJson(this.taskPath(task.id), task);
     return this.#taskView(task);
   }
-  async updateTask(ref, input) {
+  async updateTask(ref, input, { actor = 'user' } = {}) {
     assertTaskFields(input);
     return this.#withTaskRunLock(await this.resolveTaskId(ref), async (id) => {
       const task = await this.getTask(id);
       const fields = await this.#taskFields(input, task);
       const reassigned = fields.podId !== (task.podId || null) || fields.seatId !== (task.seatId || null);
       if (reassigned && task.state === 'running') throw conflict('a running task cannot be reassigned', { taskId: id });
-      const updated = withoutEmptyLinks({ ...task, ...fields, updatedAt: new Date().toISOString() });
+      const fromStatus = publicTask(task, '').status;
+      assertStatusTransition(fromStatus, fields.status, task.state);
+      const now = new Date().toISOString();
+      const state = stateAfterStatus(task.state, fields.status);
+      const evidence = state !== task.state ? withRunEvidence(task.evidence, [{ type: 'reopened', message: `Status moved to ${fields.status} by ${actor}; the completed task is open for a new run.`, at: now }]) : task.evidence;
+      const updated = withoutEmptyLinks(withStatusChange({ ...task, ...fields, state, evidence, updatedAt: now }, fromStatus, fields.status, actor, now));
       await writeJson(this.taskPath(id), updated);
       return this.#taskView(updated);
     });
@@ -567,9 +573,11 @@ export class PodStore {
       const fromState = task.state;
       if (fromState !== 'delegated' && !(manualRetry && TASK_RUN_LOCKED_STATES.has(fromState))) throw conflict(`task run already ended as ${String(fromState).slice(0, 32)}; manual review is required before any new run`, { taskId: id, state: String(fromState).slice(0, 32) });
       const now = new Date().toISOString();
-      const run = { id: safeId('run'), state: 'running', startedAt: now, fromState, ...(manualRetry && fromState !== 'delegated' ? { manualRetry: true } : {}) };
+      const fromStatus = publicTask(task, '').status;
+      const run = { id: safeId('run'), state: 'running', startedAt: now, fromState, fromStatus, ...(manualRetry && fromState !== 'delegated' ? { manualRetry: true } : {}) };
       const runs = Array.isArray(task.runs) ? task.runs : [];
-      const updated = { ...task, state: 'running', status: statusAfterRun(publicTask(task, '').status, 'running'), activeRunId: run.id, runs: [...runs, run].slice(-RUNS_KEEP), updatedAt: now };
+      const status = statusAfterRun(fromStatus, 'running');
+      const updated = withStatusChange({ ...task, state: 'running', status, activeRunId: run.id, runs: [...runs, run].slice(-RUNS_KEEP), updatedAt: now }, fromStatus, status, 'system', now, 'run_started');
       await writeJson(this.taskPath(id), updated);
       this.activeTaskRuns.add(run.id);
       return { task: updated, runId: run.id };
@@ -624,7 +632,7 @@ export class PodStore {
       const safeReason = typeof reason === 'string' && RUN_REASON_RE.test(reason) ? reason : 'preflight_failed';
       const restored = TASK_RUN_LOCKED_STATES.has(run.fromState) && run.fromState !== 'running' ? run.fromState : 'delegated';
       const evidence = [{ type: 'run_aborted', message: `Run released before any model turn started (${safeReason}); task returned to ${restored}.`, reason: safeReason, at: now, runId: run.id }];
-      return this.#closeRun(task, { ...run, state: 'aborted', finishedAt: now, reason: safeReason }, restored, evidence, now);
+      return this.#closeRun(task, { ...run, state: 'aborted', finishedAt: now, reason: safeReason }, restored, evidence, now, run.fromStatus);
     });
   }
   async #activeRun(taskId, runId) {
@@ -643,11 +651,13 @@ export class PodStore {
     const evidence = [{ type: 'run_interrupted', message: 'Service stopped before the run outcome was confirmed; outcome is unknown. Manual review is required before any retry; Waypoint never retries automatically.', reason: 'service_restarted', at: now, runId }];
     return this.#closeRun({ ...task, runs }, { ...run, state: 'outcome_unknown', finishedAt: now, reason: 'service_restarted' }, 'outcome_unknown', evidence, now);
   }
-  async #closeRun(task, run, state, evidence, now) {
+  async #closeRun(task, run, state, evidence, now, restoreStatus = undefined) {
     const { activeRunId: _closed, ...rest } = task;
     const runs = Array.isArray(task.runs) ? task.runs : [];
     const merged = runs.some((item) => item?.id === run.id) ? runs.map((item) => (item?.id === run.id ? run : item)) : [...runs, run].slice(-RUNS_KEEP);
-    const updated = { ...rest, state, status: statusAfterRun(publicTask(task, '').status, state), lastRunId: run.id, runs: merged, evidence: withRunEvidence(task.evidence, evidence), updatedAt: now };
+    const fromStatus = publicTask(task, '').status;
+    const status = restoreStatus && STATUS_RESTORABLE.has(restoreStatus) ? restoreStatus : statusAfterRun(fromStatus, state);
+    const updated = withStatusChange({ ...rest, state, status, lastRunId: run.id, runs: merged, evidence: withRunEvidence(task.evidence, evidence), updatedAt: now }, fromStatus, status, 'system', now, `run_${run.state}`);
     await writeJson(this.taskPath(task.id), updated);
     this.activeTaskRuns.delete(run.id);
     return updated;

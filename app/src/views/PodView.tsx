@@ -5,6 +5,7 @@ import { podStateLabel, shortDate } from '../missionsModel';
 import { OnDot } from '../components/ui';
 import { useSplitCols } from '../components/layout';
 import { PodSeatSetup } from './PodSeatSetup';
+import { HermesPortalLink } from '../components/HermesPortalLink';
 
 type LoadState =
   | { status: 'loading'; pod: null; error: null }
@@ -133,6 +134,7 @@ export function PodView({ name }: { name: string }) {
                 ))}
               </div>
             ) : <div className="empty">No seat selected.</div>}
+            {selected && pod.state === 'running' && <div><HermesPortalLink target={`${pod.id}/${selected.id}`} label="Open Hermes UI" /></div>}
           </div>
 
           <div className="stack" style={{ gap: 10 }}>

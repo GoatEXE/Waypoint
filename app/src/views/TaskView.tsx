@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api, isNotFoundError, type PodInstance, type TaskRecord, type TaskRunRecord, type TaskRunStartResponse } from '../api';
+import { api, isNotFoundError, type PodInstance, type StatusChange, type TaskRecord, type TaskRunRecord, type TaskRunStartResponse } from '../api';
 import { podStateLabel, shortDate, taskStateLabel } from '../missionsModel';
 import { OnDot } from '../components/ui';
 import { useSplitCols } from '../components/layout';
@@ -84,6 +84,32 @@ function capText(text: string, max = REPLY_PREVIEW_MAX): { text: string; capped:
 function runEvidence(task: TaskRecord, runId?: string): TaskRecord['evidence'] {
   if (!runId) return [];
   return (task.evidence || []).filter(entry => entry.runId === runId).slice(-6);
+}
+
+const ACTOR_LABEL: Record<StatusChange['by'], string> = { user: 'You', ceo: 'CEO', system: 'Waypoint' };
+const REASON_LABEL: Record<string, string> = { created: 'created the task', run_started: 'when a run started', run_completed: 'when the run completed', run_failed: 'when the run failed', run_outcome_unknown: 'when the run ended with an unknown outcome', run_aborted: 'when the run was released before starting' };
+
+function StatusHistory({ task, ceoName }: { task: TaskRecord; ceoName: string }) {
+  const history = task.statusHistory || [];
+  return (
+    <div className="stack" style={{ gap: 10 }}>
+      <div className="section-title">Status history</div>
+      {!history.length && <div className="empty">No status changes are recorded yet.</div>}
+      {history.length > 0 && <ol className="status-history">
+        {[...history].reverse().map((entry, index) => (
+          <li key={`${entry.at}-${index}`}>
+            <span className="status-history-dot" />
+            <span><strong>{entry.by === 'ceo' ? ceoName : ACTOR_LABEL[entry.by] || entry.by}</strong>{' '}
+              {entry.from ? <>moved <span className="task-pill">{statusLabel(entry.from)}</span> → <span className="task-pill">{statusLabel(entry.to)}</span></> : <>set <span className="task-pill">{statusLabel(entry.to)}</span></>}
+              {entry.reason && entry.reason !== 'created' && <span style={{ color: 'var(--faint)' }}> {REASON_LABEL[entry.reason] || entry.reason.replaceAll('_', ' ')}</span>}
+              {entry.reason === 'created' && <span style={{ color: 'var(--faint)' }}> on create</span>}
+            </span>
+            <span className="act-time" style={{ marginLeft: 'auto' }} title={new Date(entry.at).toLocaleString()}>{shortDate(entry.at)}</span>
+          </li>
+        ))}
+      </ol>}
+    </div>
+  );
 }
 
 function EvidenceList({ task }: { task: TaskRecord }) {
@@ -183,7 +209,7 @@ function TaskDetails({ task, queue, onSaved }: { task: TaskRecord; queue: Return
   return (
     <div className="stack" style={{ gap: 12 }}>
       <div className="section-title">Details</div>
-      <TaskFields draft={draft} onChange={setDraft} tasks={queue.tasks} projects={queue.projects} pods={queue.pods} selfId={task.id}
+      <TaskFields draft={draft} onChange={setDraft} tasks={queue.tasks} projects={queue.projects} pods={queue.pods} selfId={task.id} savedStatus={task.status} statusLocked={task.state === 'running'}
         onProjectCreated={p => queue.setProjects(ps => [...ps, p])} disabled={busy} />
       {error && <div role="alert" style={{ fontSize: 12.5, color: 'var(--text)' }}>{error}</div>}
       {dirty && <div style={{ display: 'flex', gap: 8 }}>
@@ -380,6 +406,7 @@ export function TaskView({ id }: { id: string }) {
       <div className="split" style={{ gridTemplateColumns: splitCols, gap: 36 }}>
         <div className="stack" style={{ gap: 28 }}>
           <TaskDetails task={task} queue={queue} onSaved={() => void loadTask('poll')} />
+          <StatusHistory task={task} ceoName={ceoNameOf(appState.org.organization)} />
           <EvidenceList task={task} />
 
           <div className="stack" style={{ gap: 12 }}>

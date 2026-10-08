@@ -1,7 +1,18 @@
-import { badRequest } from './errors.js';
+import { badRequest, conflict } from './errors.js';
 
 export const TASK_STATUSES = ['backlog', 'todo', 'in_progress', 'in_review', 'done', 'canceled'];
 export const TASK_EDIT_FIELDS = ['summary', 'description', 'status', 'podId', 'seatId', 'projectId', 'labels', 'parentId', 'blockedBy'];
+export const STATUS_TRANSITIONS = {
+  backlog: ['todo', 'in_progress', 'in_review', 'done', 'canceled'],
+  todo: ['backlog', 'in_progress', 'in_review', 'done', 'canceled'],
+  in_progress: ['todo', 'in_review', 'done', 'canceled'],
+  in_review: ['todo', 'in_progress', 'done', 'canceled'],
+  done: ['todo', 'in_review'],
+  canceled: ['backlog', 'todo'],
+};
+export const STATUS_ACTORS = ['user', 'ceo', 'system'];
+const STATUS_HISTORY_KEEP = 100;
+const REOPEN_STATUSES = ['backlog', 'todo'];
 export const TASK_REF_RE = /^([A-Z][A-Z0-9]{1,5})-([1-9][0-9]{0,8})$/;
 const TITLE_MAX = 200;
 const DESCRIPTION_MAX = 8000;
@@ -51,6 +62,23 @@ export function projectName(value) {
   const text = value.trim().replace(/\s+/g, ' ');
   if (!text || text.length > PROJECT_NAME_MAX || /[\x00-\x1f\x7f]/.test(text)) throw badRequest(`project name must be 1-${PROJECT_NAME_MAX} visible characters`);
   return text;
+}
+
+export function assertStatusTransition(from, to, state) {
+  if (from === to) return;
+  if (state === 'running') throw conflict('task status cannot change while a run is in progress', { status: from });
+  if (!STATUS_TRANSITIONS[from]?.includes(to)) throw badRequest(`status cannot move from ${from} to ${to}; allowed: ${STATUS_TRANSITIONS[from]?.join(', ') || 'none'}`, { from, to });
+}
+
+export function stateAfterStatus(state, to) {
+  return state === 'completed' && REOPEN_STATUSES.includes(to) ? 'delegated' : state;
+}
+
+export function withStatusChange(task, from, to, by, at, reason = undefined) {
+  if (from === to) return task;
+  const history = Array.isArray(task.statusHistory) ? task.statusHistory : [];
+  const entry = { from: from ?? null, to, by: STATUS_ACTORS.includes(by) ? by : 'system', at, ...(reason ? { reason } : {}) };
+  return { ...task, statusHistory: [...history, entry].slice(-STATUS_HISTORY_KEEP) };
 }
 
 export function defaultStatus(state) {

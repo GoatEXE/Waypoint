@@ -26,6 +26,21 @@ export function buildTimeline(chat: CeoMessage[], extras: TaskThreadExtras | nul
     .map(({ entry }) => entry);
 }
 
+export function generalThreadMessages(messages: MessageDelivery[]): MessageDelivery[] {
+  return messages.filter(message => !message.taskId && (message.from === 'ceo' || message.to === 'ceo'));
+}
+
+export type DeliveryTone = 'ok' | 'err' | 'wait';
+
+export function deliveryLabel(message: Pick<MessageDelivery, 'wake' | 'readAt'>): { label: string; tone: DeliveryTone } {
+  const state = message.wake?.state;
+  if (state === 'completed') return { label: 'answered', tone: 'ok' };
+  if (state === 'running') return { label: 'running', tone: 'wait' };
+  if (state === 'failed' || state === 'outcome_unknown') return { label: 'failed', tone: 'err' };
+  if (state === 'suppressed') return { label: message.readAt ? 'read' : 'not delivered', tone: message.readAt ? 'ok' : 'err' };
+  return { label: 'queued', tone: 'wait' };
+}
+
 export function addressLabel(address: string, ceoName: string): string {
   if (address === 'ceo') return ceoName;
   const seat = address.split('/')[1];

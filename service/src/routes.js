@@ -10,10 +10,10 @@ const folderDialog = new FolderDialog();
 
 const NOT_FOUND = { status: 404, body: { error: { code: 'not_found', message: 'Route not found' } } };
 
-export function createHandler({ config, store, organization, docker, hermes, podSeats, podSeatAuth, taskRuns, messaging, seatChat, github, logger }) {
+export function createHandler({ config, store, organization, docker, hermes, podSeats, podSeatAuth, taskRuns, messaging, seatChat, github, portal, logger }) {
   return createJsonHandler(logger, (request, url) => {
     assertMutationSafety(request);
-    return route(request, url, { config, store, organization, docker, hermes, podSeats, podSeatAuth, taskRuns, messaging, seatChat, github, logger });
+    return route(request, url, { config, store, organization, docker, hermes, podSeats, podSeatAuth, taskRuns, messaging, seatChat, github, portal, logger });
   });
 }
 
@@ -40,7 +40,16 @@ function createJsonHandler(logger, dispatch) {
     }
   };
 }
-async function route(request, url, { config, store, organization, docker, hermes, podSeats, podSeatAuth, taskRuns, messaging, seatChat, github, logger }) {
+async function route(request, url, { config, store, organization, docker, hermes, podSeats, podSeatAuth, taskRuns, messaging, seatChat, github, portal, logger }) {
+  if (url.pathname === '/hermes-portal' && portal) {
+    if (request.method === 'GET') return { body: portal.status() };
+    if (request.method === 'DELETE') return { body: await portal.close() };
+    if (request.method === 'POST') {
+      const body = await readBody(request);
+      if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some((key) => key !== 'target')) throw badRequest('body must be { target }');
+      return { body: await portal.open(body.target) };
+    }
+  }
   if (url.pathname.startsWith('/github') && github) {
     if (request.method === 'GET' && url.pathname === '/github') return { body: await github.status({ fresh: url.searchParams.get('fresh') === '1' }) };
     if (request.method === 'POST' && url.pathname === '/github/manifest') {
@@ -206,7 +215,7 @@ async function bridgeTool(request, { config, store, docker, hermes, podSeats, ta
   const tool = String(body.tool || '');
   const args = body.args || {};
   if (['github_token', 'github_api'].includes(tool)) return seatGithubTool(request, tool, args, { store, messaging, github });
-  if (['org_chart', 'inbox', 'send_message', 'ack_message'].includes(tool)) {
+  if (['org_chart', 'inbox', 'outbox', 'send_message', 'ack_message'].includes(tool)) {
     if (!messaging) throw forbidden('Waypoint messaging is unavailable');
     const actor = await messaging.actorFromAuthorization(request.headers.authorization);
     if (!args || typeof args !== 'object' || Array.isArray(args)) throw badRequest('args must be an object');
@@ -217,6 +226,10 @@ async function bridgeTool(request, { config, store, docker, hermes, podSeats, ta
     if (tool === 'inbox') {
       assertBridgeFields(args, ['limit', 'includeRead']);
       return messaging.inbox(actor, { limit: args.limit ?? 50, includeRead: args.includeRead ?? false });
+    }
+    if (tool === 'outbox') {
+      assertBridgeFields(args, ['limit', 'taskId']);
+      return messaging.outbox(actor, { limit: args.limit ?? 20, taskId: args.taskId || undefined });
     }
     if (tool === 'ack_message') {
       assertBridgeFields(args, ['messageId']);
@@ -247,11 +260,11 @@ async function ceoControlTool(tool, args, { config, store, docker, hermes, podSe
   if (tool === 'pod_status') return bridgePodLifecycle(config, store, docker, hermes, podSeats, messaging, String(args.podId || ''), 'status');
   if (tool === 'pod_start') return bridgePodLifecycle(config, store, docker, hermes, podSeats, messaging, String(args.podId || ''), 'start');
   if (tool === 'pod_stop') return bridgePodLifecycle(config, store, docker, hermes, podSeats, messaging, String(args.podId || ''), 'stop');
-  if (tool === 'create_task') return store.createTask(args);
+  if (tool === 'create_task') return store.createTask(args, { actor: 'ceo' });
   if (tool === 'update_task') {
     if (!args || typeof args !== 'object' || Array.isArray(args)) throw badRequest('args must be an object');
     const { taskId, ...fields } = args;
-    return store.updateTask(String(taskId || ''), fields);
+    return store.updateTask(String(taskId || ''), fields, { actor: 'ceo' });
   }
   if (tool === 'list_tasks') return { tasks: await store.listTasks() };
   if (tool === 'list_projects') return { projects: await store.listProjects() };

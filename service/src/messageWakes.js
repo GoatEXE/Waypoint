@@ -65,6 +65,7 @@ export class MessageWakeService {
   async run(message) {
     const previous = this.messaging.activeWakeDepth.get(message.to);
     this.messaging.activeWakeDepth.set(message.to, message.wake.depth);
+    this.messaging.activeWakes.set(message.to, { id: message.id, from: message.from, taskId: message.taskId || null });
     try {
       const result = await this.deliver(message);
 
@@ -78,7 +79,7 @@ export class MessageWakeService {
           this.logger?.warn?.('message_wake_ack_failed', { messageId: message.id, recipient: message.to, code: String(error?.code || 'error').slice(0, 60) });
         }
       }
-      await this.messaging.finishWake(message.to, message.id, outcome, outcome === 'completed' ? '' : 'manual_review_required');
+      await this.messaging.finishWake(message.to, message.id, outcome, outcome === 'completed' ? '' : 'manual_review_required', result?.text || result?.reply || '');
       this.logger?.info?.('message_wake_finished', { messageId: message.id, recipient: message.to, outcome });
     } catch (error) {
       if (previous === undefined) this.messaging.activeWakeDepth.delete(message.to);
@@ -88,6 +89,7 @@ export class MessageWakeService {
       await this.messaging.finishWake(message.to, message.id, state, preflight ? 'recipient_not_ready' : 'manual_review_required');
       this.logger?.warn?.('message_wake_unavailable', { messageId: message.id, recipient: message.to, state, code: String(error?.code || 'error').slice(0, 60) });
     } finally {
+      this.messaging.activeWakes.delete(message.to);
       if (previous === undefined) this.messaging.activeWakeDepth.delete(message.to);
       else this.messaging.activeWakeDepth.set(message.to, previous);
     }

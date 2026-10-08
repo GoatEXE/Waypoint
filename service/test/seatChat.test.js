@@ -39,6 +39,9 @@ test('seat chat runs a bounded seat turn with live activity and keeps the conver
   const live = await chat.conversation(pod.id, 'lead');
   assert.equal(live.busyThreadId, seatThreadId(pod.id, 'lead'));
   assert.deepEqual(live.live.items.map((item) => item.status), ['running']);
+  assert.deepEqual(live.messages.map((m) => [m.role, m.text, m.status]), [['user', 'What are you working on?', 'sent']]);
+  const restarted = new SeatChatService({ config: { dataDir: chat.config.dataDir, dryRun: false }, store: chat.store, executor: chat.executor });
+  assert.deepEqual((await restarted.conversation(pod.id, 'lead')).messages.map((m) => m.status), ['outcome_unknown']);
   await assert.rejects(chat.send(pod.id, 'lead', { message: 'again' }), /already answering/);
   release();
   const done = await first;

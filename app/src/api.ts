@@ -160,6 +160,9 @@ export const api = {
   messageDeliveries: () => json<{ messages: MessageDelivery[] }>('/message-deliveries'),
   reviewMessageDelivery: (to: string, messageId: string) => json<{ id: string; to: string; reviewedAt: string; wakeState: string }>('/message-deliveries/review', { method: 'POST', body: JSON.stringify({ to, messageId }) }),
   createMission: (body: MissionInput) => json<Mission>('/missions', { method: 'POST', body: JSON.stringify(body) }),
+  hermesPortal: () => json<HermesPortalStatus>('/hermes-portal'),
+  openHermesPortal: (target: string) => json<HermesPortalStatus & { url: string }>('/hermes-portal', { method: 'POST', body: JSON.stringify({ target }) }),
+  closeHermesPortal: () => json<HermesPortalStatus>('/hermes-portal', { method: 'DELETE', body: '{}' }),
   deleteMission: (id: string) => json<{ deleted: true; missionId: string; podId: string | null; taskId: string | null }>(`/missions/${encodeURIComponent(id)}`, { method: 'DELETE', body: '{}' }),
   podInstance: (id: string) => json<PodInstance>(`/pod-instances/${encodeURIComponent(id)}`),
   podLifecycle: (id: string, action: 'start' | 'stop' | 'status') => json<PodLifecycleResponse>(`/pod-instances/${encodeURIComponent(id)}/lifecycle`, { method: 'POST', body: JSON.stringify({ action }) }),
@@ -236,6 +239,7 @@ export interface TaskSummary {
   createdAt: string;
   updatedAt: string;
 }
+export interface StatusChange { from: TaskStatus | null; to: TaskStatus; by: 'user' | 'ceo' | 'system'; at: string; reason?: string }
 export interface TaskInput { summary?: string; description?: string; status?: TaskStatus; podId?: string | null; seatId?: string | null; projectId?: string | null; labels?: string[]; parentId?: string | null; blockedBy?: string[] }
 export type ProjectWorkspace = 'local' | 'pod';
 export interface Project { id: string; name: string; missionId?: string | null; workspace?: ProjectWorkspace; localPath?: string | null; repo?: string | null; githubSeats?: string[]; createdAt: string; updatedAt: string }
@@ -247,13 +251,15 @@ export interface MessageDelivery {
   to: string;
   text: string;
   taskId?: string | null;
+  replyTo?: string | null;
   createdAt: string;
   readAt: string | null;
-  wake: { state: string; depth: number; attempts: number; startedAt?: string; finishedAt?: string; reason?: string; nextAttemptAt?: string } | null;
+  wake: { state: string; depth: number; attempts: number; startedAt?: string; finishedAt?: string; reason?: string; nextAttemptAt?: string; reply?: string } | null;
 }
 
 export interface SeatModel { provider: string; default: string; api_mode?: string; base_url?: string }
 export interface PodInstanceSeat { id: string; role: string; state?: string; copiedFiles?: string[]; model?: SeatModel }
+export interface HermesPortalStatus { open: boolean; target: string | null; url: string | null; openedAt: string | null }
 export interface PodInstance {
   id: string;
   podName: string;
@@ -310,6 +316,7 @@ export interface TaskRecord extends TaskSummary {
   activeRunId?: string;
   lastRunId?: string;
   runs?: TaskRunRecord[];
+  statusHistory?: StatusChange[];
   evidence: (MissionEvidence & { runId?: string; retry?: string })[];
   createdAt: string;
   updatedAt: string;

@@ -10,7 +10,7 @@ Host-side manual calls: `curl --unix-socket service/runtime/control/control.sock
 
 ## `POST /bridge/tools` (bridge TCP port only)
 
-The only route on the TCP listener. Body: `{ "tool": "...", "args": { ... } }`, with `Content-Type: application/json`. The CEO bearer token permits the original control tools, the task queue tools (`create_task`, `update_task`, `list_tasks`, `list_projects`, `create_project`), and messaging. A seat-specific messaging credential permits only `org_chart`, `inbox`, `send_message`, and `ack_message`; it cannot invoke pod lifecycle, task runs, or other CEO controls. Missing/wrong credentials return `403`. This route is not served on the control pipe.
+The only route on the TCP listener. Body: `{ "tool": "...", "args": { ... } }`, with `Content-Type: application/json`. The CEO bearer token permits the original control tools, the task queue tools (`create_task`, `update_task`, `list_tasks`, `list_projects`, `create_project`), and messaging. A seat-specific messaging credential permits only `org_chart`, `inbox`, `outbox`, `send_message`, and `ack_message`; it cannot invoke pod lifecycle, task runs, or other CEO controls. Missing/wrong credentials return `403`. This route is not served on the control pipe.
 
 During an automatically started CEO mailbox turn, the bridge refuses control tools even with the CEO token. Peer mail can use only the four messaging tools in that turn; it cannot authorize a pod or task action.
 
@@ -18,7 +18,7 @@ During an automatically started CEO mailbox turn, the bridge refuses control too
 
 Waypoint addresses are `ceo` and `pod_<uuid>/<seat-id>`. `org_chart` lists the CEO and all stored pods/seats, with an optional `{ "query": "builder" }` search over pod names, seat IDs, and roles. Stopped pods remain in the chart because the address refers to a stored seat.
 
-`send_message` takes `{ "to": "ADDRESS", "text": "...", "taskId": "SUN-3" }` (text 1–4000 characters; `taskId` optional, a task id or ref). A linked message appears in that task's thread. CEO messages sent during a task-thread turn are linked to that task automatically, and the seat helper links messages sent from a task workspace to that task. The seat helper takes the body as an argument: `waypoint-message.py send ADDRESS --text "..." [--task SUN-3]`, because Hermes terminal safety blocks piping text into an interpreter. The sender comes from the bearer credential and cannot be supplied in the request. The result contains a durable message ID. `inbox` takes optional `{ "limit": 50 }` and returns the recipient's unread messages, newest first. `ack_message` takes `{ "messageId": "msg_<uuid>" }`; acknowledged messages can still be fetched with `inbox` `{ "includeRead": true }`. A full mailbox refuses new messages rather than dropping unread ones; old acknowledged messages are pruned when needed.
+`send_message` takes `{ "to": "ADDRESS", "text": "...", "taskId": "SUN-3" }` (text 1–4000 characters; `taskId` optional, a task id or ref). A linked message appears in that task's thread. CEO messages sent during a task-thread turn are linked to that task automatically, and the seat helper links messages sent from a task workspace to that task. The seat helper takes the body as an argument: `waypoint-message.py send ADDRESS --text "..." [--task SUN-3]`, because Hermes terminal safety blocks piping text into an interpreter. The sender comes from the bearer credential and cannot be supplied in the request. The result contains a durable message ID. `inbox` takes optional `{ "limit": 50 }` and returns the recipient's unread messages, newest first. `ack_message` takes `{ "messageId": "msg_<uuid>" }`; acknowledged messages can still be fetched with `inbox` `{ "includeRead": true }`. A message a recipient sends back to the original sender while handling a message is linked to it with `replyTo` and inherits its `taskId`. When a delivery turn finishes, the recipient's own final answer is stored as `wake.reply` (redacted, at most 2000 characters). `outbox` takes optional `{ "limit": 20, "taskId": "SUN-3" }` and returns the caller's sent messages, newest first, each with `delivery` (`queued`, `running`, `answered`, `failed`, `read`, or `not_delivered`), `reply`, and `replies` (linked reply messages). `GET /message-deliveries` and `GET /tasks/:taskId/messages` include `replyTo` and `wake.reply`; the app shows delivery state and replies in task threads, and untasked CEO messages in the General thread. A full mailbox refuses new messages rather than dropping unread ones; old acknowledged messages are pruned when needed.
 
 The host-only control API also exposes `GET /org-chart?query=...`, `GET /messages`, `POST /messages` (sends as CEO), and `POST /messages/ack` with `{ "messageId": "..." }`. The app's signed-in `/api` proxy can use these. Pod seats receive a scoped credential and a `waypoint-messaging` Hermes skill during seat provisioning; its Python helper calls only the messaging tools over the existing bridge endpoint. The CEO's bridge skill documents the same tools. New messages carry a durable `wake` state. A ready recipient gets one bounded Hermes turn; stopped or unready recipients retain queued mail. A completed recipient turn acknowledges its message even if the agent omitted the explicit acknowledgement. A service restart marks an in-flight wake `outcome_unknown` without retry. At most one automatic reply hop wakes another recipient, and each recipient is capped at 12 automatic turns per rolling day. Acknowledging queued mail suppresses its wake. Seats in one pod share the `hermes` Unix user and volume, so they can access each other's local seat credentials; pod boundaries remain separate.
 
@@ -38,6 +38,12 @@ Returns service health and dependency-neutral process status.
 
 Returns sanitized runtime configuration such as dry-run status, data directory, Docker image setting, and label namespace. It never returns secrets.
 
+## `GET`, `POST`, and `DELETE /hermes-portal`
+
+Opens an agent's native Hermes web dashboard. `POST` takes `{ "target": "ceo" }` or `{ "target": "pod_<uuid>/<seat-id>" }` and returns `{ open, target, url, openedAt }`. The target container must be running. Dry-run mode refuses with `409`.
+
+Waypoint starts `hermes dashboard` inside the target container, bound to 127.0.0.1:9119 (the seat's profile is preselected). It serves it on one host loopback port, `http://127.0.0.1:<HERMES_PORTAL_PORT>/` (default 3081). Each TCP connection is relayed into the container through `docker exec`, so no container port is published. Only one dashboard is open at a time: opening another target stops the previous dashboard and reuses the same port. Opening the current target again reuses it. `DELETE` (or `HERMES_PORTAL_IDLE_MINUTES` without connections, default 30) stops the dashboard and closes the port. `GET` returns the current state.
+
 ## `GET /hermes/status`
 
 Returns sanitized CEO runtime status: pinned image, container/volume names, Docker running state, model settings, native Hermes auth status, and diagnostics. It never returns auth JSON, tokens, API keys, raw logs, or raw Docker inspect output.
@@ -49,7 +55,7 @@ The CEO home is seeded with a `waypoint-onboarding` skill alongside the bridge s
 The CEO conversation is split into threads: `general` plus one thread per task, keyed by the task id. Each thread is its own Hermes session. Only one CEO turn runs at a time across all threads.
 
 - `GET /hermes/ceo/threads` returns `{ "threads": [...], "busyThreadId" }`, with each thread's `threadId`, `title`, task `ref` and `status`, `messageCount`, `updatedAt`, and `lastText`.
-- `GET /hermes/ceo/conversation?threadId=general` returns `{ threadId, sessionId, messages, live, busyThreadId }`. `live` is present while a turn is running in that thread: `{ startedAt, message, items }`.
+- `GET /hermes/ceo/conversation?threadId=general` returns `{ threadId, sessionId, messages, live, busyThreadId }`. `live` is present while a turn is running in that thread: `{ startedAt, message, items }`. The user's message is stored with status `sent` when the turn starts, so it survives a page reload; the app follows a running turn's `live` state after a reload. A trailing `sent` message with no running turn (for example after a service restart) is reported as `outcome_unknown`. Seat chat threads behave the same way.
 - `POST /hermes/ceo/messages` takes `{ "message": "...", "threadId": "task_<uuid>" }` and waits for the turn to finish. The first message in a task thread is prefixed with the task's ref, title, description, status, and assignee.
 
 `messages` contain `user` and `ceo` entries plus one `activity` entry per turn: `{ role: "activity", at, items: [{ kind: "tool"|"action", name, detail, status: "ok"|"error"|"unknown", durationMs? }] }`. Tool items come from the Hermes stream-json `tool_use`/`tool_result` events: the tool name and a redacted, 200-character summary of its main input. Tool output is never stored. Seat task runs record the same tool items: while a run is active, `GET /tasks/:taskId` includes `liveActivity: { runId, items }`, and each finished run keeps `activity` in `runs[]`. `GET /tasks/:taskId/messages` lists messages linked to the task, newest first. In a task thread, the app merges the CEO conversation, the task's seat runs, and its linked messages by time. Action items record the CEO's Waypoint bridge calls (for example `create_task` → `SUN-5 Plan the site`). Hermes stream-json does not emit model reasoning, so threads cannot show it.
@@ -103,7 +109,7 @@ Starts a native Hermes OAuth/login flow. OpenAI Codex is exposed as device-code 
 
 ## `POST /bridge/tools`
 
-Internal CEO bridge. The CEO runtime token supports `health`, `list_missions`, `create_mission`, `link_mission`, `create_template`, `clone_template`, `pod_status`, `pod_start`, `pod_stop`, `create_task`, `run_task`, `task_status`, and the four messaging tools above. Missions created through the bridge are recorded with `source: "ceo"`. Anonymous requests are rejected.
+Internal CEO bridge. The CEO runtime token supports `health`, `list_missions`, `create_mission`, `link_mission`, `create_template`, `clone_template`, `pod_status`, `pod_start`, `pod_stop`, `create_task`, `run_task`, `task_status`, and the five messaging tools above. Missions created through the bridge are recorded with `source: "ceo"`. Anonymous requests are rejected.
 
 For a new pod, the CEO can create a template, clone it, and call `pod_start`. If the pod and template have no model, a live start captures the CEO's current model as the pod default; explicit seat models take priority. It then provisions every seat, installs messaging tools, and returns readiness. When shared auth is enabled, those seats use the CEO's provider connection without another login. A dry-run start writes nothing. If the CEO has no configured model and the pod has no model, start is refused before launching the pod.
 
@@ -153,7 +159,22 @@ Creates a task in the organization queue. Only `summary` (the title, 1–200 cha
 
 Unknown fields are rejected. Each task gets a sequential `number` and a `ref` such as `ORT-12` built from the organization task prefix; tasks created before numbering existed are numbered by creation time at service start. Response `state` begins as `delegated`. This endpoint records ownership only; it does not execute Hermes work. Use `POST /tasks/:taskId/run` to run it.
 
-Workflow `status` is separate from run `state`. Starting a run moves `backlog`/`todo` to `in_progress`; a completed run moves it to `in_review`. Older tasks without a status report one derived from their run state.
+Workflow `status` is separate from run `state`. Starting a run moves `backlog`/`todo` to `in_progress`; a completed run moves it to `in_review`; a run released before any model turn restores the prior status. Older tasks without a status report one derived from their run state.
+
+Status changes follow one transition table for the app and the CEO bridge (`400` otherwise), and are refused with `409` while a run is active:
+
+| From | Allowed to |
+| --- | --- |
+| `backlog` | `todo`, `in_progress`, `in_review`, `done`, `canceled` |
+| `todo` | `backlog`, `in_progress`, `in_review`, `done`, `canceled` |
+| `in_progress` | `todo`, `in_review`, `done`, `canceled` |
+| `in_review` | `todo`, `in_progress`, `done`, `canceled` |
+| `done` | `todo`, `in_review` |
+| `canceled` | `backlog`, `todo` |
+
+Moving a task whose run `completed` back to `todo` or `backlog` re-opens it: `state` returns to `delegated` (with a `reopened` evidence note) so a new run can start. Failed and `outcome_unknown` runs are not re-opened by a status change; they still need the explicit manual retry after review.
+
+`GET /tasks/:taskId` includes `statusHistory`: `[{ from, to, by, at, reason? }]`, oldest first (last 100). `by` is `user` (app), `ceo` (bridge), or `system` (automatic, with `reason` `run_started`, `run_completed`, `run_failed`, `run_outcome_unknown`, or `run_aborted`). Creation records `from: null` with `reason: "created"`.
 
 ## `PATCH /tasks/:taskId`
 

@@ -9,6 +9,21 @@ export const STATUSES: { id: TaskStatus; label: string }[] = [
   { id: 'canceled', label: 'Canceled' },
 ];
 
+export const STATUS_TRANSITIONS: Record<TaskStatus, TaskStatus[]> = {
+  backlog: ['todo', 'in_progress', 'in_review', 'done', 'canceled'],
+  todo: ['backlog', 'in_progress', 'in_review', 'done', 'canceled'],
+  in_progress: ['todo', 'in_review', 'done', 'canceled'],
+  in_review: ['todo', 'in_progress', 'done', 'canceled'],
+  done: ['todo', 'in_review'],
+  canceled: ['backlog', 'todo'],
+};
+
+export function statusOptions(from: TaskStatus | undefined, locked = false): TaskStatus[] {
+  if (!from) return STATUSES.map(s => s.id);
+  if (locked) return [from];
+  return STATUSES.map(s => s.id).filter(id => id === from || STATUS_TRANSITIONS[from].includes(id));
+}
+
 export type GroupBy = 'status' | 'project' | 'parent' | 'owner';
 export const GROUP_BY: { id: GroupBy; label: string }[] = [
   { id: 'status', label: 'Status' },
