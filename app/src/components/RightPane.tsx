@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import * as D from '../data';
 import { byParent, projById, st } from '../model';
-import { api, type CeoThread } from '../api';
+import { api, parseSeatThread, type CeoThread } from '../api';
 import { ActivityBlock, ActivityList } from './Activity';
 import { addressLabel, buildTimeline, type TaskThreadExtras, type TimelineEntry } from '../threadTimeline';
 import { useStore, useViewport, type PaneTab } from '../store';
@@ -26,11 +26,11 @@ function UserBubble({ text, meta, children }: { text: string; meta?: string; chi
   );
 }
 
-function CeoBubble({ text, at }: { text: string; at: string }) {
+function CeoBubble({ text, at, name = 'ceo' }: { text: string; at: string; name?: string }) {
   return (
     <div className="stack" style={{ gap: 6, maxWidth: '94%' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11.5, color: 'var(--dim)' }}>
-        <div className="ceo-mark" /><span className="mono c-text3">ceo</span><span>{messageTime(at)}</span>
+        <div className="ceo-mark" /><span className="mono c-text3">{name}</span><span>{messageTime(at)}</span>
       </div>
       <div style={{ fontSize: 13, lineHeight: 1.55, color: 'var(--text-2)', textWrap: 'pretty', whiteSpace: 'pre-wrap' }}>{text}</div>
     </div>
@@ -57,15 +57,23 @@ function threadName(thread: CeoThread | undefined, id: string) {
 
 function ThreadBar({ threads, current, busy, disabled, onPick }: { threads: CeoThread[]; current: string; busy: string | null; disabled: boolean; onPick: (id: string) => void }) {
   const nav = useNavigate();
-  const known = threads.some(t => t.threadId === current) ? threads : [...threads, { threadId: current, title: current === 'general' ? 'General' : 'Task thread', ref: null, status: null, messageCount: 0, updatedAt: null, lastText: '' }];
+  const known = threads.some(t => t.threadId === current) ? threads : [...threads, { threadId: current, title: current === 'general' ? 'General' : parseSeatThread(current)?.seatId || 'Task thread', ref: null, status: null, messageCount: 0, updatedAt: null, lastText: '' }];
+  const groups: [string, CeoThread[]][] = [
+    ['Tasks', known.filter(t => t.threadId.startsWith('task_'))],
+    ['Seats', known.filter(t => t.threadId.startsWith('seat:'))],
+  ];
+  const option = (t: CeoThread) => <option key={t.threadId} value={t.threadId}>{threadName(t, t.threadId)}{busy === t.threadId ? ' (working)' : ''}</option>;
+  const seat = parseSeatThread(current);
   const thread = known.find(t => t.threadId === current);
   return (
     <div className="thread-bar">
       <span className="thread-label">THREAD</span>
       <select className="thread-select" value={current} disabled={disabled} onChange={e => onPick(e.target.value)} aria-label="Conversation thread">
-        {known.map(t => <option key={t.threadId} value={t.threadId}>{threadName(t, t.threadId)}{busy === t.threadId ? ' (working)' : ''}</option>)}
+        {known.filter(t => t.threadId === 'general').map(option)}
+        {groups.map(([label, list]) => list.length ? <optgroup key={label} label={label}>{list.map(option)}</optgroup> : null)}
       </select>
-      {current !== 'general' && <button type="button" className="icon-btn" title="Open task" onClick={() => nav('/tasks/' + encodeURIComponent(thread?.ref || current))}>↗</button>}
+      {seat && <button type="button" className="icon-btn" title="Open pod" onClick={() => nav('/pods/' + seat.podId)}>↗</button>}
+      {current.startsWith('task_') && <button type="button" className="icon-btn" title="Open task" onClick={() => nav('/tasks/' + encodeURIComponent(thread?.ref || current))}>↗</button>}
     </div>
   );
 }
@@ -108,7 +116,7 @@ function PeerEntry({ entry, ceoName }: { entry: Extract<TimelineEntry, { kind: '
 function useTaskThreadExtras(threadId: string, refreshKey: unknown) {
   const [extras, setExtras] = useState<TaskThreadExtras | null>(null);
   useEffect(() => {
-    if (threadId === 'general') { setExtras(null); return; }
+    if (!threadId.startsWith('task_')) { setExtras(null); return; }
     let active = true;
     const load = async () => {
       try {
@@ -131,6 +139,8 @@ function CeoChat() {
   const loadedRef = useRef(false);
   const ceo = state.ceo;
   const ceoName = ceoNameOf(state.org.organization);
+  const seatThread = parseSeatThread(state.ceoThread);
+  const agentName = seatThread ? seatThread.seatId : ceoName;
   const elapsed = useElapsed(ceo.sending ? ceo.live?.startedAt || null : null);
 
   useEffect(() => {
@@ -143,8 +153,9 @@ function CeoChat() {
     let active = true;
     const thread = state.ceoThread;
     void (async () => {
-      const { threads: list } = await api.ceoThreads();
-      if (thread !== 'general' && !list.some(t => t.threadId === thread)) {
+      const [{ threads: list }, chart] = await Promise.all([api.ceoThreads(), api.orgChart().catch(() => ({ pods: [] }))]);
+      for (const pod of chart.pods) for (const seat of pod.seats) list.push({ threadId: `seat:${pod.podId}/${seat.seatId}`, title: `${pod.name} / ${seat.seatId}`, ref: null, status: null, messageCount: 0, updatedAt: null, lastText: seat.role });
+      if (thread.startsWith('task_') && !list.some(t => t.threadId === thread)) {
         const task = await api.task(thread).catch(() => null);
         if (task) list.push({ threadId: thread, title: task.summary, ref: task.ref, status: task.status, messageCount: 0, updatedAt: null, lastText: '' });
       }
@@ -183,7 +194,7 @@ function CeoChat() {
           </div>
         )}
         {!ceo.loading && !ceo.loadError && !hasVisibleMessages && !timeline.length && (
-          <div className="empty">{state.ceoThread === 'general' ? `No messages yet. Send ${ceoName} a message to start.` : `No messages in this task thread yet. ${ceoName} will get the task details with your first message.`}</div>
+          <div className="empty">{state.ceoThread === 'general' ? `No messages yet. Send ${ceoName} a message to start.` : seatThread ? `Talk directly with the ${seatThread.seatId} seat. It answers inside its pod and must be ready, with no task running.` : `No messages in this task thread yet. ${ceoName} will get the task details with your first message.`}</div>
         )}
         {timeline.map((entry, i) => {
           if (entry.kind === 'run') return <RunEntry key={`run-${entry.run.id}`} entry={entry} seatId={extras?.seatId || null} />;
@@ -191,7 +202,7 @@ function CeoChat() {
           const m = entry.message;
           if (m.role === 'activity') return <ActivityBlock key={`${m.at}-${i}`} items={m.items || []} />;
           if (m.role === 'user') return <UserBubble key={`${m.at}-${i}`} text={m.text || ''} meta={messageTime(m.at)} />;
-          return <CeoBubble key={`${m.at}-${i}`} text={m.text || ''} at={m.at} />;
+          return <CeoBubble key={`${m.at}-${i}`} text={m.text || ''} at={m.at} name={m.role === 'seat' ? agentName : 'ceo'} />;
         })}
         {ceo.pendingMessage && <UserBubble text={ceo.pendingMessage} meta="Sent" />}
         {ceo.failedMessage && (
@@ -206,7 +217,7 @@ function CeoChat() {
           <div className="stack" style={{ gap: 8 }}>
             <div className="working-line">
               <div className="ceo-mark" style={{ animation: 'wp-pulse 1s infinite' }} />
-              <span>{ceoName} is working{elapsed ? ` · ${elapsed}` : ''}</span>
+              <span>{agentName} is working{elapsed ? ` · ${elapsed}` : ''}</span>
               {ceo.live?.items.length ? <span className="act-time">{ceo.live.items.length} step{ceo.live.items.length === 1 ? '' : 's'}</span> : null}
             </div>
             {ceo.live?.items.length ? <ActivityList items={ceo.live.items} /> : <div className="act-hint">Waiting for the first step…</div>}
@@ -219,7 +230,7 @@ function CeoChat() {
           <textarea
             rows={2}
             value={draft}
-            placeholder={`Message ${ceoName}…`}
+            placeholder={`Message ${agentName}…`}
             disabled={ceo.sending}
             onChange={e => setDraft(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}

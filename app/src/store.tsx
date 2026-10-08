@@ -115,7 +115,7 @@ function useAppStore() {
       const thread = ceoThreadRef.current;
       set(s => ({ ceo: ceoLoadStarted(s.ceo) }));
       try {
-        const conversation = await api.ceoConversation(thread);
+        const conversation = await api.threadConversation(thread);
         set(s => ceoSendVersionRef.current === sendVersion && s.ceoThread === thread ? { ceo: ceoLoadSucceeded(s.ceo, conversation) } : {});
       } catch (err) {
         set(s => ceoSendVersionRef.current === sendVersion && s.ceoThread === thread ? { ceo: ceoLoadFailed(s.ceo, err instanceof Error ? err.message : String(err)) } : {});
@@ -126,7 +126,7 @@ function useAppStore() {
       ceoThreadRef.current = thread;
       ceoSendVersionRef.current += 1;
       set({ ceoThread: thread, ceo: { ...emptyCeoState, loading: true } });
-      void api.ceoConversation(thread)
+      void api.threadConversation(thread)
         .then(conversation => set(s => s.ceoThread === thread ? { ceo: ceoLoadSucceeded(s.ceo, conversation) } : {}))
         .catch(err => set(s => s.ceoThread === thread ? { ceo: ceoLoadFailed(s.ceo, err instanceof Error ? err.message : String(err)) } : {}));
       return true;
@@ -139,14 +139,14 @@ function useAppStore() {
       ceoSendVersionRef.current += 1;
       const thread = ceoThreadRef.current;
       const poll = window.setInterval(() => {
-        void api.ceoConversation(thread).then(conversation => set(s => s.ceoThread === thread && s.ceo.sending ? { ceo: ceoLiveUpdated(s.ceo, conversation) } : {})).catch(() => undefined);
+        void api.threadConversation(thread).then(conversation => set(s => s.ceoThread === thread && s.ceo.sending ? { ceo: ceoLiveUpdated(s.ceo, conversation) } : {})).catch(() => undefined);
       }, 1500);
       set(s => ({
         ceo: ceoSendStarted(s.ceo, text),
         ...(openPane ? { pane: { ...s.pane, open: true, tab: 'ceo' as const } } : {}),
       }));
       try {
-        const response = await api.sendCeoMessage(text, thread);
+        const response = await api.sendThreadMessage(text, thread);
         set(s => ({ ceo: ceoSendSucceeded(s.ceo, response), ...(openPane ? { pane: { ...s.pane, open: true, tab: 'ceo' as const } } : {}) }));
         return { ok: true };
       } catch (err) {

@@ -12,6 +12,7 @@ import { PodTaskExecutor, podSeatsReadiness } from './podTaskExecutor.js';
 import { TaskRunService } from './taskRuns.js';
 import { MessagingService } from './messaging.js';
 import { OrganizationStore } from './organization.js';
+import { SeatChatService } from './seatChat.js';
 import { MessageWakeService } from './messageWakes.js';
 import { createBridgeHandler, createHandler } from './routes.js';
 import { listenControl } from './controlChannel.js';
@@ -37,6 +38,7 @@ export async function createApp(env = process.env) {
 
   const taskExecutor = new PodTaskExecutor({ config, docker, readiness: podSeatsReadiness(podSeats), logger });
   const taskRuns = new TaskRunService({ config, store, executor: taskExecutor, logger });
+  const seatChat = new SeatChatService({ config, store, executor: taskExecutor, logger });
   const messageWakes = new MessageWakeService({ config, messaging, store, hermes, executor: taskExecutor, logger });
   if (config.hermes.autoStart) {
     void hermes.reconcileStartup()
@@ -44,9 +46,9 @@ export async function createApp(env = process.env) {
       .catch((error) => logger.warn('hermes_reconcile_skipped', { message: error.message }));
   }
 
-  const server = http.createServer(createHandler({ config, store, organization, docker, hermes, podSeats, podSeatAuth, taskRuns, messaging, logger }));
+  const server = http.createServer(createHandler({ config, store, organization, docker, hermes, podSeats, podSeatAuth, taskRuns, messaging, seatChat, logger }));
   const bridgeServer = http.createServer(createBridgeHandler({ config, store, docker, hermes, podSeats, taskRuns, messaging, logger }));
-  return { config, logger, store, organization, docker, hermes, podSeats, podSeatAuth, taskExecutor, taskRuns, messaging, messageWakes, server, bridgeServer };
+  return { config, logger, store, organization, seatChat, docker, hermes, podSeats, podSeatAuth, taskExecutor, taskRuns, messaging, messageWakes, server, bridgeServer };
 }
 export async function main() {
   const { server, bridgeServer, config, logger, messageWakes } = await createApp();
