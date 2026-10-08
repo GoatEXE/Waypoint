@@ -6,6 +6,7 @@ import { useStore } from '../store';
 import { ceoNameOf } from '../orgModel';
 import { buildOrgTree, type OrgChartData } from '../orgChartModel';
 import { taskLabel } from '../taskQueueModel';
+import { ONBOARDING_KICKOFF } from './OrgSetupView';
 
 function TaskChip({ task }: { task: TaskSummary }) {
   const nav = useNavigate();
@@ -47,7 +48,7 @@ export function OrgChartView() {
     <div className="page" style={{ maxWidth: 1280, gap: 24 }}>
       <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12 }}>
         <WorkspaceHead title="Organization" />
-        <button className="btn btn-primary" style={{ marginLeft: 'auto' }} disabled={state.ceo.sending} onClick={() => { setCeoThread('general'); void sendCeoMessage("Let's get me onboarded. Use your waypoint-onboarding skill.", true); }}>Onboard with {ceoNameOf(state.org.organization)}</button>
+        <button className="btn btn-primary" style={{ marginLeft: 'auto' }} disabled={state.ceo.sending} onClick={() => { setCeoThread('general'); void sendCeoMessage(ONBOARDING_KICKOFF, true); }}>Onboard with {ceoNameOf(state.org.organization)}</button>
       </div>
       {error && <div className="card" role="alert" style={{ padding: 12 }}>{error}</div>}
       {!tree && !error && <div className="empty" role="status">Loading organization…</div>}

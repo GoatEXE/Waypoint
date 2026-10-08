@@ -5,10 +5,12 @@ import { DEFAULTS, defaultModelForProvider, modelFromStatus, type Provider } fro
 import { useStore } from '../store';
 import { KEY_RE, cleanKey, deriveOrgKey } from '../orgModel';
 
-const STEPS = ['Organization', 'CEO', 'Model'];
+const STEPS = ['Organization', 'CEO', 'Model', 'Team'];
+export const ONBOARDING_KICKOFF = "Let's get me onboarded. Use your waypoint-onboarding skill.";
 
 export function OrgSetupView() {
-  const { saveOrganization, flash } = useStore();
+  const { saveOrganization, flash, setCeoThread, sendCeoMessage } = useStore();
+  const [skipModel, setSkipModel] = useState(false);
   const [step, setStep] = useState(0);
   const [name, setName] = useState('');
   const [key, setKey] = useState('');
@@ -43,7 +45,7 @@ export function OrgSetupView() {
 
   const ok = step === 0 ? name.trim() && KEY_RE.test(shownKey) : step === 1 ? ceoName.trim() : true;
 
-  const finish = async (withModel: boolean) => {
+  const finish = async (onboard: boolean) => {
     setBusy(true); setError('');
     try {
       await saveOrganization({ name: name.trim(), key: shownKey, ceoName: ceoName.trim() });
@@ -52,17 +54,22 @@ export function OrgSetupView() {
       setBusy(false);
       return;
     }
-    if (!withModel || (saved?.provider === provider && saved.model === model)) return;
-    const fallback = DEFAULTS[provider];
-    try {
-      await api.saveModel({ provider, default: model, api_mode: catalogProvider?.api_mode || fallback.api_mode, base_url: '' });
-    } catch (e) {
-      flash(`Model not saved: ${e instanceof Error ? e.message : 'unavailable'}. Set it in Settings.`);
+    if (!skipModel && !(saved?.provider === provider && saved.model === model)) {
+      const fallback = DEFAULTS[provider];
+      try {
+        await api.saveModel({ provider, default: model, api_mode: catalogProvider?.api_mode || fallback.api_mode, base_url: '' });
+      } catch (e) {
+        flash(`Model not saved: ${e instanceof Error ? e.message : 'unavailable'}. Set it in Settings.`);
+      }
     }
+    if (!onboard) return;
+    setCeoThread('general');
+    void sendCeoMessage(ONBOARDING_KICKOFF, true);
   };
 
   const next = () => {
     if (!ok || busy) return;
+    if (step === 2) setSkipModel(false);
     if (step < STEPS.length - 1) setStep(step + 1);
     else void finish(true);
   };
@@ -110,13 +117,21 @@ export function OrgSetupView() {
           </div>
         </>}
 
+        {step === 3 && <>
+          <div className="stack" style={{ gap: 6 }}>
+            <div className="eyebrow">YOUR TEAM</div>
+            <h1 className="h1">Build your team with {ceoName.trim() || 'the CEO'}</h1>
+          </div>
+        </>}
+
         {error && <div role="alert" className="setup-hint" style={{ color: 'var(--text)' }}>{error}</div>}
 
         <div className="setup-actions">
           {step > 0 && <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => setStep(step - 1)}>Back</button>}
-          {step === 2 && <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => void finish(false)} style={{ marginLeft: 'auto' }}>Skip for now</button>}
-          <button type="submit" className="btn btn-primary lg" disabled={!ok || busy} style={step === 2 ? undefined : { marginLeft: 'auto' }}>
-            {step < 2 ? 'Continue' : busy ? 'Saving…' : 'Finish setup'}
+          {step === 2 && <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => { setSkipModel(true); setStep(3); }} style={{ marginLeft: 'auto' }}>Skip for now</button>}
+          {step === 3 && <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => void finish(false)} style={{ marginLeft: 'auto' }}>Skip</button>}
+          <button type="submit" className="btn btn-primary lg" disabled={!ok || busy} style={step >= 2 ? undefined : { marginLeft: 'auto' }}>
+            {step < 3 ? 'Continue' : busy ? 'Saving…' : 'Start onboarding'}
           </button>
         </div>
       </form>

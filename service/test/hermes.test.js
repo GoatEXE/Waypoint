@@ -679,6 +679,7 @@ test('CEO home seed installs the onboarding skill and lists it as a Waypoint ski
   const payload = JSON.parse(calls[0].options.input);
   assert.match(payload.onboardingSkill, /^---\nname: waypoint-onboarding\n/);
   assert.match(payload.onboardingSkill, /Never create, start, or run anything without the user's explicit approval/);
+  assert.match(payload.onboardingSkill, /Ask exactly one question per message and put it at the end/);
   const script = String(calls[0].args.at(-1));
   assert.ok(script.includes("os.path.join(home,'skills','waypoint-onboarding')"));
 });
