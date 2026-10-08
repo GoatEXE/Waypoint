@@ -70,7 +70,7 @@ export function Sidebar() {
       </div>
       <div className="new-assign-wrap">
         <button className="new-assign" onClick={() => openModal('assignment')}>
-          <span className="plus">+</span>New assignment
+          <span className="plus">+</span>New task
           <span className="tag">{ceoNameOf(state.org.organization)}</span>
         </button>
       </div>
