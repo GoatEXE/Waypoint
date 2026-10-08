@@ -6,6 +6,7 @@ import { useStore } from '../store';
 import { ceoNameOf } from '../orgModel';
 import { buildOrgTree, type OrgChartData } from '../orgChartModel';
 import { taskLabel } from '../taskQueueModel';
+import { ONBOARDING_KICKOFF } from './OrgSetupView';
 
 function TaskChip({ task }: { task: TaskSummary }) {
   const nav = useNavigate();
@@ -18,7 +19,7 @@ function TaskChip({ task }: { task: TaskSummary }) {
 
 export function OrgChartView() {
   const nav = useNavigate();
-  const { state, setCeoThread, setPane } = useStore();
+  const { state, setCeoThread, setPane, sendCeoMessage } = useStore();
   const [chart, setChart] = useState<OrgChartData | null>(null);
   const [tasks, setTasks] = useState<TaskSummary[]>([]);
   const [ceo, setCeo] = useState<HermesStatus | null>(null);
@@ -45,7 +46,10 @@ export function OrgChartView() {
 
   return (
     <div className="page" style={{ maxWidth: 1280, gap: 24 }}>
-      <WorkspaceHead title="Organization" />
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12 }}>
+        <WorkspaceHead title="Organization" />
+        <button className="btn btn-primary" style={{ marginLeft: 'auto' }} disabled={state.ceo.sending} onClick={() => { setCeoThread('general'); void sendCeoMessage(ONBOARDING_KICKOFF, true); }}>Onboard with {ceoNameOf(state.org.organization)}</button>
+      </div>
       {error && <div className="card" role="alert" style={{ padding: 12 }}>{error}</div>}
       {!tree && !error && <div className="empty" role="status">Loading organization…</div>}
       {tree && (

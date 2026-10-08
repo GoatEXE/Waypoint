@@ -44,6 +44,8 @@ Returns sanitized CEO runtime status: pinned image, container/volume names, Dock
 
 ## CEO conversation threads
 
+The CEO home is seeded with a `waypoint-onboarding` skill alongside the bridge skill. It interviews the user on purpose, core principles, approval points, and workflow, saves the confirmed summary to Hermes memory, proposes and (after approval) builds pods and seats, and creates and runs the first task with approval at each step. The Organization page's Onboard button starts it in the General thread.
+
 The CEO conversation is split into threads: `general` plus one thread per task, keyed by the task id. Each thread is its own Hermes session. Only one CEO turn runs at a time across all threads.
 
 - `GET /hermes/ceo/threads` returns `{ "threads": [...], "busyThreadId" }`, with each thread's `threadId`, `title`, task `ref` and `status`, `messageCount`, `updatedAt`, and `lastText`.
