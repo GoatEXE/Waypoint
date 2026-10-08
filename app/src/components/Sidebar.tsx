@@ -26,7 +26,7 @@ function AddButton({ onClick }: { onClick: () => void }) {
 }
 
 export function Sidebar() {
-  const { state, set, setPane, openModal, addProject } = useStore();
+  const { state, set, setPane, openModal } = useStore();
   const nav = useNavigate();
   const route = useRoute();
   const activeProj = activeProject(route);
@@ -115,9 +115,6 @@ export function Sidebar() {
                   <span className="sb-meta">{openCount(p.id) || ''}</span>
                 </div>
               ))}
-              {currentMissionId && <div className="sb-item" style={{ color: 'var(--faint)' }} onClick={() => addProject(currentMissionId)}>
-                <span className="sb-name">+ Add project</span>
-              </div>}
             </div>
           )}
         </div>
