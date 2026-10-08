@@ -2,22 +2,23 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, type GitHubStatus, type LocalRepoInfo, type Project, type TaskSummary } from '../api';
 import { useStore } from '../store';
-import { FolderField } from '../components/ProjectDialog';
+import { FolderField, WorkspaceSwitch } from '../components/ProjectDialog';
 import { RepoSelect } from '../components/RepoSelect';
 import { STATUSES, ownerLabel, taskLabel, type OrgPod } from '../taskQueueModel';
 import { NewTaskDialog } from './TasksView';
 
-function RepoSettings({ project, pods, github, onSaved }: { project: Project; pods: OrgPod[]; github: GitHubStatus | null; onSaved: (p: Project, installed: string[]) => void }) {
+function RepoSettings({ project, pods, github, onSaved }: { project: Project; pods: OrgPod[]; github: GitHubStatus | null; onSaved: (p: Project, installed: string[], podChanges?: { updated: string[]; pending: string[] }) => void }) {
   const { state } = useStore();
   const [name, setName] = useState(project.name);
   const [missionId, setMissionId] = useState(project.missionId || '');
+  const [workspace, setWorkspace] = useState(project.workspace || 'pod');
   const [localPath, setLocalPath] = useState(project.localPath || '');
   const [repo, setRepo] = useState(project.repo || '');
   const [seats, setSeats] = useState<string[]>(project.githubSeats || []);
   const [info, setInfo] = useState<LocalRepoInfo | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const dirty = name.trim() !== project.name || missionId !== (project.missionId || '') || localPath !== (project.localPath || '') || repo !== (project.repo || '') || seats.join() !== (project.githubSeats || []).join();
+  const dirty = workspace !== (project.workspace || 'pod') || name.trim() !== project.name || missionId !== (project.missionId || '') || localPath !== (project.localPath || '') || repo !== (project.repo || '') || seats.join() !== (project.githubSeats || []).join();
 
   useEffect(() => {
     if (project.localPath) void api.inspectLocalPath(project.localPath).then(setInfo).catch(() => setInfo(null));
@@ -34,8 +35,8 @@ function RepoSettings({ project, pods, github, onSaved }: { project: Project; po
   const save = async () => {
     setBusy(true); setError('');
     try {
-      const saved = await api.updateProject(project.id, { name: name.trim(), missionId: missionId || null, localPath: localPath.trim() || null, repo: repo.trim() || null, githubSeats: seats });
-      onSaved(saved, (saved as Project & { toolsInstalled?: string[] }).toolsInstalled || []);
+      const saved = await api.updateProject(project.id, { name: name.trim(), missionId: missionId || null, workspace, localPath: workspace === 'local' ? localPath.trim() || null : null, repo: repo.trim() || null, githubSeats: seats });
+      onSaved(saved, saved.toolsInstalled || [], saved.pods);
     } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
     finally { setBusy(false); }
   };
@@ -52,7 +53,8 @@ function RepoSettings({ project, pods, github, onSaved }: { project: Project; po
             {state.missions.missions.map(m => <option key={m.id} value={m.id}>{m.title}</option>)}
           </select>
         </label>}
-        <FolderField value={localPath} onChange={setLocalPath} info={info} onInspect={path => void inspect(path)} />
+        <WorkspaceSwitch value={workspace} onChange={setWorkspace} />
+        {workspace === 'local' && <FolderField value={localPath} onChange={setLocalPath} info={info} onInspect={path => void inspect(path)} />}
         <div className="field"><span className="field-label">GitHub repository</span>
           <RepoSelect value={repo} onChange={setRepo} github={github} />
         </div>
@@ -67,7 +69,7 @@ function RepoSettings({ project, pods, github, onSaved }: { project: Project; po
       {error && <div role="alert" style={{ fontSize: 12.5, color: 'var(--text)' }}>{error}</div>}
       {dirty && <div style={{ display: 'flex', gap: 8 }}>
         <button className="btn btn-primary" disabled={busy} onClick={() => void save()}>{busy ? 'Saving…' : 'Save project'}</button>
-        <button className="btn btn-ghost" disabled={busy} onClick={() => { setName(project.name); setMissionId(project.missionId || ''); setLocalPath(project.localPath || ''); setRepo(project.repo || ''); setSeats(project.githubSeats || []); }}>Discard</button>
+        <button className="btn btn-ghost" disabled={busy} onClick={() => { setWorkspace(project.workspace || 'pod'); setName(project.name); setMissionId(project.missionId || ''); setLocalPath(project.localPath || ''); setRepo(project.repo || ''); setSeats(project.githubSeats || []); }}>Discard</button>
       </div>}
     </section>
   );
@@ -117,7 +119,7 @@ export function ProjectView({ id }: { id: string }) {
         <button className="btn btn-ghost sm" onClick={() => void remove()}>Delete project</button>
       </div>
 
-      <RepoSettings key={project.updatedAt} project={project} pods={pods} github={github} onSaved={(_p, installed) => { void loadProjects(); flash(installed.length ? `Saved; GitHub tools installed for ${installed.length} seat${installed.length === 1 ? '' : 's'}` : 'Project saved'); }} />
+      <RepoSettings key={project.updatedAt} project={project} pods={pods} github={github} onSaved={(_p, _installed, podChanges) => { void loadProjects(); flash(podChanges?.pending.length ? 'Saved; restart the pod to mount the folder' : podChanges?.updated.length ? 'Saved; pod restarted with the project folder' : 'Project saved'); }} />
 
       <section className="stack" style={{ gap: 10 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>

@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { lifecycleError } from './errors.js';
 import { ensureSharedAuthVolume, assertSharedAuthImage, sharedAuthMount } from './authVolume.js';
+import { isProjectBindMount, mountsKey } from './projectMounts.js';
 
 const SAFE_INSPECT_FORMAT = '{"id":"{{.Id}}","state":"{{.State.Status}}","running":{{.State.Running}}}';
 const CONTAINER_DATA_DIR = '/opt/data';
@@ -31,14 +32,17 @@ export class DockerAdapter {
     if (podName) labels[`${this.config.docker.labelNamespace}.pod_name`] = String(podName);
     return labels;
   }
-  startPlan({ podId, podName = '' }) {
+  startPlan({ podId, podName = '', projectMounts = [] }) {
     const labels = this.makeLabels(podId, podName);
+    const projectKey = mountsKey(projectMounts);
+    if (projectKey) labels[`${this.config.docker.labelNamespace}.project_mounts`] = projectKey;
     const containerName = this.makeContainerName(podId);
     const volumeName = this.makeVolumeName(podId);
     const mount = `type=volume,source=${volumeName},target=${CONTAINER_DATA_DIR}`;
     const args = ['run', '-d', '--name', containerName, '--network', POD_NETWORK, '--mount', mount];
     const authMount = sharedAuthMount(this.config);
     if (authMount) args.push('--mount', authMount);
+    for (const project of projectMounts) args.push('--mount', `type=bind,source=${project.source},target=${project.target}`);
     for (const [key, value] of Object.entries(labels)) args.push('--label', `${key}=${value}`);
     args.push(this.config.docker.image, ...this.config.docker.idleCommand);
     return {
@@ -63,7 +67,8 @@ export class DockerAdapter {
       containerDataDir: CONTAINER_DATA_DIR,
       startup: { mode: 'idle', argv: this.config.docker.idleCommand },
       network: { mode: POD_NETWORK, outbound: true, publishedPorts: false },
-      security: { hostBindMount: false, dockerSocketMounted: false, bridgeTokenInjected: false, network: POD_NETWORK, sharedProviderAuth: Boolean(authMount) },
+      projectMounts: projectMounts.map((project) => ({ projectId: project.projectId, target: project.target })),
+      security: { hostBindMount: projectMounts.length > 0, dockerSocketMounted: false, bridgeTokenInjected: false, network: POD_NETWORK, sharedProviderAuth: Boolean(authMount) },
       notes: [
         'Container lifecycle plan only; no per-seat Hermes gateway launch script is generated and no model call is made.',
         authMount ? 'A Waypoint-owned pod volume is mounted to /opt/data, and a separately labeled shared provider-auth volume is mounted to /opt/waypoint-auth.' : 'A Waypoint-owned named Docker volume is mounted to /opt/data.',
@@ -75,13 +80,13 @@ export class DockerAdapter {
       ],
     };
   }
-  async lifecycle(instance, action) {
+  async lifecycle(instance, action, { projectMounts = [] } = {}) {
     if (!['start', 'stop', 'status'].includes(action)) throw lifecycleError('unsupported lifecycle action', { action });
     const podId = assertPodId(instance.id);
     const containerName = this.makeContainerName(podId);
     const volumeName = this.makeVolumeName(podId);
     const plan = action === 'start'
-      ? this.startPlan({ podId, podName: instance.podName })
+      ? this.startPlan({ podId, podName: instance.podName, projectMounts })
       : action === 'stop'
         ? { command: 'docker', args: ['stop', containerName], containerName, volumeName }
         : this.inspectPlan(containerName);
@@ -110,6 +115,14 @@ export class DockerAdapter {
     const inspected = await this.inspectOwnedContainer(containerName, podId, { allowMissing: true });
     if (inspected.exists) {
       assertExistingContainerSafeForStart(inspected.state, { containerName, volumeName, image: this.config.docker.image, sharedAuth: this.config.sharedAuth });
+      if ((inspected.state.mountsKey || '') !== mountsKey(projectMounts)) {
+        if (inspected.state.running) await this.runDocker(action, ['stop', containerName], containerName);
+        await this.runDocker(action, ['rm', containerName], containerName);
+        const result = await this.runDocker(action, plan.args, containerName);
+        const seed = await this.ensureVolumeSeeded(podId, containerName);
+        const after = await this.inspectOwnedContainer(containerName, podId);
+        return { ...result, volumeName, seed, recreated: true, status: after.state };
+      }
       if (inspected.state.running) {
         const seed = await this.ensureVolumeSeeded(podId, containerName);
         return { action, executed: false, dryRun: false, containerName, volumeName, status: inspected.state, seed };
@@ -153,7 +166,8 @@ export class DockerAdapter {
   async inspectOwnedContainer(containerName, podId, { allowMissing = false } = {}) {
     const podIdLabel = `${this.config.docker.labelNamespace}.pod_id`;
     const ownedLabel = `${this.config.docker.labelNamespace}.owned`;
-    const format = `{"owned":"{{ index .Config.Labels \"${ownedLabel}\" }}","podId":"{{ index .Config.Labels \"${podIdLabel}\" }}","id":"{{.Id}}","state":"{{.State.Status}}","running":{{.State.Running}},"image":"{{.Config.Image}}","mounts":{{json .Mounts}},"privileged":{{json .HostConfig.Privileged}},"portBindings":{{json .HostConfig.PortBindings}},"capAdd":{{json .HostConfig.CapAdd}},"networkMode":"{{.HostConfig.NetworkMode}}","networks":{{json .NetworkSettings.Networks}}}`;
+    const mountsLabel = `${this.config.docker.labelNamespace}.project_mounts`;
+    const format = `{"owned":"{{ index .Config.Labels \"${ownedLabel}\" }}","mountsKey":"{{ index .Config.Labels \"${mountsLabel}\" }}","podId":"{{ index .Config.Labels \"${podIdLabel}\" }}","id":"{{.Id}}","state":"{{.State.Status}}","running":{{.State.Running}},"image":"{{.Config.Image}}","mounts":{{json .Mounts}},"privileged":{{json .HostConfig.Privileged}},"portBindings":{{json .HostConfig.PortBindings}},"capAdd":{{json .HostConfig.CapAdd}},"networkMode":"{{.HostConfig.NetworkMode}}","networks":{{json .NetworkSettings.Networks}}}`;
     const result = await this.runner('docker', ['inspect', '--format', format, containerName]);
     if (result.code !== 0) {
       if (allowMissing && isNoSuchContainer(result.stderr)) return { exists: false };
@@ -168,6 +182,7 @@ export class DockerAdapter {
       state: parsed.state,
       running: Boolean(parsed.running),
       image: String(parsed.image || ''),
+      mountsKey: String(parsed.mountsKey || ''),
       mounts: Array.isArray(parsed.mounts) ? parsed.mounts : null,
       privileged: parsed.privileged,
       portBindings: isPlainObject(parsed.portBindings) ? parsed.portBindings : null,
@@ -213,7 +228,8 @@ function normalizeNetworkNames(networks) {
 function assertExistingContainerSafeForStart(state, { containerName, volumeName, image, sharedAuth }) {
   if (!imageMatchesConfigured(state.image, image)) throw lifecycleError('refusing to reuse existing pod container with unexpected image', { containerName });
   const expectAuth = sharedAuth?.enabled === true;
-  if (!Array.isArray(state.mounts) || state.mounts.length !== (expectAuth ? 2 : 1)) throw lifecycleError('refusing to reuse existing pod container with unexpected mounts', { containerName });
+  const coreMounts = Array.isArray(state.mounts) ? state.mounts.filter((entry) => !isProjectBindMount(entry)) : null;
+  if (!coreMounts || coreMounts.length !== (expectAuth ? 2 : 1)) throw lifecycleError('refusing to reuse existing pod container with unexpected mounts', { containerName });
   const mount = state.mounts.find((entry) => entry.Destination === CONTAINER_DATA_DIR);
   if (!mount || mount.Type !== 'volume' || mount.Name !== volumeName || mount.Destination !== CONTAINER_DATA_DIR) throw lifecycleError('refusing to reuse existing pod container with unsafe /opt/data mount', { containerName });
   if (expectAuth) {

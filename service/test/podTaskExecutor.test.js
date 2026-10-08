@@ -519,3 +519,10 @@ test('partial assistant text is capped by the configured response limit, not the
   assert.equal(result.evidence.at(-1).partialTextChars, 64);
   assert.equal(result.evidence.at(-1).partialTextTruncated, true);
 });
+
+test('local project runs work in the mounted folder with git settings passed through env', () => {
+  const args = buildTaskChatArgs({ containerName: 'c1', seatId: 'coder', taskId: TASK_ID, timeoutSeconds: 60, runBudgetSeconds: 50, maxTurns: 5, workdir: '/opt/data/projects/project_1', env: ['GIT_CONFIG_COUNT=1', 'GIT_CONFIG_KEY_0=safe.directory', 'GIT_CONFIG_VALUE_0=/opt/data/projects/project_1'] });
+  assert.equal(args[args.indexOf('--in') + 1], '/opt/data/projects/project_1');
+  assert.deepEqual(args.slice(args.indexOf('env'), args.indexOf('-p') - 1), ['env', 'GIT_CONFIG_COUNT=1', 'GIT_CONFIG_KEY_0=safe.directory', 'GIT_CONFIG_VALUE_0=/opt/data/projects/project_1']);
+  assert.equal(buildTaskChatArgs({ containerName: 'c1', seatId: 'coder', taskId: TASK_ID, timeoutSeconds: 60, runBudgetSeconds: 50, maxTurns: 5 }).includes('env'), false);
+});

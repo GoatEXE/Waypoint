@@ -51,8 +51,9 @@ export class PodTaskExecutor {
     this.activeSeats = new Set();
   }
 
-  async execute({ task, pod, template = undefined, prompt = undefined, files = [], turnLimits = undefined, guardHostDisconnect = false, activity = undefined } = {}) {
+  async execute({ task, pod, template = undefined, prompt = undefined, files = [], turnLimits = undefined, guardHostDisconnect = false, activity = undefined, workspace = null } = {}) {
     const target = this.resolveTarget({ task, pod, prompt, files, turnLimits });
+    if (workspace?.workdir) { target.workdir = workspace.workdir; target.env = Array.isArray(workspace.env) ? workspace.env : []; }
     target.guardHostDisconnect = guardHostDisconnect === true;
     target.activity = Array.isArray(activity) ? activity : [];
     if (this.config?.dryRun) return this.dryRunResult(target);
@@ -146,6 +147,11 @@ export class PodTaskExecutor {
   }
 
   async prepareWorkspace(target) {
+    if (target.workdir) {
+      const found = await this.runner('docker', ['exec', '--user', 'hermes', target.containerName, 'test', '-d', target.workdir], { timeoutMs: WORKSPACE_TIMEOUT_MS, outputLimitBytes: WORKSPACE_OUTPUT_LIMIT });
+      if (found.code !== 0) throw conflict('the project folder is not mounted in this pod; restart the pod to mount it', { taskId: target.taskId });
+      return evidenceEntry(this.now, 'workspace', `Working directly in the project folder mounted at ${target.workdir}.`);
+    }
     const input = JSON.stringify({ taskId: target.taskId, files: target.files });
     const result = await this.runner('docker', workspaceArgs(target.containerName), { input, timeoutMs: WORKSPACE_TIMEOUT_MS, outputLimitBytes: WORKSPACE_OUTPUT_LIMIT });
     if (result.timedOut) throw lifecycleError('task workspace preparation timed out; no model call was made', { taskId: target.taskId });
@@ -245,13 +251,14 @@ export function taskSessionName(taskId) {
   return `waypoint-task-${taskId.slice('task_'.length)}`;
 }
 
-export function buildTaskChatArgs({ containerName, seatId, taskId, timeoutSeconds, runBudgetSeconds, maxTurns }) {
+export function buildTaskChatArgs({ containerName, seatId, taskId, timeoutSeconds, runBudgetSeconds, maxTurns, workdir = '', env = [] }) {
   return [
     'exec', '-i', '--user', 'hermes', containerName,
     'timeout', `--kill-after=${KILL_AFTER_SECONDS}s`, `${timeoutSeconds}s`,
+    ...(env.length ? ['env', ...env] : []),
     'hermes', '-p', assertTaskSeatId(seatId), 'chat',
     '--query-file', '-', '--format', 'stream-json', '--source', 'tool',
-    '--in', taskWorkspacePath(taskId),
+    '--in', workdir || taskWorkspacePath(taskId),
     '--continue', taskSessionName(taskId), '--create-if-missing',
     '--run-budget', String(runBudgetSeconds), '--max-turns', String(maxTurns),
   ];

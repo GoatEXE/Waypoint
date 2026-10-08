@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api, type GitHubStatus, type LocalRepoInfo } from '../api';
+import { api, type GitHubStatus, type LocalRepoInfo, type ProjectWorkspace } from '../api';
 import { useStore } from '../store';
 import { RepoSelect } from './RepoSelect';
 
@@ -33,11 +33,23 @@ export function FolderField({ value, onChange, onInspect, disabled }: { value: s
   );
 }
 
+export function WorkspaceSwitch({ value, onChange, disabled }: { value: ProjectWorkspace; onChange: (value: ProjectWorkspace) => void; disabled?: boolean }) {
+  return (
+    <div className="field"><span className="field-label">Workspace</span>
+      <div className="segmented" role="group" aria-label="Workspace">
+        <button type="button" className={value === 'local' ? 'on' : ''} aria-pressed={value === 'local'} disabled={disabled} onClick={() => onChange('local')}>Local folder</button>
+        <button type="button" className={value === 'pod' ? 'on' : ''} aria-pressed={value === 'pod'} disabled={disabled} onClick={() => onChange('pod')}>Pod clone</button>
+      </div>
+    </div>
+  );
+}
+
 export function ProjectDialog() {
   const { state, closeModal, loadProjects, flash } = useStore();
   const nav = useNavigate();
   const mission = state.missions.missions.find(m => m.id === state.projectMission);
   const [name, setName] = useState('');
+  const [workspace, setWorkspace] = useState<ProjectWorkspace>('local');
   const [localPath, setLocalPath] = useState('');
   const [repo, setRepo] = useState('');
   const [info, setInfo] = useState<LocalRepoInfo | null>(null);
@@ -66,7 +78,7 @@ export function ProjectDialog() {
     if (!name.trim() || busy || !mission) return;
     setBusy(true); setError('');
     try {
-      const project = await api.createProject({ name: name.trim(), missionId: mission.id, localPath: localPath.trim() || null, repo: repo.trim() || null });
+      const project = await api.createProject({ name: name.trim(), missionId: mission.id, workspace, localPath: workspace === 'local' ? localPath.trim() || null : null, repo: repo.trim() || null });
       await loadProjects();
       closeModal();
       flash(`Added ${project.name} to ${mission.title}`);
@@ -82,7 +94,8 @@ export function ProjectDialog() {
           <h2 className="h1" style={{ fontSize: 20 }}>Add a project</h2>
         </div>
         {!mission && <div role="alert" style={{ fontSize: 12.5, color: 'var(--text)' }}>Open a mission and add the project from there.</div>}
-        <FolderField value={localPath} onChange={setLocalPath} info={info} onInspect={path => void inspect(path)} disabled={busy} />
+        <WorkspaceSwitch value={workspace} onChange={setWorkspace} disabled={busy} />
+        {workspace === 'local' && <FolderField value={localPath} onChange={setLocalPath} info={info} onInspect={path => void inspect(path)} disabled={busy} />}
         <label className="field"><span className="field-label">Project name</span>
           <input className="input" value={name} maxLength={80} onChange={e => setName(e.target.value)} placeholder="Goat Ops" disabled={busy} />
         </label>
@@ -92,7 +105,7 @@ export function ProjectDialog() {
         {error && <div role="alert" style={{ fontSize: 12.5, color: 'var(--text)' }}>{error}</div>}
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
           <button type="button" className="btn btn-ghost" disabled={busy} onClick={closeModal}>Cancel</button>
-          <button type="submit" className="btn btn-primary" disabled={busy || !name.trim() || !mission}>{busy ? 'Adding…' : 'Add project'}</button>
+          <button type="submit" className="btn btn-primary" disabled={busy || !name.trim() || !mission || (workspace === 'local' ? !localPath.trim() : !repo.trim())}>{busy ? 'Adding…' : 'Add project'}</button>
         </div>
       </form>
     </div>

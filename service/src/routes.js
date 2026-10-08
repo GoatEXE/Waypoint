@@ -4,6 +4,7 @@ import { badRequest, conflict, forbidden, toErrorResponse, unsupportedMediaType 
 import { normalizeSeatModel, publicSeatsResult } from './podSeats.js';
 import { inspectLocalPath } from './github.js';
 import { FolderDialog } from './folderDialog.js';
+import { podProjectMounts } from './projectMounts.js';
 
 const folderDialog = new FolderDialog();
 
@@ -104,7 +105,7 @@ async function route(request, url, { config, store, organization, docker, hermes
     const body = await readBody(request);
     let instance = await store.getInstance(match[1], { dockerPlanFactory: ({ podId, podName }) => docker.startPlan({ podId, podName }) });
     if (body.action === 'start' && !config.dryRun) instance = await defaultPodModelFromCeo(store, hermes, instance);
-    const result = await docker.lifecycle(instance, body.action);
+    const result = await docker.lifecycle(instance, body.action, { projectMounts: podProjectMounts(await store.listProjects(), instance.id) });
     await store.recordLifecycle(instance.id, result, ({ podId, podName }) => docker.startPlan({ podId, podName }));
     return { body: result };
   }
@@ -163,7 +164,8 @@ async function route(request, url, { config, store, organization, docker, hermes
   if (request.method === 'GET' && url.pathname === '/projects') return { body: { projects: await store.listProjects() } };
   if (request.method === 'POST' && url.pathname === '/projects') {
     const project = await store.createProject(await withDetectedRepo(await readBody(request)));
-    return { status: 201, body: { ...project, toolsInstalled: await installGithubTools(project.githubSeats, [], { config, store, podSeats, messaging, logger }) } };
+    const pods = await applyProjectMounts(null, project, { config, store, docker, taskRuns, logger });
+    return { status: 201, body: { ...project, pods, toolsInstalled: await installGithubTools(project.githubSeats, [], { config, store, podSeats, messaging, logger }) } };
   }
   match = url.pathname.match(/^\/projects\/([^/]+)$/);
   if (request.method === 'GET' && match) return { body: await store.getProject(decodeRouteParam(match[1])) };
@@ -171,7 +173,8 @@ async function route(request, url, { config, store, organization, docker, hermes
   if (request.method === 'PATCH' && match) {
     const before = await store.getProject(decodeRouteParam(match[1]));
     const project = await store.updateProject(before.id, await withDetectedRepo(await readBody(request)));
-    return { body: { ...project, toolsInstalled: await installGithubTools(project.githubSeats, before.githubSeats || [], { config, store, podSeats, messaging, logger }) } };
+    const pods = await applyProjectMounts(before, project, { config, store, docker, taskRuns, logger });
+    return { body: { ...project, pods, toolsInstalled: await installGithubTools(project.githubSeats, before.githubSeats || [], { config, store, podSeats, messaging, logger }) } };
   }
   match = url.pathname.match(/^\/tasks\/([^/]+)$/);
   if (request.method === 'GET' && match) {
@@ -299,6 +302,29 @@ function actionSummary(tool, args = {}, result = {}) {
   if (tool === 'list_tasks') return `${result.tasks?.length ?? 0} tasks`;
   return '';
 }
+async function applyProjectMounts(before, after, { config, store, docker, taskRuns, logger }) {
+  const podsOf = (project) => (project?.workspace === 'local' ? (project.githubSeats || []).map((address) => address.split('/')[0]) : []);
+  const affected = [...new Set([...podsOf(before), ...podsOf(after)])];
+  const result = { updated: [], pending: [] };
+  if (!affected.length || config.dryRun) return result;
+  const projects = await store.listProjects();
+  for (const podId of affected) {
+    try {
+      const instance = await store.getInstance(podId);
+      const status = await docker.lifecycle(instance, 'status');
+      if (!status.status?.running) continue;
+      const busy = [...(taskRuns?.executor?.activeSeats || [])].some((key) => key.startsWith(`${podId}/`));
+      if (busy) { result.pending.push(podId); continue; }
+      const started = await docker.lifecycle(instance, 'start', { projectMounts: podProjectMounts(projects, podId) });
+      await store.recordLifecycle(instance.id, started, ({ podId: id, podName }) => docker.startPlan({ podId: id, podName }));
+      if (started.recreated) result.updated.push(podId);
+    } catch (error) {
+      result.pending.push(podId);
+      logger?.warn?.('project_mount_apply_failed', { podId, message: String(error.message || error).slice(0, 200) });
+    }
+  }
+  return result;
+}
 async function installGithubTools(seats = [], previous = [], { config, store, podSeats, messaging, logger }) {
   const added = seats.filter((address) => !previous.includes(address));
   if (!added.length || config.dryRun || !messaging || !podSeats) return [];
@@ -354,7 +380,7 @@ function bridgeTaskId(args) {
 async function bridgePodLifecycle(config, store, docker, hermes, podSeats, messaging, podId, action) {
   let instance = await store.getInstance(podId, { dockerPlanFactory: ({ podId: id, podName }) => docker.startPlan({ podId: id, podName }) });
   if (action === 'start' && !config.dryRun) instance = await defaultPodModelFromCeo(store, hermes, instance);
-  const result = await docker.lifecycle(instance, action);
+  const result = await docker.lifecycle(instance, action, { projectMounts: podProjectMounts(await store.listProjects(), instance.id) });
   await store.recordLifecycle(instance.id, result, ({ podId: id, podName }) => docker.startPlan({ podId: id, podName }));
   if (action !== 'start' || result.dryRun || !result.status?.running) return result;
   const template = instance.templateId ? await store.getTemplate(instance.templateId) : undefined;

@@ -346,3 +346,37 @@ test('docker start fails closed for unsafe existing pod containers and bind-back
 test('invalid boolean config values are rejected instead of enabling live mode', () => {
   assert.throws(() => loadConfig({ DRY_RUN: 'treu' }, '/tmp'), /DRY_RUN must be a boolean/);
 });
+
+test('local project folders are bind mounted and a running pod is recreated when its mounts change', async () => {
+  const liveConfig = loadConfig({ DRY_RUN: 'false' }, '/tmp');
+  const instance = { id: 'pod_cccccccc-cccc-4ccc-cccc-cccccccccccc', podName: 'gamma' };
+  const cname = containerName(instance.id);
+  const projectMounts = [{ projectId: 'project_11111111-1111-4111-8111-111111111111', source: 'E:/Repositories/goat-ops', target: '/opt/data/projects/project_11111111-1111-4111-8111-111111111111' }];
+  const plan = new DockerAdapter(liveConfig).startPlan({ podId: instance.id, podName: 'gamma', projectMounts });
+  assert.ok(plan.args.includes(`type=bind,source=E:/Repositories/goat-ops,target=${projectMounts[0].target}`));
+  assert.ok(plan.args.some((arg) => /^com\.waypoint\.pod\.project_mounts=[0-9a-f]{32}$/.test(arg) || arg.includes('.project_mounts=')));
+
+  const calls = [];
+  let recreated = false;
+  const bind = { Type: 'bind', Source: '/run/desktop/mnt/host/e/Repositories/goat-ops', Destination: projectMounts[0].target, RW: true };
+  const runner = async (command, args) => {
+    calls.push(args);
+    if (args[0] === 'volume' && args[1] === 'inspect') return { code: 0, stdout: `${safeVolumeJson(instance.id)}\n`, stderr: '' };
+    if (args[0] === 'inspect') return { code: 0, stdout: `${safeContainerJson(instance.id, recreated ? { state: 'running', running: true, mountsKey: 'x', mounts: [{ Type: 'volume', Name: volumeName(instance.id), Destination: '/opt/data', RW: true }, bind] } : { state: 'running', running: true })}\n`, stderr: '' };
+    if (args[0] === 'exec') return { code: 0, stdout: '', stderr: '' };
+    if (args[0] === 'run') recreated = true;
+    return { code: 0, stdout: 'ok', stderr: '' };
+  };
+  const result = await new DockerAdapter(liveConfig, undefined, runner).lifecycle(instance, 'start', { projectMounts });
+  assert.equal(result.recreated, true);
+  assert.deepEqual(calls.filter((args) => ['stop', 'rm', 'run'].includes(args[0])).map((args) => args[0]), ['stop', 'rm', 'run']);
+  assert.ok(calls.find((args) => args[0] === 'run').includes(`type=bind,source=E:/Repositories/goat-ops,target=${projectMounts[0].target}`));
+  assert.equal(calls.find((args) => args[0] === 'rm')[1], cname);
+
+  const foreignBind = new DockerAdapter(liveConfig, undefined, async (command, args) => {
+    if (args[0] === 'volume' && args[1] === 'inspect') return { code: 0, stdout: `${safeVolumeJson(instance.id)}\n`, stderr: '' };
+    if (args[0] === 'inspect') return { code: 0, stdout: `${safeContainerJson(instance.id, { mounts: [{ Type: 'volume', Name: volumeName(instance.id), Destination: '/opt/data', RW: true }, { Type: 'bind', Source: '/etc', Destination: '/opt/data/host-etc', RW: true }] })}\n`, stderr: '' };
+    return { code: 0, stdout: '', stderr: '' };
+  });
+  await assert.rejects(() => foreignBind.lifecycle(instance, 'start'), /unexpected mounts/);
+});
