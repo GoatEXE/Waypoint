@@ -98,10 +98,10 @@ export function ProjectDialog() {
         <label className="field"><span className="field-label">Project name</span>
           <input className="input" value={name} maxLength={80} onChange={e => setName(e.target.value)} placeholder="Goat Ops" disabled={busy} />
         </label>
-        {workspace === 'local' && <FolderField value={localPath} onChange={setLocalPath} info={info} onInspect={path => void inspect(path)} disabled={busy} />}
         <div className="field"><span className="field-label">GitHub repository</span>
           <RepoSelect value={repo} onChange={setRepo} github={github} disabled={busy} />
         </div>
+        {workspace === 'local' && <FolderField value={localPath} onChange={setLocalPath} info={info} onInspect={path => void inspect(path)} disabled={busy} />}
         {error && <div role="alert" style={{ fontSize: 12.5, color: 'var(--text)' }}>{error}</div>}
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
           <button type="button" className="btn btn-ghost" disabled={busy} onClick={closeModal}>Cancel</button>
