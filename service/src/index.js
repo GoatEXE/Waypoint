@@ -15,6 +15,7 @@ import { OrganizationStore } from './organization.js';
 import { SeatChatService } from './seatChat.js';
 import { GitHubConnector } from './github.js';
 import { MessageWakeService } from './messageWakes.js';
+import { HermesPortal } from './hermesPortal.js';
 import { createBridgeHandler, createHandler } from './routes.js';
 import { listenControl } from './controlChannel.js';
 
@@ -41,6 +42,7 @@ export async function createApp(env = process.env) {
   const taskRuns = new TaskRunService({ config, store, executor: taskExecutor, logger });
   const seatChat = new SeatChatService({ config, store, executor: taskExecutor, logger });
   const github = new GitHubConnector({ config });
+  const portal = new HermesPortal({ config, store, docker, hermes, logger });
   const messageWakes = new MessageWakeService({ config, messaging, store, hermes, executor: taskExecutor, logger });
   if (config.hermes.autoStart) {
     void hermes.reconcileStartup()
@@ -48,12 +50,12 @@ export async function createApp(env = process.env) {
       .catch((error) => logger.warn('hermes_reconcile_skipped', { message: error.message }));
   }
 
-  const server = http.createServer(createHandler({ config, store, organization, docker, hermes, podSeats, podSeatAuth, taskRuns, messaging, seatChat, github, logger }));
+  const server = http.createServer(createHandler({ config, store, organization, docker, hermes, podSeats, podSeatAuth, taskRuns, messaging, seatChat, github, portal, logger }));
   const bridgeServer = http.createServer(createBridgeHandler({ config, store, docker, hermes, podSeats, taskRuns, messaging, github, logger }));
-  return { config, logger, store, organization, seatChat, github, docker, hermes, podSeats, podSeatAuth, taskExecutor, taskRuns, messaging, messageWakes, server, bridgeServer };
+  return { config, logger, store, organization, seatChat, github, docker, hermes, podSeats, podSeatAuth, taskExecutor, taskRuns, messaging, messageWakes, portal, server, bridgeServer };
 }
 export async function main() {
-  const { server, bridgeServer, config, logger, messageWakes } = await createApp();
+  const { server, bridgeServer, config, logger, messageWakes, portal } = await createApp();
 
   await new Promise((resolve, reject) => {
     bridgeServer.once('error', reject);
@@ -66,7 +68,7 @@ export async function main() {
     logger.info('shutdown_started', { signal });
     messageWakes.stop();
     const close = (s) => new Promise((resolve) => s.close((error) => resolve(error)));
-    Promise.all([close(server), close(bridgeServer)]).then((errors) => {
+    Promise.all([close(server), close(bridgeServer), portal.close('shutdown').then(() => null, (error) => error)]).then((errors) => {
       const error = errors.find(Boolean);
       if (error) logger.error('shutdown_error', { message: error.message });
       logger.info('shutdown_complete');

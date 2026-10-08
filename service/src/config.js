@@ -77,6 +77,8 @@ export function loadConfig(env = process.env, cwd = process.cwd()) {
       ceoMaxMessageChars: intFromEnv('HERMES_CEO_MAX_MESSAGE_CHARS', env.HERMES_CEO_MAX_MESSAGE_CHARS, 4000, 1, 20000),
       ceoMaxMessages: intFromEnv('HERMES_CEO_MAX_MESSAGES', env.HERMES_CEO_MAX_MESSAGES, 100, 2, 500),
       ceoOutputLimitBytes: intFromEnv('HERMES_CEO_OUTPUT_LIMIT_BYTES', env.HERMES_CEO_OUTPUT_LIMIT_BYTES, 262144, 8192, 1048576),
+      portalPort: intFromEnv('HERMES_PORTAL_PORT', env.HERMES_PORTAL_PORT, 3081, 1, 65535),
+      portalIdleMs: intFromEnv('HERMES_PORTAL_IDLE_MINUTES', env.HERMES_PORTAL_IDLE_MINUTES, 30, 1, 1440) * 60000,
     },
 
     control: resolveControlChannel(env),

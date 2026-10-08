@@ -160,6 +160,9 @@ export const api = {
   messageDeliveries: () => json<{ messages: MessageDelivery[] }>('/message-deliveries'),
   reviewMessageDelivery: (to: string, messageId: string) => json<{ id: string; to: string; reviewedAt: string; wakeState: string }>('/message-deliveries/review', { method: 'POST', body: JSON.stringify({ to, messageId }) }),
   createMission: (body: MissionInput) => json<Mission>('/missions', { method: 'POST', body: JSON.stringify(body) }),
+  hermesPortal: () => json<HermesPortalStatus>('/hermes-portal'),
+  openHermesPortal: (target: string) => json<HermesPortalStatus & { url: string }>('/hermes-portal', { method: 'POST', body: JSON.stringify({ target }) }),
+  closeHermesPortal: () => json<HermesPortalStatus>('/hermes-portal', { method: 'DELETE', body: '{}' }),
   deleteMission: (id: string) => json<{ deleted: true; missionId: string; podId: string | null; taskId: string | null }>(`/missions/${encodeURIComponent(id)}`, { method: 'DELETE', body: '{}' }),
   podInstance: (id: string) => json<PodInstance>(`/pod-instances/${encodeURIComponent(id)}`),
   podLifecycle: (id: string, action: 'start' | 'stop' | 'status') => json<PodLifecycleResponse>(`/pod-instances/${encodeURIComponent(id)}/lifecycle`, { method: 'POST', body: JSON.stringify({ action }) }),
@@ -256,6 +259,7 @@ export interface MessageDelivery {
 
 export interface SeatModel { provider: string; default: string; api_mode?: string; base_url?: string }
 export interface PodInstanceSeat { id: string; role: string; state?: string; copiedFiles?: string[]; model?: SeatModel }
+export interface HermesPortalStatus { open: boolean; target: string | null; url: string | null; openedAt: string | null }
 export interface PodInstance {
   id: string;
   podName: string;

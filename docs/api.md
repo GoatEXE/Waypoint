@@ -38,6 +38,12 @@ Returns service health and dependency-neutral process status.
 
 Returns sanitized runtime configuration such as dry-run status, data directory, Docker image setting, and label namespace. It never returns secrets.
 
+## `GET`, `POST`, and `DELETE /hermes-portal`
+
+Opens an agent's native Hermes web dashboard. `POST` takes `{ "target": "ceo" }` or `{ "target": "pod_<uuid>/<seat-id>" }` and returns `{ open, target, url, openedAt }`. The target container must be running. Dry-run mode refuses with `409`.
+
+Waypoint starts `hermes dashboard` inside the target container, bound to 127.0.0.1:9119 (the seat's profile is preselected). It serves it on one host loopback port, `http://127.0.0.1:<HERMES_PORTAL_PORT>/` (default 3081). Each TCP connection is relayed into the container through `docker exec`, so no container port is published. Only one dashboard is open at a time: opening another target stops the previous dashboard and reuses the same port. Opening the current target again reuses it. `DELETE` (or `HERMES_PORTAL_IDLE_MINUTES` without connections, default 30) stops the dashboard and closes the port. `GET` returns the current state.
+
 ## `GET /hermes/status`
 
 Returns sanitized CEO runtime status: pinned image, container/volume names, Docker running state, model settings, native Hermes auth status, and diagnostics. It never returns auth JSON, tokens, API keys, raw logs, or raw Docker inspect output.
