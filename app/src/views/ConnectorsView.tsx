@@ -200,7 +200,7 @@ export function ConnectorsView() {
               </div>
               <StatusBadge on={githubState.on}>{githubState.label}</StatusBadge>
             </div>
-            <GitHubSetup status={github.status} setStatus={github.setStatus} reload={() => void github.reload()} loadError={github.error} />
+            <GitHubSetup status={github.status} setStatus={github.setStatus} reload={() => void github.reload(true)} loadError={github.error} />
           </aside>
         ) : (
         <aside className="card stack" style={{ padding: 16, gap: 16 }} aria-label={`${activeGroup.name} setup`}>

@@ -28,7 +28,7 @@ export function githubReadiness(status: GitHubStatus | null) {
 export function useGitHubStatus() {
   const [status, setStatus] = useState<GitHubStatus | null>(null);
   const [error, setError] = useState('');
-  const reload = useCallback(() => api.githubStatus().then(next => { setStatus(next); setError(''); }).catch(e => setError(e instanceof Error ? e.message : String(e))), []);
+  const reload = useCallback((fresh = false) => api.githubStatus(fresh).then(next => { setStatus(next); setError(''); }).catch(e => setError(e instanceof Error ? e.message : String(e))), []);
   useEffect(() => { void reload(); }, [reload]);
   return { status, setStatus, error, reload };
 }

@@ -2,13 +2,13 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, type GitHubStatus, type LocalRepoInfo, type Project, type TaskSummary } from '../api';
 import { useStore } from '../store';
-import { repoHint } from '../components/ProjectDialog';
+import { FolderField } from '../components/ProjectDialog';
+import { RepoSelect } from '../components/RepoSelect';
 import { STATUSES, ownerLabel, taskLabel, type OrgPod } from '../taskQueueModel';
 import { NewTaskDialog } from './TasksView';
 
 function RepoSettings({ project, pods, github, onSaved }: { project: Project; pods: OrgPod[]; github: GitHubStatus | null; onSaved: (p: Project, installed: string[]) => void }) {
   const { state } = useStore();
-  const nav = useNavigate();
   const [name, setName] = useState(project.name);
   const [missionId, setMissionId] = useState(project.missionId || '');
   const [localPath, setLocalPath] = useState(project.localPath || '');
@@ -18,17 +18,15 @@ function RepoSettings({ project, pods, github, onSaved }: { project: Project; po
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const dirty = name.trim() !== project.name || missionId !== (project.missionId || '') || localPath !== (project.localPath || '') || repo !== (project.repo || '') || seats.join() !== (project.githubSeats || []).join();
-  const installedRepos = github?.installations.flatMap(i => i.repos) || [];
-  const installed = !repo || installedRepos.some(r => r.toLowerCase() === repo.trim().toLowerCase());
 
   useEffect(() => {
     if (project.localPath) void api.inspectLocalPath(project.localPath).then(setInfo).catch(() => setInfo(null));
   }, [project.localPath]);
 
-  const inspect = async () => {
-    if (!localPath.trim()) { setInfo(null); return; }
+  const inspect = async (path: string) => {
+    if (!path.trim()) { setInfo(null); return; }
     try {
-      const found = await api.inspectLocalPath(localPath.trim());
+      const found = await api.inspectLocalPath(path.trim());
       setInfo(found);
       if (found.repo && !repo) setRepo(found.repo);
     } catch (e) { setInfo(null); setError(e instanceof Error ? e.message : String(e)); }
@@ -48,21 +46,16 @@ function RepoSettings({ project, pods, github, onSaved }: { project: Project; po
         <label className="field"><span className="field-label">Name</span>
           <input className="input" value={name} maxLength={80} onChange={e => setName(e.target.value)} />
         </label>
-        <label className="field"><span className="field-label">Mission</span>
+        {!project.missionId && <label className="field"><span className="field-label">Mission</span>
           <select className="input" value={missionId} onChange={e => setMissionId(e.target.value)}>
-            <option value="">No mission</option>
+            <option value="">Choose a mission</option>
             {state.missions.missions.map(m => <option key={m.id} value={m.id}>{m.title}</option>)}
           </select>
-        </label>
-        <label className="field"><span className="field-label">Local folder</span>
-          <input className="input mono" value={localPath} onChange={e => setLocalPath(e.target.value)} onBlur={() => void inspect()} placeholder="E:\Repositories\project" />
-          {info && <span style={{ fontSize: 11.5, color: 'var(--faint)' }}>{repoHint(info)}</span>}
-        </label>
-        <label className="field"><span className="field-label">GitHub repository</span>
-          <input className="input mono" value={repo} onChange={e => setRepo(e.target.value)} placeholder="owner/name" />
-          {github && !github.connected && repo && <span style={{ fontSize: 11.5, color: 'var(--faint)' }}>GitHub is not connected. <span className="ul" onClick={() => nav('/connectors?connector=github')}>Connect it</span> to give seats access.</span>}
-          {github?.connected && !installed && <span style={{ fontSize: 11.5, color: 'var(--text)' }}>The Waypoint GitHub App is not installed on this repository.</span>}
-        </label>
+        </label>}
+        <FolderField value={localPath} onChange={setLocalPath} info={info} onInspect={path => void inspect(path)} />
+        <div className="field"><span className="field-label">GitHub repository</span>
+          <RepoSelect value={repo} onChange={setRepo} github={github} />
+        </div>
       </div>
       <div className="field"><span className="field-label">Seats with GitHub access</span>
         {pods.length ? <div className="chips">{pods.flatMap(pod => pod.seats.map(seat => {

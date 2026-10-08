@@ -3,6 +3,7 @@ import { publicConfig } from './config.js';
 import { badRequest, conflict, forbidden, toErrorResponse, unsupportedMediaType } from './errors.js';
 import { normalizeSeatModel, publicSeatsResult } from './podSeats.js';
 import { inspectLocalPath } from './github.js';
+import { listFolders } from './folders.js';
 
 const NOT_FOUND = { status: 404, body: { error: { code: 'not_found', message: 'Route not found' } } };
 
@@ -38,7 +39,7 @@ function createJsonHandler(logger, dispatch) {
 }
 async function route(request, url, { config, store, organization, docker, hermes, podSeats, podSeatAuth, taskRuns, messaging, seatChat, github, logger }) {
   if (url.pathname.startsWith('/github') && github) {
-    if (request.method === 'GET' && url.pathname === '/github') return { body: await github.status() };
+    if (request.method === 'GET' && url.pathname === '/github') return { body: await github.status({ fresh: url.searchParams.get('fresh') === '1' }) };
     if (request.method === 'POST' && url.pathname === '/github/manifest') {
       const body = await readBody(request);
       return { body: github.manifest({ origin: body.origin, owner: body.owner, orgName: (await organization.get())?.name }) };
@@ -46,6 +47,7 @@ async function route(request, url, { config, store, organization, docker, hermes
     if (request.method === 'POST' && url.pathname === '/github/complete') return { body: await github.completeManifest(await readBody(request)) };
     if (request.method === 'DELETE' && url.pathname === '/github') return { body: await github.disconnect() };
   }
+  if (request.method === 'GET' && url.pathname === '/folders') return { body: await listFolders(url.searchParams.get('path') || '') };
   if (request.method === 'POST' && url.pathname === '/projects/inspect') return { body: await inspectLocalPath((await readBody(request)).localPath) };
   if (request.method === 'GET' && url.pathname === '/healthz') return { body: { ok: true, service: config.serviceName, dryRun: config.dryRun, uptimeSeconds: Math.round(process.uptime()) } };
   if (request.method === 'GET' && url.pathname === '/config') return { body: publicConfig(config) };

@@ -69,6 +69,7 @@ export class GitHubConnector {
     this.now = now;
     this.states = new Map();
     this.tokens = new Map();
+    this.statusCache = null;
   }
 
   appPath() { return path.join(this.dir, 'app.json'); }
@@ -130,7 +131,7 @@ export class GitHubConnector {
     const app = { appId: id, slug, name, htmlUrl, clientId, owner: owner?.login || null, createdAt: new Date(this.now()).toISOString() };
     await fs.writeFile(this.appPath(), JSON.stringify(app, null, 2), { mode: 0o600 });
     this.tokens.clear();
-    return this.status();
+    return this.status({ fresh: true });
   }
 
   async jwt() {
@@ -139,7 +140,14 @@ export class GitHubConnector {
     return appJwt(app.appId, await fs.readFile(this.keyPath(), 'utf8'), this.now());
   }
 
-  async status() {
+  async status({ fresh = false } = {}) {
+    if (!fresh && this.statusCache && this.statusCache.until > this.now()) return this.statusCache.value;
+    const value = await this.loadStatus();
+    this.statusCache = { value, until: this.now() + 60000 };
+    return value;
+  }
+
+  async loadStatus() {
     const app = await this.app();
     if (!app) return { connected: false, app: null, installUrl: null, installations: [] };
     const installUrl = `https://github.com/apps/${app.slug}/installations/new`;
@@ -160,6 +168,7 @@ export class GitHubConnector {
   async disconnect() {
     await fs.rm(this.dir, { recursive: true, force: true });
     this.tokens.clear();
+    this.statusCache = null;
     return { connected: false };
   }
 

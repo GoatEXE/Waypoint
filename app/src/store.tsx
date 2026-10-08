@@ -21,6 +21,7 @@ export interface AppState {
   ceoThread: string;
   missions: MissionsState;
   projects: Project[];
+  projectMission: string | null;
   org: OrganizationState & { loaded: boolean; error?: string };
   modal: ModalKind | null;
   toast: string | null;
@@ -42,7 +43,7 @@ function initialState(): AppState {
   return {
     pane: cleanPane(saved),
     resolved: {}, picks: {}, seat: '', podStopped: false, missionOpen: Boolean(saved.missionOpen), routinesOff: {}, connected: {},
-    ceo: emptyCeoState, ceoThread: typeof saved.ceoThread === 'string' && saved.ceoThread ? saved.ceoThread : 'general', missions: initialMissionsState, projects: [], org: { loaded: false, configured: false, organization: null }, modal: null, toast: null,
+    ceo: emptyCeoState, ceoThread: typeof saved.ceoThread === 'string' && saved.ceoThread ? saved.ceoThread : 'general', missions: initialMissionsState, projects: [], projectMission: null, org: { loaded: false, configured: false, organization: null }, modal: null, toast: null,
   };
 }
 
@@ -68,7 +69,8 @@ function useAppStore() {
     setPane: (p: Partial<AppState['pane']>) => set(s => ({ pane: { ...s.pane, ...p } })),
     resolve: (id: string, v: 'yes' | 'no') => set(s => ({ resolved: { ...s.resolved, [id]: v } })),
     openModal: (m: ModalKind) => set({ modal: m }),
-    closeModal: () => set({ modal: null }),
+    closeModal: () => set({ modal: null, projectMission: null }),
+    addProject: (missionId: string) => set({ modal: 'project', projectMission: missionId }),
     flash: (msg: string) => {
       set({ toast: msg });
       window.clearTimeout(toastTimer.current);

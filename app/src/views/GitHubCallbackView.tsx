@@ -14,8 +14,10 @@ export function GitHubCallbackView({ step }: { step: string }) {
     started.current = true;
     const params = new URLSearchParams(window.location.search);
     if (step === 'installed') {
-      flash('GitHub installation updated');
-      nav('/connectors?connector=github', { replace: true });
+      void api.githubStatus(true).catch(() => undefined).finally(() => {
+        flash('GitHub installation updated');
+        nav('/connectors?connector=github', { replace: true });
+      });
       return;
     }
     api.githubComplete(params.get('code') || '', params.get('state') || '')
