@@ -95,10 +95,10 @@ export function ProjectDialog() {
         </div>
         {!mission && <div role="alert" style={{ fontSize: 12.5, color: 'var(--text)' }}>Open a mission and add the project from there.</div>}
         <WorkspaceSwitch value={workspace} onChange={setWorkspace} disabled={busy} />
-        {workspace === 'local' && <FolderField value={localPath} onChange={setLocalPath} info={info} onInspect={path => void inspect(path)} disabled={busy} />}
         <label className="field"><span className="field-label">Project name</span>
           <input className="input" value={name} maxLength={80} onChange={e => setName(e.target.value)} placeholder="Goat Ops" disabled={busy} />
         </label>
+        {workspace === 'local' && <FolderField value={localPath} onChange={setLocalPath} info={info} onInspect={path => void inspect(path)} disabled={busy} />}
         <div className="field"><span className="field-label">GitHub repository</span>
           <RepoSelect value={repo} onChange={setRepo} github={github} disabled={busy} />
         </div>
