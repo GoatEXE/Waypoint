@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, type Project, type TaskInput, type TaskStatus, type TaskSummary } from '../api';
-import { STATUSES, parseLabels, taskLabel, type OrgPod } from '../taskQueueModel';
+import { parseLabels, statusLabel, statusOptions, taskLabel, type OrgPod } from '../taskQueueModel';
 
 export interface TaskDraft {
   summary: string;
@@ -71,9 +71,11 @@ interface Props {
   onProjectCreated?: (project: Project) => void;
   disabled?: boolean;
   showSummary?: boolean;
+  savedStatus?: TaskStatus;
+  statusLocked?: boolean;
 }
 
-export function TaskFields({ draft, onChange, tasks, projects, pods, selfId, disabled, showSummary = true }: Props) {
+export function TaskFields({ draft, onChange, tasks, projects, pods, selfId, disabled, showSummary = true, savedStatus, statusLocked = false }: Props) {
   const set = <K extends keyof TaskDraft>(key: K, value: TaskDraft[K]) => onChange({ ...draft, [key]: value });
   const others = tasks.filter(t => t.id !== selfId).sort((a, b) => (a.number ?? 0) - (b.number ?? 0));
   const blockerOptions = others.filter(t => !draft.blockedBy.includes(t.id));
@@ -89,8 +91,8 @@ export function TaskFields({ draft, onChange, tasks, projects, pods, selfId, dis
       </label>
       <div className="task-field-grid">
         <label className="field"><span className="field-label">Status</span>
-          <select className="input" value={draft.status} disabled={disabled} onChange={e => set('status', e.target.value as TaskStatus)}>
-            {STATUSES.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
+          <select className="input" value={draft.status} disabled={disabled || statusLocked} title={statusLocked ? 'Status is locked while a run is in progress' : undefined} onChange={e => set('status', e.target.value as TaskStatus)}>
+            {statusOptions(savedStatus, statusLocked).map(id => <option key={id} value={id}>{statusLabel(id)}</option>)}
           </select>
         </label>
         <label className="field"><span className="field-label">Assignee</span>

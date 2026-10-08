@@ -153,7 +153,22 @@ Creates a task in the organization queue. Only `summary` (the title, 1–200 cha
 
 Unknown fields are rejected. Each task gets a sequential `number` and a `ref` such as `ORT-12` built from the organization task prefix; tasks created before numbering existed are numbered by creation time at service start. Response `state` begins as `delegated`. This endpoint records ownership only; it does not execute Hermes work. Use `POST /tasks/:taskId/run` to run it.
 
-Workflow `status` is separate from run `state`. Starting a run moves `backlog`/`todo` to `in_progress`; a completed run moves it to `in_review`. Older tasks without a status report one derived from their run state.
+Workflow `status` is separate from run `state`. Starting a run moves `backlog`/`todo` to `in_progress`; a completed run moves it to `in_review`; a run released before any model turn restores the prior status. Older tasks without a status report one derived from their run state.
+
+Status changes follow one transition table for the app and the CEO bridge (`400` otherwise), and are refused with `409` while a run is active:
+
+| From | Allowed to |
+| --- | --- |
+| `backlog` | `todo`, `in_progress`, `in_review`, `done`, `canceled` |
+| `todo` | `backlog`, `in_progress`, `in_review`, `done`, `canceled` |
+| `in_progress` | `todo`, `in_review`, `done`, `canceled` |
+| `in_review` | `todo`, `in_progress`, `done`, `canceled` |
+| `done` | `todo`, `in_review` |
+| `canceled` | `backlog`, `todo` |
+
+Moving a task whose run `completed` back to `todo` or `backlog` re-opens it: `state` returns to `delegated` (with a `reopened` evidence note) so a new run can start. Failed and `outcome_unknown` runs are not re-opened by a status change; they still need the explicit manual retry after review.
+
+`GET /tasks/:taskId` includes `statusHistory`: `[{ from, to, by, at, reason? }]`, oldest first (last 100). `by` is `user` (app), `ceo` (bridge), or `system` (automatic, with `reason` `run_started`, `run_completed`, `run_failed`, `run_outcome_unknown`, or `run_aborted`). Creation records `from: null` with `reason: "created"`.
 
 ## `PATCH /tasks/:taskId`
 

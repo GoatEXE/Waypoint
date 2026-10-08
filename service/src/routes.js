@@ -247,11 +247,11 @@ async function ceoControlTool(tool, args, { config, store, docker, hermes, podSe
   if (tool === 'pod_status') return bridgePodLifecycle(config, store, docker, hermes, podSeats, messaging, String(args.podId || ''), 'status');
   if (tool === 'pod_start') return bridgePodLifecycle(config, store, docker, hermes, podSeats, messaging, String(args.podId || ''), 'start');
   if (tool === 'pod_stop') return bridgePodLifecycle(config, store, docker, hermes, podSeats, messaging, String(args.podId || ''), 'stop');
-  if (tool === 'create_task') return store.createTask(args);
+  if (tool === 'create_task') return store.createTask(args, { actor: 'ceo' });
   if (tool === 'update_task') {
     if (!args || typeof args !== 'object' || Array.isArray(args)) throw badRequest('args must be an object');
     const { taskId, ...fields } = args;
-    return store.updateTask(String(taskId || ''), fields);
+    return store.updateTask(String(taskId || ''), fields, { actor: 'ceo' });
   }
   if (tool === 'list_tasks') return { tasks: await store.listTasks() };
   if (tool === 'list_projects') return { projects: await store.listProjects() };

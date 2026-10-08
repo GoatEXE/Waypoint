@@ -236,6 +236,7 @@ export interface TaskSummary {
   createdAt: string;
   updatedAt: string;
 }
+export interface StatusChange { from: TaskStatus | null; to: TaskStatus; by: 'user' | 'ceo' | 'system'; at: string; reason?: string }
 export interface TaskInput { summary?: string; description?: string; status?: TaskStatus; podId?: string | null; seatId?: string | null; projectId?: string | null; labels?: string[]; parentId?: string | null; blockedBy?: string[] }
 export type ProjectWorkspace = 'local' | 'pod';
 export interface Project { id: string; name: string; missionId?: string | null; workspace?: ProjectWorkspace; localPath?: string | null; repo?: string | null; githubSeats?: string[]; createdAt: string; updatedAt: string }
@@ -310,6 +311,7 @@ export interface TaskRecord extends TaskSummary {
   activeRunId?: string;
   lastRunId?: string;
   runs?: TaskRunRecord[];
+  statusHistory?: StatusChange[];
   evidence: (MissionEvidence & { runId?: string; retry?: string })[];
   createdAt: string;
   updatedAt: string;
