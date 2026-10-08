@@ -4,7 +4,7 @@ import * as D from '../data';
 import { byParent, projById, st } from '../model';
 import { api, parseSeatThread, type CeoThread } from '../api';
 import { ActivityBlock, ActivityList } from './Activity';
-import { addressLabel, buildTimeline, type TaskThreadExtras, type TimelineEntry } from '../threadTimeline';
+import { addressLabel, buildTimeline, deliveryLabel, generalThreadMessages, type TaskThreadExtras, type TimelineEntry } from '../threadTimeline';
 import { useStore, useViewport, type PaneTab } from '../store';
 import { ceoNameOf } from '../orgModel';
 import { Dot, PaneGroupHead } from './ui';
@@ -105,10 +105,22 @@ function RunEntry({ entry, seatId }: { entry: Extract<TimelineEntry, { kind: 'ru
 
 function PeerEntry({ entry, ceoName }: { entry: Extract<TimelineEntry, { kind: 'peer' }>; ceoName: string }) {
   const { message } = entry;
+  const delivery = deliveryLabel(message);
   return (
     <div className="thread-peer">
-      <div className="thread-run-head"><span className="mono">{addressLabel(message.from, ceoName)} → {addressLabel(message.to, ceoName)}</span><span className="act-time" style={{ marginLeft: 'auto' }}>{messageTime(message.createdAt)}</span></div>
+      <div className="thread-run-head">
+        <span className="mono">{addressLabel(message.from, ceoName)} → {addressLabel(message.to, ceoName)}</span>
+        {message.replyTo && <span>reply</span>}
+        <span className={'delivery-pill ' + delivery.tone}>{delivery.label}</span>
+        <span className="act-time" style={{ marginLeft: 'auto' }}>{messageTime(message.createdAt)}</span>
+      </div>
       <div className="thread-peer-text">{message.text}</div>
+      {message.wake?.reply && (
+        <div className="thread-peer-reply">
+          <span className="mono">{addressLabel(message.to, ceoName)}</span>
+          <div className="thread-peer-text">{message.wake.reply}</div>
+        </div>
+      )}
     </div>
   );
 }
@@ -116,10 +128,16 @@ function PeerEntry({ entry, ceoName }: { entry: Extract<TimelineEntry, { kind: '
 function useTaskThreadExtras(threadId: string, refreshKey: unknown) {
   const [extras, setExtras] = useState<TaskThreadExtras | null>(null);
   useEffect(() => {
-    if (!threadId.startsWith('task_')) { setExtras(null); return; }
+    const general = threadId === 'general';
+    if (!general && !threadId.startsWith('task_')) { setExtras(null); return; }
     let active = true;
     const load = async () => {
       try {
+        if (general) {
+          const { messages } = await api.messageDeliveries();
+          if (active) setExtras({ seatId: null, runs: [], live: null, messages: generalThreadMessages(messages) });
+          return;
+        }
         const [task, messages] = await Promise.all([api.task(threadId), api.taskMessages(threadId)]);
         if (active) setExtras({ seatId: task.seatId, runs: task.runs || [], live: task.liveActivity || null, messages: messages.messages });
       } catch {   }

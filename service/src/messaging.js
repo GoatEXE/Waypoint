@@ -4,6 +4,7 @@ import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypt
 import { badRequest, conflict, forbidden, notFound } from './errors.js';
 import { lifecycleError } from './errors.js';
 import { SEAT_GITHUB_CLIENT, seatGithubSkill } from './github.js';
+import { redactActivityText } from './activity.js';
 
 const POD_ID_RE = /^pod_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const SEAT_ID_RE = /^[a-z][a-z0-9_-]{1,62}$/;
@@ -11,6 +12,7 @@ const MESSAGE_FILE_RE = /^msg_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0
 const MAX_MESSAGE_CHARS = 4000;
 const MAX_MAILBOX_MESSAGES = 1000;
 const MAX_WAKE_DEPTH = 1;
+const MAX_WAKE_REPLY_CHARS = 2000;
 
 export function seatAddress(podId, seatId) {
   if (!POD_ID_RE.test(podId) || !SEAT_ID_RE.test(seatId)) throw badRequest('invalid pod seat address');
@@ -58,6 +60,7 @@ export class MessagingService {
     this.queues = new Map();
     this.onMessage = null;
     this.activeWakeDepth = new Map();
+    this.activeWakes = new Map();
     this.organization = null;
   }
 
@@ -135,8 +138,10 @@ export class MessagingService {
 
   async send(from, input, { bridge = false } = {}) {
     if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).some((key) => !['to', 'text', 'taskId'].includes(key))) throw badRequest('message must contain only to, text, and an optional taskId');
-    const taskId = input.taskId ? await this.store.resolveTaskId(String(input.taskId)).catch(() => { throw badRequest('taskId does not match a stored task'); }) : null;
     const to = String(input.to || '');
+    const handling = bridge ? this.activeWakes.get(from) : undefined;
+    const replyTo = handling && handling.from === to ? handling.id : null;
+    const taskId = input.taskId ? await this.store.resolveTaskId(String(input.taskId)).catch(() => { throw badRequest('taskId does not match a stored task'); }) : replyTo ? handling.taskId || null : null;
     await this.assertExistingAddress(from);
     await this.assertExistingAddress(to);
     const text = input.text;
@@ -157,7 +162,7 @@ export class MessagingService {
 
       const depth = bridge ? this.activeWakeDepth.get(from) : undefined;
       const wakeDepth = depth === undefined ? 0 : depth + 1;
-      const message = { id: `msg_${randomUUID()}`, from, to, text, ...(taskId ? { taskId } : {}), createdAt: new Date().toISOString(), wake: { state: wakeDepth <= MAX_WAKE_DEPTH ? 'queued' : 'suppressed', depth: wakeDepth, attempts: 0 } };
+      const message = { id: `msg_${randomUUID()}`, from, to, text, ...(taskId ? { taskId } : {}), ...(replyTo ? { replyTo } : {}), createdAt: new Date().toISOString(), wake: { state: wakeDepth <= MAX_WAKE_DEPTH ? 'queued' : 'suppressed', depth: wakeDepth, attempts: 0 } };
       await fs.mkdir(dir, { recursive: true });
       await fs.writeFile(path.join(dir, `${message.id}.json`), JSON.stringify(message), { mode: 0o600, flag: 'wx' });
       return message;
@@ -235,13 +240,14 @@ export class MessagingService {
     return false;
   }
 
-  async finishWake(address, messageId, state, reason = '') {
+  async finishWake(address, messageId, state, reason = '', reply = '') {
     if (!['completed', 'failed', 'outcome_unknown', 'deferred', 'suppressed'].includes(state)) throw badRequest('invalid wake state');
     return this.#updateWake(address, messageId, (message) => {
       if (message.wake?.state !== 'running') return false;
       const backoffMs = Math.min(300000, 30000 * 2 ** Math.min(4, Math.max(0, message.wake.attempts - 1)));
       const nextAttemptAt = state === 'deferred' ? new Date(Date.now() + backoffMs).toISOString() : undefined;
-      message.wake = { ...message.wake, state: state === 'deferred' ? 'queued' : state, reason: String(reason).slice(0, 80), finishedAt: new Date().toISOString(), nextAttemptAt };
+      const replyText = typeof reply === 'string' ? redactActivityText(reply, [this.config.bridge?.token]).trim().slice(0, MAX_WAKE_REPLY_CHARS) : '';
+      message.wake = { ...message.wake, state: state === 'deferred' ? 'queued' : state, reason: String(reason).slice(0, 80), finishedAt: new Date().toISOString(), nextAttemptAt, ...(replyText ? { reply: replyText } : {}) };
       return true;
     });
   }
@@ -279,6 +285,22 @@ export class MessagingService {
     return { messages: (await this.#allDeliveries()).slice(0, limit) };
   }
 
+  async outbox(actor, { limit = 20, taskId = undefined } = {}) {
+    await this.assertExistingAddress(actor);
+    if (!Number.isInteger(limit) || limit < 1 || limit > 50) throw badRequest('limit must be 1-50');
+    const task = taskId ? await this.store.resolveTaskId(String(taskId)).catch(() => { throw badRequest('taskId does not match a stored task'); }) : null;
+    const all = await this.#allDeliveries();
+    const sent = all.filter((message) => message.from === actor && (!task || message.taskId === task)).slice(0, limit);
+    return {
+      sender: actor,
+      messages: sent.map((message) => ({
+        id: message.id, to: message.to, text: message.text, taskId: message.taskId, createdAt: message.createdAt,
+        delivery: deliveryState(message), reply: message.wake?.reply || null,
+        replies: all.filter((item) => item.replyTo === message.id).reverse().map((item) => ({ id: item.id, from: item.from, text: item.text, createdAt: item.createdAt })),
+      })),
+    };
+  }
+
   async listTaskMessages(taskId, { limit = 100 } = {}) {
     return (await this.#allDeliveries()).filter((message) => message.taskId === taskId).slice(0, limit);
   }
@@ -295,7 +317,7 @@ export class MessagingService {
         if (!MESSAGE_FILE_RE.test(name)) continue;
         const message = JSON.parse(await fs.readFile(path.join(root, encoded, name), 'utf8'));
         if (message.to !== address || `${message.id}.json` !== name) continue;
-        messages.push({ id: message.id, from: message.from, to: message.to, text: message.text, taskId: message.taskId || null, createdAt: message.createdAt, readAt: message.readAt || null, wake: message.wake || null });
+        messages.push({ id: message.id, from: message.from, to: message.to, text: message.text, taskId: message.taskId || null, replyTo: message.replyTo || null, createdAt: message.createdAt, readAt: message.readAt || null, wake: message.wake || null });
       }
     }
     messages.sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id));
@@ -363,6 +385,15 @@ export class MessagingService {
     settled.then(() => { if (this.queues.get(key) === settled) this.queues.delete(key); });
     return pending;
   }
+}
+
+export function deliveryState(message) {
+  const state = message.wake?.state;
+  if (state === 'completed') return 'answered';
+  if (state === 'running') return 'running';
+  if (state === 'failed' || state === 'outcome_unknown') return 'failed';
+  if (state === 'suppressed') return message.readAt ? 'read' : 'not_delivered';
+  return 'queued';
 }
 
 function seatMessageSkill(seatId) {

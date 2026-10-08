@@ -248,9 +248,10 @@ export interface MessageDelivery {
   to: string;
   text: string;
   taskId?: string | null;
+  replyTo?: string | null;
   createdAt: string;
   readAt: string | null;
-  wake: { state: string; depth: number; attempts: number; startedAt?: string; finishedAt?: string; reason?: string; nextAttemptAt?: string } | null;
+  wake: { state: string; depth: number; attempts: number; startedAt?: string; finishedAt?: string; reason?: string; nextAttemptAt?: string; reply?: string } | null;
 }
 
 export interface SeatModel { provider: string; default: string; api_mode?: string; base_url?: string }

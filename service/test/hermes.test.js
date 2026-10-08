@@ -362,7 +362,7 @@ test('CEO mailbox turn is bounded, isolated from user conversation, and carries 
   child.stdout.emit('data', '{"type":"start","subtype":"init","session_id":"mailbox_1"}\n');
   child.stdout.emit('data', '{"type":"result","session_id":"mailbox_1","text":"Message handled."}\n');
   child.emit('close', 0);
-  assert.deepEqual(await turn, { outcome: 'completed', sessionId: 'mailbox_1' });
+  assert.deepEqual(await turn, { outcome: 'completed', sessionId: 'mailbox_1', reply: 'Message handled.' });
   await assert.rejects(() => fs.readFile(path.join(dir, 'hermes-ceo-conversation.json'), 'utf8'), { code: 'ENOENT' });
 });
 

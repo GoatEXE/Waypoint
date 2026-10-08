@@ -206,7 +206,7 @@ async function bridgeTool(request, { config, store, docker, hermes, podSeats, ta
   const tool = String(body.tool || '');
   const args = body.args || {};
   if (['github_token', 'github_api'].includes(tool)) return seatGithubTool(request, tool, args, { store, messaging, github });
-  if (['org_chart', 'inbox', 'send_message', 'ack_message'].includes(tool)) {
+  if (['org_chart', 'inbox', 'outbox', 'send_message', 'ack_message'].includes(tool)) {
     if (!messaging) throw forbidden('Waypoint messaging is unavailable');
     const actor = await messaging.actorFromAuthorization(request.headers.authorization);
     if (!args || typeof args !== 'object' || Array.isArray(args)) throw badRequest('args must be an object');
@@ -217,6 +217,10 @@ async function bridgeTool(request, { config, store, docker, hermes, podSeats, ta
     if (tool === 'inbox') {
       assertBridgeFields(args, ['limit', 'includeRead']);
       return messaging.inbox(actor, { limit: args.limit ?? 50, includeRead: args.includeRead ?? false });
+    }
+    if (tool === 'outbox') {
+      assertBridgeFields(args, ['limit', 'taskId']);
+      return messaging.outbox(actor, { limit: args.limit ?? 20, taskId: args.taskId || undefined });
     }
     if (tool === 'ack_message') {
       assertBridgeFields(args, ['messageId']);
