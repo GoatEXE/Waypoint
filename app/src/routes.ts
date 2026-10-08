@@ -3,7 +3,7 @@ import * as D from './data';
 
 export type View =
   | 'mission' | 'project' | 'task' | 'run' | 'pod' | 'review'
-  | 'tasks' | 'inbox' | 'routines' | 'artifacts' | 'skills' | 'connectors' | 'settings' | 'notfound';
+  | 'tasks' | 'org' | 'inbox' | 'routines' | 'artifacts' | 'skills' | 'connectors' | 'settings' | 'notfound';
 
 export interface Route { v: View; id?: string }
 
@@ -15,7 +15,7 @@ export function parseRoute(path: string): Route {
   if (a === 'tasks' && b && !c) return { v: 'task', id: b };
   if (a === 'runs' && b in D.runs) return { v: 'run', id: b };
   if (a === 'pods' && b) return c === 'review' ? { v: 'review', id: b } : !c ? { v: 'pod', id: b } : { v: 'notfound' };
-  if (!b && ['inbox', 'routines', 'artifacts', 'skills', 'connectors', 'settings'].includes(a)) return { v: a as View };
+  if (!b && ['org', 'inbox', 'routines', 'artifacts', 'skills', 'connectors', 'settings'].includes(a)) return { v: a as View };
   return { v: 'notfound' };
 }
 

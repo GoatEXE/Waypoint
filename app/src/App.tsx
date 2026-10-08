@@ -19,6 +19,7 @@ import { SkillsView } from './views/SkillsView';
 import { ConnectorsView } from './views/ConnectorsView';
 import { SettingsView } from './views/SettingsView';
 import { TasksView } from './views/TasksView';
+import { OrgChartView } from './views/OrgChartView';
 import { OrgSetupView } from './views/OrgSetupView';
 
 function View() {
@@ -27,6 +28,7 @@ function View() {
     case 'mission': return <MissionView />;
     case 'project': return <ProjectView id={r.id as D.ProjectId} />;
     case 'tasks': return <TasksView />;
+    case 'org': return <OrgChartView />;
     case 'task': return <TaskView id={r.id!} />;
     case 'run': return <RunView id={r.id!} />;
     case 'pod': return <PodView name={r.id!} />;
