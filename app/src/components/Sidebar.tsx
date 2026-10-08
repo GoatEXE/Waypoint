@@ -11,6 +11,7 @@ import { missionPods, sidebarMissionLabel } from '../missionsModel';
 import { ceoNameOf } from '../orgModel';
 
 const WORKSPACE: [View, string, number, number, string, number][] = [
+  ['tasks', 'Tasks', 11, 9, '2px', 0],
   ['inbox', 'Inbox', 12, 9, '2px', 0],
   ['routines', 'Routines', 11, 11, '50%', 0],
   ['artifacts', 'Artifacts', 10, 10, '2px', 0],

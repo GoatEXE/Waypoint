@@ -18,6 +18,7 @@ import { MessageInboxView } from './views/MessageInboxView';
 import { SkillsView } from './views/SkillsView';
 import { ConnectorsView } from './views/ConnectorsView';
 import { SettingsView } from './views/SettingsView';
+import { TasksView } from './views/TasksView';
 import { OrgSetupView } from './views/OrgSetupView';
 
 function View() {
@@ -25,6 +26,7 @@ function View() {
   switch (r.v) {
     case 'mission': return <MissionView />;
     case 'project': return <ProjectView id={r.id as D.ProjectId} />;
+    case 'tasks': return <TasksView />;
     case 'task': return <TaskView id={r.id!} />;
     case 'run': return <RunView id={r.id!} />;
     case 'pod': return <PodView name={r.id!} />;

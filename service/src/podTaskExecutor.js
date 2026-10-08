@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import { AppError, badRequest, conflict, lifecycleError } from './errors.js';
 import { guardDockerExecArgs, guardPrompt } from './hostDisconnectGuard.js';
+import { taskPrompt } from './taskQueue.js';
 
 export const CONTAINER_DATA_DIR = '/opt/data';
 export const TASK_WORKSPACE_ROOT = `${CONTAINER_DATA_DIR}/workspaces`;
@@ -81,7 +82,7 @@ export class PodTaskExecutor {
     if (task.podId !== podId) throw conflict('task does not belong to the pod', { taskId, podId });
     const seatId = assertTaskSeatId(task.seatId);
     if (!Array.isArray(pod.seats) || !pod.seats.some((seat) => seat?.id === seatId)) throw conflict('seat does not belong to pod', { podId, seatId });
-    const query = String(prompt ?? task.summary ?? '');
+    const query = String(prompt ?? taskPrompt(task));
     if (!query.trim()) throw badRequest('task prompt is required');
     if (query.length > this.limits.maxPromptChars) throw badRequest('task prompt is too long', { maxChars: this.limits.maxPromptChars });
     if (query.includes('\0')) throw badRequest('task prompt must not contain NUL characters');

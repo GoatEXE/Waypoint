@@ -161,6 +161,10 @@ export const api = {
   cancelSeatLogin: (podId: string, seatId: string, provider: string, loginId: string) => json<PodSeatLogin>(`/pod-instances/${encodeURIComponent(podId)}/seats/${encodeURIComponent(seatId)}/providers/${encodeURIComponent(provider)}/login/${encodeURIComponent(loginId)}`, { method: 'DELETE', body: JSON.stringify({}) }),
   saveSeatApiKey: (podId: string, seatId: string, provider: string, apiKey: string) => json<PodSeatApiKeyResponse>(`/pod-instances/${encodeURIComponent(podId)}/seats/${encodeURIComponent(seatId)}/providers/${encodeURIComponent(provider)}/api-key`, { method: 'PUT', body: JSON.stringify({ apiKey }) }),
   task: (id: string) => json<TaskRecord>(`/tasks/${encodeURIComponent(id)}`),
+  createTask: (body: TaskInput) => json<TaskRecord>('/tasks', { method: 'POST', body: JSON.stringify(body) }),
+  updateTask: (id: string, body: TaskInput) => json<TaskRecord>(`/tasks/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  projects: () => json<{ projects: Project[] }>('/projects'),
+  createProject: (name: string) => json<Project>('/projects', { method: 'POST', body: JSON.stringify({ name }) }),
   runTask: (id: string) => json<TaskRunStartResponse>(`/tasks/${encodeURIComponent(id)}/run`, { method: 'POST', body: JSON.stringify({}) }),
   retryTaskAfterReview: (id: string) => json<TaskRunStartResponse>(`/tasks/${encodeURIComponent(id)}/manual-retry`, { method: 'POST', body: JSON.stringify({ reviewed: true }) }),
 };
@@ -188,7 +192,26 @@ export interface Mission {
   missing: ('pod' | 'task')[];
 }
 export interface MissionInput { title: string; outcome?: string; target?: string }
-export interface TaskSummary { id: string; podId: string; seatId: string; summary: string; state: string; updatedAt: string }
+export type TaskStatus = 'backlog' | 'todo' | 'in_progress' | 'in_review' | 'done' | 'canceled';
+export interface TaskSummary {
+  id: string;
+  number: number | null;
+  ref: string | null;
+  summary: string;
+  description: string;
+  status: TaskStatus;
+  state: string;
+  podId: string | null;
+  seatId: string | null;
+  projectId: string | null;
+  labels: string[];
+  parentId: string | null;
+  blockedBy: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+export interface TaskInput { summary?: string; description?: string; status?: TaskStatus; podId?: string | null; seatId?: string | null; projectId?: string | null; labels?: string[]; parentId?: string | null; blockedBy?: string[] }
+export interface Project { id: string; name: string; createdAt: string; updatedAt: string }
 export interface MessageDelivery {
   id: string;
   from: string;
@@ -251,12 +274,7 @@ export interface TaskRunRecord {
   fromState?: string;
   manualRetry?: boolean;
 }
-export interface TaskRecord {
-  id: string;
-  podId: string;
-  seatId: string;
-  summary: string;
-  state: string;
+export interface TaskRecord extends TaskSummary {
   activeRunId?: string;
   lastRunId?: string;
   runs?: TaskRunRecord[];

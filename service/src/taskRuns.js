@@ -32,6 +32,7 @@ export class TaskRunService {
     if (unsupported.length) throw badRequest('task runs accept only optional fixture files; the prompt is the saved task summary', { fields: unsupported.slice(0, 10).map((key) => key.slice(0, 64)) });
     const files = body.files ?? [];
     const task = await this.store.getTask(taskId);
+    if (!task.podId || !task.seatId) throw conflict('assign the task to a pod seat before running it', { taskId: task.id });
     if (manualRetry && !['failed', 'outcome_unknown'].includes(task.state)) throw conflict('only a failed or uncertain task run can be retried after review', { taskId: task.id, state: task.state });
     const pod = await this.store.getInstance(task.podId);
     const template = await this.resolveTemplate(pod);
@@ -113,6 +114,7 @@ export function publicTaskStatus(task) {
     podId: task.podId,
     seatId: task.seatId,
     summary: task.summary,
+    status: task.status || null,
     state: task.state,
     activeRunId: task.activeRunId || null,
     manualReviewRequired: ['failed', 'outcome_unknown'].includes(task.state),

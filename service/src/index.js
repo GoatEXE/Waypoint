@@ -22,6 +22,8 @@ export async function createApp(env = process.env) {
   const store = new PodStore(config.dataDir);
   await store.ensure();
   const organization = new OrganizationStore(config.dataDir);
+  store.taskPrefix = async () => (await organization.get())?.key || 'WP';
+  await store.backfillTaskNumbers();
   const messaging = await MessagingService.create({ config, store });
   messaging.organization = organization;
 

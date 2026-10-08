@@ -10,7 +10,7 @@ Host-side manual calls: `curl --unix-socket service/runtime/control/control.sock
 
 ## `POST /bridge/tools` (bridge TCP port only)
 
-The only route on the TCP listener. Body: `{ "tool": "...", "args": { ... } }`, with `Content-Type: application/json`. The CEO bearer token permits the original control tools and messaging. A seat-specific messaging credential permits only `org_chart`, `inbox`, `send_message`, and `ack_message`; it cannot invoke pod lifecycle, task runs, or other CEO controls. Missing/wrong credentials return `403`. This route is not served on the control pipe.
+The only route on the TCP listener. Body: `{ "tool": "...", "args": { ... } }`, with `Content-Type: application/json`. The CEO bearer token permits the original control tools, the task queue tools (`create_task`, `update_task`, `list_tasks`, `list_projects`, `create_project`), and messaging. A seat-specific messaging credential permits only `org_chart`, `inbox`, `send_message`, and `ack_message`; it cannot invoke pod lifecycle, task runs, or other CEO controls. Missing/wrong credentials return `403`. This route is not served on the control pipe.
 
 During an automatically started CEO mailbox turn, the bridge refuses control tools even with the CEO token. Peer mail can use only the four messaging tools in that turn; it cannot authorize a pod or task action.
 
@@ -114,15 +114,27 @@ Reads a persisted pod instance manifest.
 
 ## `POST /tasks`
 
-Delegates a task to a pod/seat with explicit state and evidence records.
+Creates a task in the organization queue. Only `summary` (the title, 1–200 characters) is required. Optional fields:
 
-Required body fields:
+- `description` (up to 8000 characters; sent with the title as the run prompt)
+- `status`: `backlog`, `todo` (default), `in_progress`, `in_review`, `done`, or `canceled`
+- `podId`, or `podId` and `seatId`: the owning pod or seat. A task needs a seat before it can run.
+- `projectId`: a stored project
+- `labels`: up to 10 labels, lowercased with spaces turned into dashes
+- `parentId`: a task id or ref; cycles are rejected
+- `blockedBy`: up to 20 task ids or refs
 
-- `podId`
-- `seatId`
-- `summary`
+Unknown fields are rejected. Each task gets a sequential `number` and a `ref` such as `ORT-12` built from the organization task prefix; tasks created before numbering existed are numbered by creation time at service start. Response `state` begins as `delegated`. This endpoint records ownership only; it does not execute Hermes work. Use `POST /tasks/:taskId/run` to run it.
 
-Response state begins as `delegated`. This endpoint records ownership only; it does not execute Hermes work. Use `POST /tasks/:taskId/run` to run it.
+Workflow `status` is separate from run `state`. Starting a run moves `backlog`/`todo` to `in_progress`; a completed run moves it to `in_review`. Older tasks without a status report one derived from their run state.
+
+## `PATCH /tasks/:taskId`
+
+Updates only the given fields (the same fields as `POST /tasks`; `null` clears a link). A running task cannot change its pod or seat. Wherever a route takes `:taskId`, a ref such as `ORT-12` also works.
+
+## `GET /projects` and `POST /projects`
+
+`GET` returns `{ "projects": [...] }` sorted by name. `POST` takes `{ "name": "Website" }` (1–80 characters, unique ignoring case) and returns the project with its `project_<uuid>` id.
 
 ## `GET /missions`
 
@@ -150,7 +162,7 @@ Body fields: `podId` and/or `taskId`. Adds links to a mission that does not have
 
 ## `GET /tasks`
 
-Returns short stored task summaries for navigation, independent of mission links. The organization chart similarly lists stored pods and seats after a mission is deleted.
+Returns `{ "tasks": [...] }` with each task's `id`, `number`, `ref`, `summary`, `description`, `status`, `state`, `podId`, `seatId`, `projectId`, `labels`, `parentId`, `blockedBy`, `createdAt`, and `updatedAt`, independent of mission links. Subtasks and blocking tasks are derived from `parentId` and `blockedBy`. The organization chart similarly lists stored pods and seats after a mission is deleted.
 
 ## `GET /tasks/:taskId`
 
@@ -171,7 +183,7 @@ This host-only action requires exactly `{ "reviewed": true }`. It explicitly sta
 
 ## `POST /tasks/:taskId/run`
 
-Host-control route (not on the bridge TCP port). Runs one bounded Hermes turn for the task on its own pod seat, using the saved `summary` as the prompt. Nothing is ever run automatically; this is an explicit user or CEO action.
+Host-control route (not on the bridge TCP port). Runs one bounded Hermes turn for the task on its own pod seat, using the saved `summary` (plus `description`, when set) as the prompt. A task without an assigned seat is refused with `409`. Nothing is ever run automatically; this is an explicit user or CEO action.
 
 Body: `{}` or `{ "files": [{ "path": "fixtures/input.txt", "content": "..." }] }`. `files` are optional tiny text fixtures for the task workspace: at most 16 files, each up to 64 KiB, 256 KiB in total, with relative paths of up to 4 simple segments. Any other field (including `prompt` or a retry flag) returns `400`.
 

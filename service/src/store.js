@@ -3,6 +3,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { badRequest, conflict, notFound } from './errors.js';
 import { sanitizeResponse } from './podTaskExecutor.js';
+import { TASK_EDIT_FIELDS, TASK_REF_RE, projectName, publicTask, statusAfterRun, taskBlockers, taskDescription, taskLabels, taskStatus, taskTitle } from './taskQueue.js';
 
 export const ALLOWED_BASELINE_FILES = ['SOUL.md', 'memories/MEMORY.md', 'memories/USER.md'];
 const NAME_RE = /^[a-z][a-z0-9_-]{1,62}$/;
@@ -16,6 +17,7 @@ const STORED_ID_RE = {
   task: /^task_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
   mission: /^mission_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
   run: /^run_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+  project: /^project_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
 };
 const MISSION_TITLE_MAX = 120;
 const MISSION_OUTCOME_MAX = 1000;
@@ -147,6 +149,16 @@ async function materializeSeatProfile(profileDir, seat, baselineFiles) {
   return copiedFiles;
 }
 
+function assertTaskFields(input) {
+  assertPlainObject(input, 'body');
+  const extra = Object.keys(input).filter((key) => !TASK_EDIT_FIELDS.includes(key));
+  if (extra.length) throw badRequest('unsupported task fields', { fields: extra.slice(0, 10).map((key) => key.slice(0, 64)) });
+}
+function withoutEmptyLinks(task) {
+  const result = { ...task };
+  for (const key of ['podId', 'seatId', 'projectId', 'parentId']) if (!result[key]) delete result[key];
+  return result;
+}
 function optionalText(value, field, max) {
   if (value == null) return '';
   if (typeof value !== 'string') throw badRequest(`${field} must be text`);
@@ -203,6 +215,7 @@ export class PodStore {
     this.queues = new Map();
 
     this.activeTaskRuns = new Set();
+    this.taskPrefix = async () => 'WP';
   }
   async ensure() { await fs.mkdir(this.dataDir, { recursive: true }); }
   async createTemplate(input) {
@@ -343,23 +356,109 @@ export class PodStore {
     }
   }
   async createTask(input) {
-    assertPlainObject(input, 'body');
-    const podId = String(input.podId || '').trim();
-    const seatId = String(input.seatId || '').trim();
-    const summary = String(input.summary || '').trim();
-    if (!podId || !seatId || !summary) throw badRequest('podId, seatId, and summary are required');
-    const instance = await this.getInstance(podId);
-    if (!instance.seats.some((seat) => seat.id === seatId)) throw conflict('seat does not belong to pod', { podId, seatId });
-    const task = { id: safeId('task'), podId, seatId, summary, state: 'delegated', evidence: [{ type: 'record', message: 'Delegation recorded only; no Hermes execution performed.', at: new Date().toISOString() }], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    assertTaskFields(input);
+    const fields = await this.#taskFields(input, null);
+    const now = new Date().toISOString();
+    const number = await this.#nextTaskNumber();
+    const message = fields.podId ? 'Delegation recorded only; no Hermes execution performed.' : 'Task recorded; no pod is assigned yet.';
+    const task = withoutEmptyLinks({ id: safeId('task'), number, ...fields, state: 'delegated', evidence: [{ type: 'record', message, at: now }], createdAt: now, updatedAt: now });
     await writeJson(this.taskPath(task.id), task);
-    return task;
+    return this.#taskView(task);
+  }
+  async updateTask(ref, input) {
+    assertTaskFields(input);
+    return this.#withTaskRunLock(await this.resolveTaskId(ref), async (id) => {
+      const task = await this.getTask(id);
+      const fields = await this.#taskFields(input, task);
+      const reassigned = fields.podId !== (task.podId || null) || fields.seatId !== (task.seatId || null);
+      if (reassigned && task.state === 'running') throw conflict('a running task cannot be reassigned', { taskId: id });
+      const updated = withoutEmptyLinks({ ...task, ...fields, updatedAt: new Date().toISOString() });
+      await writeJson(this.taskPath(id), updated);
+      return this.#taskView(updated);
+    });
+  }
+  async #taskFields(input, current) {
+    const has = (key) => Object.hasOwn(input, key);
+    const keep = (key, fallback) => (current && current[key] != null ? current[key] : fallback);
+    const fields = {
+      summary: has('summary') ? taskTitle(input.summary) : keep('summary', undefined),
+      description: has('description') ? taskDescription(input.description) : keep('description', ''),
+      status: has('status') ? taskStatus(input.status) : current ? publicTask(current, '').status : 'todo',
+      labels: has('labels') ? taskLabels(input.labels) : keep('labels', []),
+      blockedBy: keep('blockedBy', []),
+    };
+    if (!fields.summary) throw badRequest('summary is required');
+    const assigneeChanged = has('podId') || has('seatId');
+    fields.podId = (assigneeChanged ? String(input.podId || '').trim() : current?.podId) || null;
+    fields.seatId = (assigneeChanged ? String(input.seatId || '').trim() : current?.seatId) || null;
+    if (fields.seatId && !fields.podId) throw badRequest('seatId requires podId');
+    if (fields.podId && assigneeChanged) {
+      const instance = await this.getInstance(fields.podId);
+      if (fields.seatId && !instance.seats.some((seat) => seat.id === fields.seatId)) throw conflict('seat does not belong to pod', { podId: fields.podId, seatId: fields.seatId });
+    }
+    fields.projectId = has('projectId') ? (input.projectId ? assertStoredId('project', String(input.projectId)) : null) : current?.projectId || null;
+    if (has('projectId') && fields.projectId && !(await this.readProjects()).some((project) => project.id === fields.projectId)) throw badRequest('projectId does not match a stored project', { projectId: fields.projectId });
+    fields.parentId = has('parentId') ? (input.parentId ? await this.resolveTaskId(input.parentId) : null) : current?.parentId || null;
+    if (has('parentId') && fields.parentId) await this.#assertNoParentCycle(current?.id, fields.parentId);
+    if (has('blockedBy')) {
+      fields.blockedBy = [];
+      for (const ref of taskBlockers(input.blockedBy)) {
+        const id = await this.resolveTaskId(ref);
+        if (current && id === current.id) throw badRequest('a task cannot block itself');
+        if (!fields.blockedBy.includes(id)) fields.blockedBy.push(id);
+      }
+    }
+    return fields;
+  }
+  async #assertNoParentCycle(taskId, parentId) {
+    const seen = new Set(taskId ? [taskId] : []);
+    let cursor = parentId;
+    while (cursor) {
+      if (seen.has(cursor)) throw badRequest('parentId would create a cycle', { parentId });
+      seen.add(cursor);
+      cursor = (await readJson(this.taskPath(cursor)))?.parentId || null;
+    }
+  }
+  #nextTaskNumber() {
+    return this.#serialize('task-sequence', async () => {
+      const filePath = path.join(this.dataDir, 'task-sequence.json');
+      const next = (await readJson(filePath))?.next || 1;
+      await writeJson(filePath, { next: next + 1 });
+      return next;
+    });
+  }
+  async backfillTaskNumbers() {
+    const unnumbered = (await this.#readTasks()).filter((task) => !Number.isSafeInteger(task.number));
+    unnumbered.sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)) || a.id.localeCompare(b.id));
+    for (const { id } of unnumbered) {
+      await this.#withTaskRunLock(id, async () => {
+        const task = await readJson(this.taskPath(id));
+        if (task && !Number.isSafeInteger(task.number)) await writeJson(this.taskPath(id), { ...task, number: await this.#nextTaskNumber() });
+      });
+    }
+    return unnumbered.length;
+  }
+  async resolveTaskId(ref) {
+    const value = String(ref || '').trim();
+    const match = value.toUpperCase().match(TASK_REF_RE);
+    if (!match) return assertStoredId('task', value);
+    const number = Number(match[2]);
+    const task = (await this.#readTasks()).find((item) => item.number === number);
+    if (!task) throw notFound('task not found', { taskId: value.slice(0, 32) });
+    return task.id;
   }
   async getTask(taskId) {
     const task = await readJson(this.taskPath(taskId));
     if (!task) throw notFound('task not found', { taskId });
     return task;
   }
-  async listTasks() {
+  async getTaskView(ref) {
+    return this.#taskView(await this.getTask(await this.resolveTaskId(ref)));
+  }
+  async #taskView(task) {
+    return { ...task, ...publicTask(task, await this.taskPrefix()) };
+  }
+  async #readTasks() {
     const dir = path.join(this.dataDir, 'tasks');
     let names = [];
     try { names = await fs.readdir(dir); }
@@ -369,10 +468,33 @@ export class PodStore {
       const id = name.replace(/\.json$/, '');
       if (!name.endsWith('.json') || !STORED_ID_RE.task.test(id)) continue;
       const task = await readJson(this.taskPath(id));
-      if (task?.id !== id) continue;
-      tasks.push({ id, podId: task.podId, seatId: task.seatId, summary: task.summary, state: task.state, updatedAt: task.updatedAt });
+      if (task?.id === id) tasks.push(task);
     }
+    return tasks;
+  }
+  async listTasks() {
+    const prefix = await this.taskPrefix();
+    const tasks = (await this.#readTasks()).map((task) => publicTask(task, prefix));
     return tasks.sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)) || b.id.localeCompare(a.id));
+  }
+  async readProjects() {
+    return (await readJson(path.join(this.dataDir, 'projects.json')))?.projects || [];
+  }
+  async listProjects() {
+    return [...await this.readProjects()].sort((a, b) => a.name.localeCompare(b.name));
+  }
+  createProject(input) {
+    return this.#serialize('projects', async () => {
+      assertPlainObject(input, 'body');
+      if (Object.keys(input).some((key) => key !== 'name')) throw badRequest('projects accept only name');
+      const name = projectName(input.name);
+      const projects = await this.readProjects();
+      if (projects.some((project) => project.name.toLocaleLowerCase() === name.toLocaleLowerCase())) throw conflict('a project with this name already exists', { name });
+      const now = new Date().toISOString();
+      const project = { id: safeId('project'), name, createdAt: now, updatedAt: now };
+      await writeJson(path.join(this.dataDir, 'projects.json'), { projects: [...projects, project] });
+      return project;
+    });
   }
 
   claimTaskRun(taskId, { manualRetry = false } = {}) {
@@ -386,7 +508,7 @@ export class PodStore {
       const now = new Date().toISOString();
       const run = { id: safeId('run'), state: 'running', startedAt: now, fromState, ...(manualRetry && fromState !== 'delegated' ? { manualRetry: true } : {}) };
       const runs = Array.isArray(task.runs) ? task.runs : [];
-      const updated = { ...task, state: 'running', activeRunId: run.id, runs: [...runs, run].slice(-RUNS_KEEP), updatedAt: now };
+      const updated = { ...task, state: 'running', status: statusAfterRun(publicTask(task, '').status, 'running'), activeRunId: run.id, runs: [...runs, run].slice(-RUNS_KEEP), updatedAt: now };
       await writeJson(this.taskPath(id), updated);
       this.activeTaskRuns.add(run.id);
       return { task: updated, runId: run.id };
@@ -463,7 +585,7 @@ export class PodStore {
     const { activeRunId: _closed, ...rest } = task;
     const runs = Array.isArray(task.runs) ? task.runs : [];
     const merged = runs.some((item) => item?.id === run.id) ? runs.map((item) => (item?.id === run.id ? run : item)) : [...runs, run].slice(-RUNS_KEEP);
-    const updated = { ...rest, state, lastRunId: run.id, runs: merged, evidence: withRunEvidence(task.evidence, evidence), updatedAt: now };
+    const updated = { ...rest, state, status: statusAfterRun(publicTask(task, '').status, state), lastRunId: run.id, runs: merged, evidence: withRunEvidence(task.evidence, evidence), updatedAt: now };
     await writeJson(this.taskPath(task.id), updated);
     this.activeTaskRuns.delete(run.id);
     return updated;
@@ -528,8 +650,8 @@ export class PodStore {
     if (podId) await this.getInstance(podId).catch((error) => { throw error.status === 404 ? badRequest('podId does not match a stored pod', { podId }) : error; });
     if (taskId) {
       const task = await this.getTask(taskId).catch((error) => { throw error.status === 404 ? badRequest('taskId does not match a stored task', { taskId }) : error; });
-      if (podId && task.podId !== podId) throw conflict('task does not belong to the linked pod', { podId, taskId });
-      podId = task.podId;
+      if (podId && task.podId && task.podId !== podId) throw conflict('task does not belong to the linked pod', { podId, taskId });
+      podId = task.podId || podId;
     }
     return { podId, taskId };
   }
