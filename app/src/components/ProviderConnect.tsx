@@ -3,6 +3,7 @@ import { api, type HermesLogin, type HermesStatus } from '../api';
 import { isActiveLogin, isMissingLoginError, shouldClearLoginPrompt } from '../connectorsModel';
 import { providerReadiness } from '../providerConfig';
 import type { Provider } from '../settingsModel';
+import { Reveal } from './Reveal';
 
 export type ProviderChoice = 'codex' | 'claude';
 
@@ -92,7 +93,7 @@ export function ProviderConnect({ onChange }: { onChange: (provider: Provider | 
   const saveKey = () => provider && key.trim() && run('key', async () => { await api.saveApiKey(provider, key.trim()); setKey(''); await loadStatus(true); });
 
   return (
-    <div className="stack" style={{ gap: 14 }}>
+    <div className="stack">
       <div className="provider-cards">
         {CHOICES.map(c => {
           const connected = providerReadiness(status, c.subscription).on || providerReadiness(status, c.apiKey).on;
@@ -106,33 +107,43 @@ export function ProviderConnect({ onChange }: { onChange: (provider: Provider | 
         })}
       </div>
 
-      {option && !ready && (
-        <div className="stack" style={{ gap: 10 }}>
-          {!apiKeyMode && !login && <button type="button" className="btn btn-primary" disabled={!running || !!busy} onClick={() => void signIn()}>{!running ? 'Starting…' : busy === 'login' ? 'Opening…' : `Sign in to ${option.name}`}</button>}
-          {!apiKeyMode && login && (
-            <div className="stack" style={{ gap: 8 }}>
-              {login.authUrl && <a className="btn btn-ghost" href={login.authUrl} target="_blank" rel="noreferrer">Open {option.name} sign-in</a>}
-              {login.userCode && <div className="provider-code mono">{login.userCode}</div>}
-              {login.requiresCode && login.state === 'pending' && (
-                <div style={{ display: 'flex', gap: 6 }}>
-                  <input className="input" type="password" autoComplete="off" value={code} onChange={e => setCode(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); void submitCode(); } }} placeholder="Authorization code" style={{ flex: 1, minWidth: 0 }} />
-                  <button type="button" className="btn btn-primary" disabled={!code.trim() || !!busy} onClick={() => void submitCode()}>Submit</button>
-                </div>
-              )}
-              {(login.state === 'failed' || login.state === 'cancelled') && <button type="button" className="btn btn-ghost" onClick={() => void signIn()}>Try again</button>}
-              {login.message && login.state !== 'pending' && <span role="status" style={{ fontSize: 12, color: 'var(--muted)' }}>{login.message}</span>}
-            </div>
-          )}
-          {apiKeyMode && (
+      <Reveal show={Boolean(option && !ready)}>
+        <div className="stack">
+          <Reveal show={!apiKeyMode && !login}>
+            <button type="button" className="btn btn-primary" style={{ width: '100%' }} disabled={!running || !!busy} onClick={() => void signIn()}>{!running ? 'Starting…' : busy === 'login' ? 'Opening…' : `Sign in to ${option?.name}`}</button>
+          </Reveal>
+          <Reveal show={!apiKeyMode && Boolean(login?.authUrl)}>
+            <a className="btn btn-ghost" style={{ display: 'block', textAlign: 'center' }} href={login?.authUrl || '#'} target="_blank" rel="noreferrer">Open {option?.name} sign-in</a>
+          </Reveal>
+          <Reveal show={!apiKeyMode && Boolean(login?.userCode)}>
+            <div className="provider-code mono">{login?.userCode}</div>
+          </Reveal>
+          <Reveal show={!apiKeyMode && Boolean(login?.requiresCode && login.state === 'pending')}>
             <div style={{ display: 'flex', gap: 6 }}>
-              <input className="input" type="password" autoComplete="off" spellCheck={false} value={key} onChange={e => setKey(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); void saveKey(); } }} placeholder={`${option.name === 'Codex' ? 'OpenAI' : 'Anthropic'} API key`} style={{ flex: 1, minWidth: 0 }} disabled={!running} />
+              <input className="input" type="password" autoComplete="off" value={code} onChange={e => setCode(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); void submitCode(); } }} placeholder="Authorization code" style={{ flex: 1, minWidth: 0 }} />
+              <button type="button" className="btn btn-primary" disabled={!code.trim() || !!busy} onClick={() => void submitCode()}>Submit</button>
+            </div>
+          </Reveal>
+          <Reveal show={!apiKeyMode && (login?.state === 'failed' || login?.state === 'cancelled')}>
+            <button type="button" className="btn btn-ghost" style={{ width: '100%' }} onClick={() => void signIn()}>Try again</button>
+          </Reveal>
+          <Reveal show={!apiKeyMode && Boolean(login?.message && login.state !== 'pending')}>
+            <div role="status" style={{ fontSize: 12, color: 'var(--muted)' }}>{login?.message}</div>
+          </Reveal>
+          <Reveal show={apiKeyMode}>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <input className="input" type="password" autoComplete="off" spellCheck={false} value={key} onChange={e => setKey(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); void saveKey(); } }} placeholder={`${option?.name === 'Codex' ? 'OpenAI' : 'Anthropic'} API key`} style={{ flex: 1, minWidth: 0 }} disabled={!running} />
               <button type="button" className="btn btn-primary" disabled={!running || !key.trim() || !!busy} onClick={() => void saveKey()}>Save</button>
             </div>
-          )}
-          <button type="button" className="link-btn" onClick={() => { setApiKeyMode(v => !v); setLogin(null); setCode(''); setKey(''); setError(''); }}>{apiKeyMode ? 'Use my subscription' : 'I have an API key'}</button>
+          </Reveal>
+          <Reveal show>
+            <button type="button" className="link-btn" onClick={() => { setApiKeyMode(v => !v); setLogin(null); setCode(''); setKey(''); setError(''); }}>{apiKeyMode ? 'Use my subscription' : 'I have an API key'}</button>
+          </Reveal>
         </div>
-      )}
-      {error && <div role="alert" style={{ fontSize: 12.5, color: 'var(--text)' }}>{error}</div>}
+      </Reveal>
+      <Reveal show={Boolean(error)}>
+        <div role="alert" style={{ fontSize: 12.5, color: 'var(--text)' }}>{error}</div>
+      </Reveal>
     </div>
   );
 }

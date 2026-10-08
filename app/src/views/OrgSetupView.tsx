@@ -5,13 +5,16 @@ import { DEFAULTS, defaultModelForProvider, type Provider } from '../settingsMod
 import { useStore } from '../store';
 import { KEY_RE, cleanKey, deriveOrgKey } from '../orgModel';
 import { ProviderConnect } from '../components/ProviderConnect';
+import { Reveal } from '../components/Reveal';
 
 const STEPS = ['Organization', 'CEO', 'Connect', 'Team'];
 export const ONBOARDING_KICKOFF = "Let's get me onboarded. Use your waypoint-onboarding skill.";
 
 export function OrgSetupView() {
   const { saveOrganization, flash, setCeoThread, sendCeoMessage } = useStore();
-  const [step, setStep] = useState(0);
+  const [step, setStepRaw] = useState(0);
+  const [direction, setDirection] = useState<'forward' | 'back'>('forward');
+  const setStep = (target: number) => { setDirection(target < step ? 'back' : 'forward'); setStepRaw(target); };
   const [name, setName] = useState('');
   const [key, setKey] = useState('');
   const [keyEdited, setKeyEdited] = useState(false);
@@ -36,7 +39,8 @@ export function OrgSetupView() {
       return;
     }
     if (provider) {
-      const catalogProvider = catalog?.providers.find(p => p.id === provider);
+      const fresh = await api.hermesModelCatalog(provider, { refresh: true }).catch(() => catalog);
+      const catalogProvider = fresh?.providers.find(p => p.id === provider);
       try {
         await api.saveModel({ provider, default: defaultModelForProvider(provider, catalogProvider, RECOMMENDED_MODELS[provider]), api_mode: catalogProvider?.api_mode || DEFAULTS[provider].api_mode, base_url: '' });
       } catch (e) {
@@ -61,7 +65,7 @@ export function OrgSetupView() {
           {STEPS.map((label, i) => <span key={label} className={'setup-step' + (i === step ? ' on' : i < step ? ' done' : '')}>{label}</span>)}
         </div>
 
-        {step === 0 && <>
+        {step === 0 && <div key={0} className={'setup-body ' + direction}>
           <div className="stack" style={{ gap: 6 }}>
             <div className="eyebrow">WELCOME TO WAYPOINT</div>
             <h1 className="h1">Name your organization</h1>
@@ -72,9 +76,9 @@ export function OrgSetupView() {
           <label className="field"><span className="field-label">Task prefix</span>
             <input className="input mono" value={shownKey} onChange={e => { setKeyEdited(true); setKey(cleanKey(e.target.value)); }} style={{ width: 120 }} />
           </label>
-        </>}
+        </div>}
 
-        {step === 1 && <>
+        {step === 1 && <div key={1} className={'setup-body ' + direction}>
           <div className="stack" style={{ gap: 6 }}>
             <div className="eyebrow">YOUR CHIEF EXECUTIVE</div>
             <h1 className="h1">Name your CEO agent</h1>
@@ -82,29 +86,29 @@ export function OrgSetupView() {
           <label className="field"><span className="field-label">CEO name</span>
             <input className="input" autoFocus value={ceoName} maxLength={40} onChange={e => setCeoName(e.target.value)} />
           </label>
-        </>}
+        </div>}
 
-        {step === 2 && <>
+        {step === 2 && <div key={2} className={'setup-body ' + direction}>
           <div className="stack" style={{ gap: 6 }}>
             <div className="eyebrow">CONNECT</div>
             <h1 className="h1">Connect {ceoName.trim() || 'the CEO'} to a model</h1>
           </div>
           <ProviderConnect onChange={setProvider} />
-        </>}
+        </div>}
 
-        {step === 3 && <>
+        {step === 3 && <div key={3} className={'setup-body ' + direction}>
           <div className="stack" style={{ gap: 6 }}>
             <div className="eyebrow">YOUR TEAM</div>
             <h1 className="h1">Build your team with {ceoName.trim() || 'the CEO'}</h1>
           </div>
-        </>}
+        </div>}
 
-        {error && <div role="alert" className="setup-hint" style={{ color: 'var(--text)' }}>{error}</div>}
+        <Reveal show={Boolean(error)}><div role="alert" className="setup-hint" style={{ color: 'var(--text)' }}>{error}</div></Reveal>
 
         <div className="setup-actions">
-          {step > 0 && <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => setStep(step - 1)}>Back</button>}
-          {step === 2 && <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => { setProvider(null); setStep(3); }} style={{ marginLeft: 'auto' }}>Skip for now</button>}
-          {step === 3 && <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => void finish(false)} style={{ marginLeft: 'auto' }}>Skip</button>}
+          {step > 0 && <button type="button" className="btn btn-ghost pop-in" disabled={busy} onClick={() => setStep(step - 1)}>Back</button>}
+          {step === 2 && <button type="button" className="btn btn-ghost pop-in" disabled={busy} onClick={() => { setProvider(null); setStep(3); }} style={{ marginLeft: 'auto' }}>Skip for now</button>}
+          {step === 3 && <button type="button" className="btn btn-ghost pop-in" disabled={busy} onClick={() => void finish(false)} style={{ marginLeft: 'auto' }}>Skip</button>}
           <button type="submit" className="btn btn-primary lg" disabled={!ok || busy} style={step >= 2 ? undefined : { marginLeft: 'auto' }}>
             {step < 3 ? 'Continue' : busy ? 'Saving…' : 'Start onboarding'}
           </button>

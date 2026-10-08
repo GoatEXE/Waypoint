@@ -39,5 +39,8 @@ export function defaultModelForProvider(provider: Provider, catalogProvider?: He
     return model ? [model] : [];
   });
   if (catalogProvider?.default && recommended.some(m => m.id === catalogProvider.default)) return catalogProvider.default;
-  return recommended[0]?.id || catalogProvider?.default || DEFAULTS[provider].default;
+  if (recommended[0]) return recommended[0].id;
+  if (catalogProvider?.default && byId.has(catalogProvider.default)) return catalogProvider.default;
+  const standard = listed.find(m => !m.id.toLowerCase().endsWith('-900k')) || listed[0];
+  return standard?.id || catalogProvider?.default || DEFAULTS[provider].default;
 }

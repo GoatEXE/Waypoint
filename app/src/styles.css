@@ -419,3 +419,16 @@ button.org-node:hover, .org-seat:hover { border-color: var(--border-6); }
 .provider-code { font: 600 22px var(--mono); letter-spacing: .08em; text-align: center; padding: 6px 0; }
 .link-btn { align-self: flex-start; border: none; background: transparent; padding: 0; color: var(--acc); font-size: 12.5px; cursor: pointer; }
 .link-btn:hover { text-decoration: underline; }
+.reveal { display: grid; grid-template-rows: 0fr; opacity: 0; transform: translateY(-4px); transition: grid-template-rows .22s ease, opacity .18s ease, transform .22s ease; }
+.reveal.open { grid-template-rows: 1fr; opacity: 1; transform: none; }
+.reveal-inner { min-height: 0; overflow: hidden; padding: 0 2px; margin: 0 -2px; }
+.reveal-inner > * { margin-top: 10px; }
+.setup-body { display: flex; flex-direction: column; gap: 22px; animation: setup-in-forward .28s ease both; }
+.setup-body.back { animation-name: setup-in-back; }
+@keyframes setup-in-forward { from { opacity: 0; transform: translateX(14px); } to { opacity: 1; transform: none; } }
+@keyframes setup-in-back { from { opacity: 0; transform: translateX(-14px); } to { opacity: 1; transform: none; } }
+.pop-in { animation: pop-in .2s ease both; }
+@keyframes pop-in { from { opacity: 0; transform: scale(.96); } to { opacity: 1; transform: none; } }
+.provider-card { transition: border-color .18s ease, background-color .18s ease, transform .12s ease; }
+.provider-card:active { transform: scale(.985); }
+@media (prefers-reduced-motion: reduce) { .reveal, .provider-card { transition: none; transform: none; } .setup-body, .pop-in { animation: none; } }
