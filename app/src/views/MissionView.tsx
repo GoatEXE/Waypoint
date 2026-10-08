@@ -18,7 +18,7 @@ function ProjectsSection({ mission }: { mission: Mission }) {
         <div className="section-title">Projects advancing this mission</div>
         <button className="btn btn-ghost sm" style={{ marginLeft: 'auto' }} onClick={() => addProject(mission.id)}>Add project</button>
       </div>
-      {!projects.length && <div className="empty">No projects yet. Add one for each codebase or workstream this mission needs.</div>}
+      {!projects.length && <div className="empty">No projects yet.</div>}
       {!!projects.length && <div className="list">
         {projects.map(p => {
           const own = tasks.filter(t => t.projectId === p.id && t.status !== 'canceled');

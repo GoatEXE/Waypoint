@@ -11,7 +11,7 @@ export function repoHint(info: LocalRepoInfo | null) {
   return `Git repository on ${info.branch || 'unknown branch'}${info.repo ? ` · ${info.repo}` : info.remote ? ' · remote is not on GitHub' : ' · no origin remote'}`;
 }
 
-export function FolderField({ value, onChange, info, onInspect, disabled }: { value: string; onChange: (path: string) => void; info: LocalRepoInfo | null; onInspect: (path: string) => void; disabled?: boolean }) {
+export function FolderField({ value, onChange, onInspect, disabled }: { value: string; onChange: (path: string) => void; info?: LocalRepoInfo | null; onInspect: (path: string) => void; disabled?: boolean }) {
   const [browsing, setBrowsing] = useState(false);
   const [pickError, setPickError] = useState('');
   const browse = async () => {
@@ -28,9 +28,7 @@ export function FolderField({ value, onChange, info, onInspect, disabled }: { va
         <input className="input mono" style={{ flex: 1, minWidth: 0 }} value={value} onChange={e => onChange(e.target.value)} onBlur={() => onInspect(value)} placeholder="E:\Repositories\project" disabled={disabled || browsing} />
         <button type="button" className="btn btn-ghost" disabled={disabled || browsing} onClick={() => void browse()}>{browsing ? 'Choosing…' : 'Browse…'}</button>
       </div>
-      {browsing && <span style={{ fontSize: 11.5, color: 'var(--faint)' }}>Choose the folder in the window that opened on your desktop.</span>}
       {pickError && <span role="alert" style={{ fontSize: 11.5, color: 'var(--text)' }}>{pickError}</span>}
-      {info && <span style={{ fontSize: 11.5, color: 'var(--faint)' }}>{repoHint(info)}</span>}
     </div>
   );
 }

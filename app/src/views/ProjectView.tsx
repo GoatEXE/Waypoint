@@ -63,7 +63,6 @@ function RepoSettings({ project, pods, github, onSaved }: { project: Project; po
           const on = seats.includes(address);
           return <button key={address} type="button" className={'chip' + (on ? ' on' : '')} aria-pressed={on} onClick={() => setSeats(s => on ? s.filter(x => x !== address) : [...s, address])}>{pod.name} / {seat.seatId}</button>;
         }))}</div> : <span style={{ fontSize: 12, color: 'var(--faint)' }}>No pods yet.</span>}
-        <span style={{ fontSize: 11.5, color: 'var(--faint)' }}>Selected seats can clone, push branches, and open pull requests on this repository. Your local folder is never mounted into a pod.</span>
       </div>
       {error && <div role="alert" style={{ fontSize: 12.5, color: 'var(--text)' }}>{error}</div>}
       {dirty && <div style={{ display: 'flex', gap: 8 }}>

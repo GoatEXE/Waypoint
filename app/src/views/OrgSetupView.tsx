@@ -78,14 +78,12 @@ export function OrgSetupView() {
           <div className="stack" style={{ gap: 6 }}>
             <div className="eyebrow">WELCOME TO WAYPOINT</div>
             <h1 className="h1">Name your organization</h1>
-            <p className="setup-lede">This is the home for your agents, projects, and tasks.</p>
           </div>
           <label className="field"><span className="field-label">Organization name</span>
             <input className="input" autoFocus value={name} maxLength={80} onChange={e => setName(e.target.value)} placeholder="Acme Robotics" />
           </label>
           <label className="field"><span className="field-label">Task prefix</span>
             <input className="input mono" value={shownKey} onChange={e => { setKeyEdited(true); setKey(cleanKey(e.target.value)); }} style={{ width: 120 }} />
-            <span className="setup-hint">Task IDs will look like {shownKey || 'KEY'}-1, {shownKey || 'KEY'}-2.</span>
           </label>
         </>}
 
@@ -93,7 +91,6 @@ export function OrgSetupView() {
           <div className="stack" style={{ gap: 6 }}>
             <div className="eyebrow">YOUR CHIEF EXECUTIVE</div>
             <h1 className="h1">Name your CEO agent</h1>
-            <p className="setup-lede">The CEO takes your requests, staffs pods, and reports back.</p>
           </div>
           <label className="field"><span className="field-label">CEO name</span>
             <input className="input" autoFocus value={ceoName} maxLength={40} onChange={e => setCeoName(e.target.value)} />
@@ -104,7 +101,6 @@ export function OrgSetupView() {
           <div className="stack" style={{ gap: 6 }}>
             <div className="eyebrow">PREFERRED MODEL</div>
             <h1 className="h1">Pick {ceoName.trim() || 'the CEO'}'s model</h1>
-            <p className="setup-lede">New pods use this model unless you choose another. You can sign in to the provider in Connectors.</p>
           </div>
           <div className="chips">
             {PROVIDERS.map(p => <button key={p.id} type="button" className={'chip' + (provider === p.id ? ' on' : '')} aria-pressed={provider === p.id} onClick={() => pickProvider(p.id)}>{p.name}</button>)}

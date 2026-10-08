@@ -1,4 +1,3 @@
-import { useNavigate } from 'react-router-dom';
 import type { GitHubStatus } from '../api';
 
 export function installedRepos(github: GitHubStatus | null) {
@@ -6,7 +5,6 @@ export function installedRepos(github: GitHubStatus | null) {
 }
 
 export function RepoSelect({ value, onChange, github, disabled }: { value: string; onChange: (repo: string) => void; github: GitHubStatus | null; disabled?: boolean }) {
-  const nav = useNavigate();
   const repos = installedRepos(github);
   const known = !value || repos.some(r => r.toLowerCase() === value.toLowerCase());
   const selected = known ? repos.find(r => r.toLowerCase() === value.toLowerCase()) || '' : value;
@@ -14,7 +12,6 @@ export function RepoSelect({ value, onChange, github, disabled }: { value: strin
     return (
       <>
         <select className="input" disabled value={value}><option value={value}>{value || 'GitHub is not connected'}</option></select>
-        <span style={{ fontSize: 11.5, color: 'var(--faint)' }}><span className="ul" onClick={() => nav('/connectors?connector=github')}>Connect GitHub</span> to choose a repository.</span>
       </>
     );
   }
@@ -25,7 +22,6 @@ export function RepoSelect({ value, onChange, github, disabled }: { value: strin
         {!known && <option value={value}>{value} (app not installed)</option>}
         {repos.map(r => <option key={r} value={r}>{r}</option>)}
       </select>
-      {!known && <span style={{ fontSize: 11.5, color: 'var(--text)' }}>The Waypoint GitHub App is not installed on {value}. <a href={github?.installUrl || '#'} target="_blank" rel="noreferrer">Add it on GitHub</a>.</span>}
     </>
   );
 }

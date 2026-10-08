@@ -60,9 +60,7 @@ export function GitHubSetup({ status, setStatus, reload, loadError }: { status: 
       </div>
       {(error || loadError) && <div role="alert" style={{ fontSize: 12.5, color: 'var(--text)' }}>{error || loadError}</div>}
       {status && !status.connected && <>
-        <p style={{ margin: 0, fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.45 }}>Creates a private GitHub App with repository contents, pull request, and issue access. GitHub asks you to confirm, then you choose which repositories to install it on.</p>
         <input className="input" value={owner} onChange={e => setOwner(e.target.value)} placeholder="GitHub organization (optional)" aria-label="GitHub organization" />
-        <span style={{ fontSize: 12, color: 'var(--faint)' }}>Leave empty to create the app under your personal account.</span>
         <button className="btn btn-primary" disabled={busy} onClick={() => void connect()}>{busy ? 'Opening GitHub…' : 'Connect GitHub'}</button>
       </>}
       {status?.connected && status.app && <>
@@ -70,7 +68,6 @@ export function GitHubSetup({ status, setStatus, reload, loadError }: { status: 
         {status.error && <div role="alert" style={{ fontSize: 12.5, color: 'var(--text)' }}>{status.error}</div>}
         {repos.length ? <div className="chips">{repos.map(r => <span key={r} className="chip mono" style={{ cursor: 'default' }}>{r}</span>)}</div> : <div style={{ fontSize: 12.5, color: 'var(--faint)' }}>Not installed on any repository yet.</div>}
         <a className="btn btn-primary" style={{ textAlign: 'center' }} href={status.installUrl || '#'}>{repos.length ? 'Change repositories' : 'Install on repositories'}</a>
-        <span style={{ fontSize: 12, color: 'var(--faint)' }}>Choose each project's repository and the seats that may use it on the project page.</span>
         <div style={{ display: 'flex', gap: 8 }}>
           <button className="btn btn-ghost" onClick={reload}>Refresh</button>
           <button className="btn btn-ghost" disabled={busy} onClick={() => void disconnect()}>Disconnect</button>

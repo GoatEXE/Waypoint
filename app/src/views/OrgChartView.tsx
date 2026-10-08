@@ -45,7 +45,7 @@ export function OrgChartView() {
 
   return (
     <div className="page" style={{ maxWidth: 1280, gap: 24 }}>
-      <WorkspaceHead title="Organization" lede="Who reports to whom, what each pod and seat is working on, and what is running now. Click a seat to talk with it directly." />
+      <WorkspaceHead title="Organization" />
       {error && <div className="card" role="alert" style={{ padding: 12 }}>{error}</div>}
       {!tree && !error && <div className="empty" role="status">Loading organization…</div>}
       {tree && (
@@ -77,7 +77,7 @@ export function OrgChartView() {
             </div>
           )}
           {tree.pods.length > 0 && <div className="org-stem" />}
-          {tree.pods.length === 0 && <div className="empty">No pods yet. Ask {ceoName} to staff a pod for your first task.</div>}
+          {tree.pods.length === 0 && <div className="empty">No pods yet.</div>}
           <div className="org-pods">
             {tree.pods.map(pod => (
               <div key={pod.podId} className="org-branch">

@@ -51,7 +51,7 @@ export function TasksView() {
 
   return (
     <div className="page" style={{ maxWidth: prefs.layout === 'board' ? 1400 : 1040, gap: 20 }}>
-      <WorkspaceHead title="Tasks" lede="Every task in the organization, by status, project, parent, or owner." />
+      <WorkspaceHead title="Tasks" />
       <div className="task-toolbar">
         <div className="segmented" role="group" aria-label="Layout">
           <button className={prefs.layout === 'list' ? 'on' : ''} aria-pressed={prefs.layout === 'list'} onClick={() => setPrefs(p => ({ ...p, layout: 'list' }))}>List</button>
@@ -67,7 +67,7 @@ export function TasksView() {
 
       {error && <div className="card" role="alert" style={{ padding: 12 }}>{error}</div>}
       {loading && !tasks.length && <div className="empty" role="status">Loading tasks…</div>}
-      {!loading && !error && !tasks.length && <div className="empty">No tasks yet. Create one, or ask the CEO to plan the work.</div>}
+      {!loading && !error && !tasks.length && <div className="empty">No tasks yet.</div>}
 
       {prefs.layout === 'list' && groupTasks(tasks, prefs.groupBy, { projects, pods }).map(group => (
         <section key={group.key || 'none'} className="stack" style={{ gap: 6 }}>
