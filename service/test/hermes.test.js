@@ -626,6 +626,10 @@ test('CEO bridge skill seed documents run_task and task_status truthfully', asyn
   assert.match(skill, /pod_start also prepares every seat profile, applies its saved or template model/);
   assert.match(skill, /Waypoint captures the CEO current model as that pod's default when pod_start runs/);
   assert.match(skill, /explicit seat and template models take priority/);
+  assert.match(skill, /## Work requests become tasks\n\nWhen the user asks for work to be done .* create a task for it instead of messaging a seat/);
+  assert.match(skill, /Use send_message only for coordination and questions .* never to hand off work/);
+  assert.match(skill, /move its status back to todo \(or backlog\) only after the user approves another run/);
+  assert.match(script, /## outbox\nPayload: .*\nReturns messages you sent, newest first, each with delivery/);
   assert.match(skill, /run_task never starts the pod or provisions seats/);
   assert.match(skill, /Returns promptly .*"state": "running" \} \(accepted for background execution, like HTTP 202\)\. It does not wait for the result/);
   assert.match(skill, /Never retry automatically\. Do not call run_task again for a task that failed or has an unknown outcome/);
