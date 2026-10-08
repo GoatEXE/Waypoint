@@ -1,36 +1,43 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import * as D from '../data';
-import { api, type Mission } from '../api';
-import { projStats } from '../model';
+import { api, type Mission, type TaskSummary } from '../api';
 import { currentMission, missionStatus, podStateLabel, shortDate, taskStateLabel } from '../missionsModel';
 import { useStore } from '../store';
 import { OnDot } from '../components/ui';
 
-function ProjectsSection() {
-  const { tasks } = useStore();
+function ProjectsSection({ mission }: { mission: Mission }) {
+  const { state, addProject } = useStore();
   const nav = useNavigate();
+  const [tasks, setTasks] = useState<TaskSummary[]>([]);
+  useEffect(() => { api.tasks().then(t => setTasks(t.tasks)).catch(() => undefined); }, [state.projects.length]);
+  const projects = state.projects.filter(p => p.missionId === mission.id);
   return (
     <div className="stack" style={{ gap: 12 }}>
-      <div className="section-title">Projects advancing this mission</div>
-      {!D.projects.length && <div className="empty">No projects yet.</div>}
-      {!!D.projects.length && <div className="list">
-        {D.projects.map(p => {
-          const s = projStats(p, tasks);
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div className="section-title">Projects advancing this mission</div>
+        <button className="btn btn-ghost sm" style={{ marginLeft: 'auto' }} onClick={() => addProject(mission.id)}>Add project</button>
+      </div>
+      {!projects.length && <div className="empty">No projects yet.</div>}
+      {!!projects.length && <div className="list">
+        {projects.map(p => {
+          const own = tasks.filter(t => t.projectId === p.id && t.status !== 'canceled');
+          const done = own.filter(t => t.status === 'done').length;
+          const pct = own.length ? Math.round((done / own.length) * 100) : 0;
           return (
             <div key={p.id} className="row link proj-row" onClick={() => nav('/projects/' + p.id)}>
               <div className="stack" style={{ gap: 4, minWidth: 0 }}>
                 <div style={{ font: '500 13.5px var(--mono)' }}>{p.name}</div>
-                <div style={{ color: 'var(--muted)', fontSize: 13 }}>{p.goal}</div>
+                <div style={{ color: 'var(--muted)', fontSize: 13 }}>{p.repo || p.localPath || 'No repository yet'}</div>
               </div>
               <div className="stack" style={{ gap: 8 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--dim)' }}>
-                  <span>{s.done} of {s.total} done</span><span className="mono">{s.pct}%</span>
+                  <span>{done} of {own.length} done</span><span className="mono">{pct}%</span>
                 </div>
-                <div className="bar" style={{ background: 'var(--border)' }}><div style={{ width: s.pct + '%', background: 'var(--text-3)' }} /></div>
+                <div className="bar" style={{ background: 'var(--border)' }}><div style={{ width: pct + '%', background: 'var(--text-3)' }} /></div>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 14, fontSize: 12, color: 'var(--muted)', flexWrap: 'wrap' }}>
-                <span>{s.flag}</span>
+                <span>{own.length - done} open</span>
                 <span style={{ color: 'var(--quiet)' }}>→</span>
               </div>
             </div>
@@ -164,7 +171,6 @@ export function MissionView() {
             <button className="btn lg btn-ghost" onClick={() => nav('/connectors')}>Open Connectors</button>
           </div>
         </div>
-        <ProjectsSection />
       </div>
     );
   }
@@ -207,7 +213,7 @@ export function MissionView() {
 
       <MissionWork mission={mission} />
 
-      <ProjectsSection />
+      <ProjectsSection mission={mission} />
 
       {others.length > 0 && (
         <div className="stack" style={{ gap: 12 }}>

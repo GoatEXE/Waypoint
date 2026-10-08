@@ -3,15 +3,16 @@ import * as D from './data';
 
 export type View =
   | 'mission' | 'project' | 'task' | 'run' | 'pod' | 'review'
-  | 'tasks' | 'org' | 'inbox' | 'routines' | 'artifacts' | 'skills' | 'connectors' | 'settings' | 'notfound';
+  | 'tasks' | 'org' | 'github' | 'inbox' | 'routines' | 'artifacts' | 'skills' | 'connectors' | 'settings' | 'notfound';
 
 export interface Route { v: View; id?: string }
 
 export function parseRoute(path: string): Route {
   const [a, b, c] = path.split('/').filter(Boolean).map(decodeURIComponent);
   if (!a) return { v: 'mission' };
-  if (a === 'projects' && D.projects.some(p => p.id === b)) return { v: 'project', id: b };
+  if (a === 'projects' && b && !c) return { v: 'project', id: b };
   if (a === 'tasks' && !b) return { v: 'tasks' };
+  if (a === 'connectors' && b === 'github' && (c === 'callback' || c === 'installed')) return { v: 'github', id: c };
   if (a === 'tasks' && b && !c) return { v: 'task', id: b };
   if (a === 'runs' && b in D.runs) return { v: 'run', id: b };
   if (a === 'pods' && b) return c === 'review' ? { v: 'review', id: b } : !c ? { v: 'pod', id: b } : { v: 'notfound' };

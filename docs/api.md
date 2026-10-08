@@ -52,6 +52,17 @@ The CEO conversation is split into threads: `general` plus one thread per task, 
 
 `messages` contain `user` and `ceo` entries plus one `activity` entry per turn: `{ role: "activity", at, items: [{ kind: "tool"|"action", name, detail, status: "ok"|"error"|"unknown", durationMs? }] }`. Tool items come from the Hermes stream-json `tool_use`/`tool_result` events: the tool name and a redacted, 200-character summary of its main input. Tool output is never stored. Seat task runs record the same tool items: while a run is active, `GET /tasks/:taskId` includes `liveActivity: { runId, items }`, and each finished run keeps `activity` in `runs[]`. `GET /tasks/:taskId/messages` lists messages linked to the task, newest first. In a task thread, the app merges the CEO conversation, the task's seat runs, and its linked messages by time. Action items record the CEO's Waypoint bridge calls (for example `create_task` → `SUN-5 Plan the site`). Hermes stream-json does not emit model reasoning, so threads cannot show it.
 
+## GitHub connector
+
+Seats reach GitHub through a private Waypoint GitHub App. Repository code is cloned into the seat's pod volume; the user's local folder is never mounted.
+
+- `GET /github` returns `{ connected, app, installUrl, installations: [{ id, account, selection, repos }] }`. The private key never leaves the service.
+- `POST /github/manifest` with `{ "origin": "http://127.0.0.1:5173", "owner": "optional-org" }` returns `{ state, url, manifest }`. The app form-posts `manifest` to `url` (GitHub's app manifest flow). GitHub redirects to `/connectors/github/callback?code&state`, and the app calls `POST /github/complete` with `{ code, state }`; states expire after 30 minutes and work once. The app requests contents, pull requests, and issues write; metadata, checks, and actions read; and no webhook events. Installation returns to `/connectors/github/installed`.
+- `DELETE /github` forgets the app locally; delete it on GitHub separately.
+- Projects take `localPath`, `repo` (`owner/name`), and `githubSeats` (`pod_<uuid>/<seat-id>` addresses) on `POST /projects` and `PATCH /projects/:id`. `POST /folders/pick` with an optional `{ "start": "E:\Repositories" }` opens the operating system's folder picker on the host desktop (the Explorer-style dialog on Windows through PowerShell, `osascript` on macOS, `zenity` on Linux) and returns `{ path, cancelled }` after the user chooses or cancels; only one picker can be open at a time. Browsers cannot give a page a folder's full path, so the host service opens it. `POST /projects/inspect` with `{ localPath }` runs `git` on the host folder and returns `{ exists, isGit, root, remote, repo, branch }`. When `localPath` is set without `repo`, the GitHub remote is detected automatically.
+
+Bridge tools for seat credentials: `github_token` `{ repo }` returns an installation token (at most one hour, scoped to that one repository, cached until five minutes before expiry), and `github_api` `{ repo, method, path, body }` calls `https://api.github.com/repos/<repo><path>` from the service. Both require a seat designated on a project with that repo; the CEO token and other seats get `403`. `github_api` refuses webhooks, deploy keys, collaborators, invitations, secrets and variables, environments, rulesets, branch protection, transfer, and repository-level writes. Provisioned seats get `bin/waypoint-github.py` (`clone OWNER/REPO`, `api OWNER/REPO METHOD PATH [--data JSON]`, and the git `credential` helper) and a `waypoint-github` skill. Clones are configured with that credential helper and a seat commit identity.
+
 ## Direct seat chat
 
 `GET /pod-instances/:podId/seats/:seatId/conversation` and `POST /pod-instances/:podId/seats/:seatId/messages` (body `{ "message": "..." }`) let the user talk with one seat directly. Each turn runs `hermes -p <seat> chat` inside the seat's own pod container through the task executor, so it has the same readiness checks, turn limits, and live tool activity as a task run. It uses one stable per-seat chat session and workspace. A seat that is running a task or answering a message is refused with `409`, as is dry-run mode. Responses use the CEO conversation shape, with seat replies as `role: "seat"`. Thread id in the app: `seat:<podId>/<seatId>`.
@@ -148,7 +159,7 @@ Updates only the given fields (the same fields as `POST /tasks`; `null` clears a
 
 ## `GET /projects` and `POST /projects`
 
-`GET` returns `{ "projects": [...] }` sorted by name. `POST` takes `{ "name": "Website" }` (1–80 characters, unique ignoring case) and returns the project with its `project_<uuid>` id.
+`GET` returns `{ "projects": [...] }` sorted by name. `POST` takes `{ "name": "Website", "missionId": "mission_<uuid>" }` (name 1–80 characters, unique ignoring case; `missionId` optional and must be a stored mission) plus the optional repository fields below, and returns the project with its `project_<uuid>` id. Projects belong to a mission; the app lists them under their mission and creates them there. `GET`, `PATCH`, and `DELETE /projects/:id` read, update, and remove one project. Deleting is refused with `409` while tasks still use the project. Saving `githubSeats` installs the seat GitHub tools on newly designated seats whose pod is running and returns their addresses as `toolsInstalled`.
 
 ## `GET /missions`
 

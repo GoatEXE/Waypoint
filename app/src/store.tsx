@@ -1,12 +1,12 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { api, type MissionInput, type OrganizationInput, type OrganizationState } from './api';
+import { api, type MissionInput, type OrganizationInput, type OrganizationState, type Project } from './api';
 import { ceoLiveUpdated, ceoLoadFailed, ceoLoadStarted, ceoLoadSucceeded, ceoSendFailed, ceoSendStarted, ceoSendSucceeded, cleanCeoMessage, emptyCeoState, type CeoState } from './ceoConversation';
 import type { LessonPick } from './data';
 import { liveTasks, pendingInbox, type Resolved } from './model';
 import { initialMissionsState, missionsLoadFailed, missionsLoadStarted, missionsLoadSucceeded, type MissionsState } from './missionsModel';
 
 export type PaneTab = 'ceo' | 'tasks' | 'artifacts' | 'inbox' | 'item';
-export type ModalKind = 'assignment' | 'mission' | 'pod' | 'seat';
+export type ModalKind = 'assignment' | 'mission' | 'pod' | 'seat' | 'project';
 
 export interface AppState {
   pane: { open: boolean; tab: PaneTab; item: string | null };
@@ -20,6 +20,8 @@ export interface AppState {
   ceo: CeoState;
   ceoThread: string;
   missions: MissionsState;
+  projects: Project[];
+  projectMission: string | null;
   org: OrganizationState & { loaded: boolean; error?: string };
   modal: ModalKind | null;
   toast: string | null;
@@ -41,7 +43,7 @@ function initialState(): AppState {
   return {
     pane: cleanPane(saved),
     resolved: {}, picks: {}, seat: '', podStopped: false, missionOpen: Boolean(saved.missionOpen), routinesOff: {}, connected: {},
-    ceo: emptyCeoState, ceoThread: typeof saved.ceoThread === 'string' && saved.ceoThread ? saved.ceoThread : 'general', missions: initialMissionsState, org: { loaded: false, configured: false, organization: null }, modal: null, toast: null,
+    ceo: emptyCeoState, ceoThread: typeof saved.ceoThread === 'string' && saved.ceoThread ? saved.ceoThread : 'general', missions: initialMissionsState, projects: [], projectMission: null, org: { loaded: false, configured: false, organization: null }, modal: null, toast: null,
   };
 }
 
@@ -67,7 +69,8 @@ function useAppStore() {
     setPane: (p: Partial<AppState['pane']>) => set(s => ({ pane: { ...s.pane, ...p } })),
     resolve: (id: string, v: 'yes' | 'no') => set(s => ({ resolved: { ...s.resolved, [id]: v } })),
     openModal: (m: ModalKind) => set({ modal: m }),
-    closeModal: () => set({ modal: null }),
+    closeModal: () => set({ modal: null, projectMission: null }),
+    addProject: (missionId: string) => set({ modal: 'project', projectMission: missionId }),
     flash: (msg: string) => {
       set({ toast: msg });
       window.clearTimeout(toastTimer.current);
@@ -85,6 +88,9 @@ function useAppStore() {
       const org = await api.saveOrganization(input);
       set({ org: { ...org, loaded: true } });
       return org;
+    },
+    loadProjects: async () => {
+      try { set({ projects: (await api.projects()).projects }); } catch {   }
     },
     loadMissions: async () => {
       set(s => ({ missions: missionsLoadStarted(s.missions) }));
@@ -160,7 +166,7 @@ function useAppStore() {
     },
   }), [set]);
 
-  useEffect(() => { void actions.loadMissions(); void actions.loadOrganization(); }, [actions]);
+  useEffect(() => { void actions.loadMissions(); void actions.loadOrganization(); void actions.loadProjects(); }, [actions]);
 
   const derived = useMemo(() => ({
     tasks: liveTasks(state.resolved),

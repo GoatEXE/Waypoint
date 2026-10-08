@@ -4,6 +4,7 @@ import { OnDot, WorkspaceHead } from '../components/ui';
 import { isActiveLogin, isMissingLoginError, shouldApplyMissingLoginRecovery, shouldClearLoginPrompt, shouldShowLoginPromptMaterial, statusHasUncheckedNativeAuth, toConnectorProvider } from '../connectorsModel';
 import { providerReadiness } from '../providerConfig';
 import type { Provider } from '../settingsModel';
+import { GitHubSetup, githubReadiness, githubRepos, useGitHubStatus } from './GitHubConnector';
 
 type ProviderGroupId = 'openai' | 'anthropic';
 type Method = 'subscription' | 'api_key';
@@ -36,6 +37,10 @@ export function ConnectorsView() {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState('');
   const [activeGroupId, setActiveGroupId] = useState<ProviderGroupId>('openai');
+  const [showGithub, setShowGithub] = useState(() => new URLSearchParams(window.location.search).get('connector') === 'github');
+  const [category, setCategory] = useState<'all' | 'ai' | 'code'>('all');
+  const github = useGitHubStatus();
+  const githubState = githubReadiness(github.status);
   const [methodByGroup, setMethodByGroup] = useState<Record<ProviderGroupId, Method>>({ openai: 'subscription', anthropic: 'subscription' });
   const [login, setLogin] = useState<HermesLogin | null>(null);
   const [code, setCode] = useState('');
@@ -148,11 +153,13 @@ export function ConnectorsView() {
 
   return (
     <div className="page" style={{ maxWidth: 1040, gap: 20 }}>
-      <WorkspaceHead title="Connectors" lede="Provider accounts for Waypoint." />
+      <WorkspaceHead title="Connectors" lede="Provider accounts and GitHub access for Waypoint." />
       {error && <div className="card" role="alert" style={{ padding: 12, borderColor: 'var(--border-6)', color: 'var(--text)' }}>{error}</div>}
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-        <button className="filter on">AI providers ({PROVIDER_GROUPS.length})</button>
+        <button className={'filter' + (category === 'all' ? ' on' : '')} onClick={() => setCategory('all')}>All ({PROVIDER_GROUPS.length + 1})</button>
+        <button className={'filter' + (category === 'ai' ? ' on' : '')} onClick={() => { setCategory('ai'); setShowGithub(false); }}>AI providers ({PROVIDER_GROUPS.length})</button>
+        <button className={'filter' + (category === 'code' ? ' on' : '')} onClick={() => { setCategory('code'); setShowGithub(true); }}>Code hosting (1)</button>
         <button className="filter" disabled style={{ cursor: 'default', opacity: attentionCount ? 1 : .55 }}>Needs attention ({attentionCount})</button>
         <button className="btn btn-ghost sm" style={{ marginLeft: 'auto' }} disabled={busy === 'refresh'} onClick={() => act('refresh', async () => undefined, { freshAuth: true })}>Refresh</button>
       </div>
@@ -162,10 +169,10 @@ export function ConnectorsView() {
           <div className="connector-table-head">
             <span>Connection</span><span>Methods</span><span>Status</span><span />
           </div>
-          {rows.map(row => {
-            const selected = row.group.id === activeGroupId;
+          {category !== 'code' && rows.map(row => {
+            const selected = !showGithub && row.group.id === activeGroupId;
             return (
-              <button key={row.group.id} className={'connector-row' + (selected ? ' active' : '')} onClick={() => setActiveGroupId(row.group.id)}>
+              <button key={row.group.id} className={'connector-row' + (selected ? ' active' : '')} onClick={() => { setActiveGroupId(row.group.id); setShowGithub(false); }}>
                 <span className="connector-name"><ProviderMark label={row.group.name} /><span><strong>{row.group.name}</strong><small>{row.group.note}</small></span></span>
                 <span className="connector-muted">{row.group.methods.length} methods</span>
                 <span className="connector-status"><OnDot on={row.readiness.on} />{row.readiness.label}</span>
@@ -173,8 +180,29 @@ export function ConnectorsView() {
               </button>
             );
           })}
+          {category !== 'ai' && (
+            <button className={'connector-row' + (showGithub ? ' active' : '')} onClick={() => setShowGithub(true)}>
+              <span className="connector-name"><ProviderMark label="Git Hub" /><span><strong>GitHub</strong><small>Repository access for designated seats.</small></span></span>
+              <span className="connector-muted">GitHub App{githubRepos(github.status).length ? ` · ${githubRepos(github.status).length} repos` : ''}</span>
+              <span className="connector-status"><OnDot on={githubState.on} />{githubState.label}</span>
+              <span className="connector-action">Manage</span>
+            </button>
+          )}
         </section>
 
+        {showGithub ? (
+          <aside className="card stack" style={{ padding: 16, gap: 16 }} aria-label="GitHub setup">
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+              <ProviderMark label="Git Hub" />
+              <div className="stack" style={{ gap: 4, minWidth: 0 }}>
+                <h2 style={{ margin: 0, fontSize: 14, fontWeight: 600 }}>Connect GitHub</h2>
+                <div style={{ fontSize: 12, color: 'var(--muted)' }}>Short-lived, per-repository access through a Waypoint GitHub App.</div>
+              </div>
+              <StatusBadge on={githubState.on}>{githubState.label}</StatusBadge>
+            </div>
+            <GitHubSetup status={github.status} setStatus={github.setStatus} reload={() => void github.reload(true)} loadError={github.error} />
+          </aside>
+        ) : (
         <aside className="card stack" style={{ padding: 16, gap: 16 }} aria-label={`${activeGroup.name} setup`}>
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
             <ProviderMark label={activeGroup.name} />
@@ -216,6 +244,7 @@ export function ConnectorsView() {
             )}
           </div>
         </aside>
+        )}
       </div>
 
       {login && <section className="provider-login-panel" aria-label="Pending sign-in">

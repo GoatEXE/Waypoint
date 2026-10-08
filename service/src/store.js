@@ -4,6 +4,8 @@ import { randomUUID } from 'node:crypto';
 import { badRequest, conflict, notFound } from './errors.js';
 import { sanitizeResponse } from './podTaskExecutor.js';
 import { normalizeActivity } from './activity.js';
+import { normalizeRepo } from './github.js';
+import { assertProjectFolder } from './projectMounts.js';
 import { TASK_EDIT_FIELDS, TASK_REF_RE, projectName, publicTask, statusAfterRun, taskBlockers, taskDescription, taskLabels, taskStatus, taskTitle } from './taskQueue.js';
 
 export const ALLOWED_BASELINE_FILES = ['SOUL.md', 'memories/MEMORY.md', 'memories/USER.md'];
@@ -479,7 +481,7 @@ export class PodStore {
     return tasks.sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)) || b.id.localeCompare(a.id));
   }
   async readProjects() {
-    return (await readJson(path.join(this.dataDir, 'projects.json')))?.projects || [];
+    return ((await readJson(path.join(this.dataDir, 'projects.json')))?.projects || []).map((project) => ({ ...project, workspace: project.workspace || (project.localPath ? 'local' : 'pod') }));
   }
   async listProjects() {
     return [...await this.readProjects()].sort((a, b) => a.name.localeCompare(b.name));
@@ -487,15 +489,73 @@ export class PodStore {
   createProject(input) {
     return this.#serialize('projects', async () => {
       assertPlainObject(input, 'body');
-      if (Object.keys(input).some((key) => key !== 'name')) throw badRequest('projects accept only name');
-      const name = projectName(input.name);
       const projects = await this.readProjects();
-      if (projects.some((project) => project.name.toLocaleLowerCase() === name.toLocaleLowerCase())) throw conflict('a project with this name already exists', { name });
       const now = new Date().toISOString();
-      const project = { id: safeId('project'), name, createdAt: now, updatedAt: now };
+      const project = { id: safeId('project'), ...await this.#projectFields(input, null, projects), createdAt: now, updatedAt: now };
       await writeJson(path.join(this.dataDir, 'projects.json'), { projects: [...projects, project] });
       return project;
     });
+  }
+  updateProject(projectId, input) {
+    const id = assertStoredId('project', projectId);
+    return this.#serialize('projects', async () => {
+      assertPlainObject(input, 'body');
+      const projects = await this.readProjects();
+      const current = projects.find((project) => project.id === id);
+      if (!current) throw notFound('project not found', { projectId: id });
+      const updated = { ...current, ...await this.#projectFields(input, current, projects), updatedAt: new Date().toISOString() };
+      await writeJson(path.join(this.dataDir, 'projects.json'), { projects: projects.map((project) => (project.id === id ? updated : project)) });
+      return updated;
+    });
+  }
+  deleteProject(projectId) {
+    const id = assertStoredId('project', projectId);
+    return this.#serialize('projects', async () => {
+      const projects = await this.readProjects();
+      if (!projects.some((project) => project.id === id)) throw notFound('project not found', { projectId: id });
+      const used = (await this.#readTasks()).filter((task) => task.projectId === id).length;
+      if (used) throw conflict(`${used} task${used === 1 ? ' uses' : 's use'} this project; move them to another project first`, { projectId: id, tasks: used });
+      await writeJson(path.join(this.dataDir, 'projects.json'), { projects: projects.filter((project) => project.id !== id) });
+      return { deleted: true, projectId: id };
+    });
+  }
+  async getProject(projectId) {
+    const id = assertStoredId('project', projectId);
+    const project = (await this.readProjects()).find((item) => item.id === id);
+    if (!project) throw notFound('project not found', { projectId: id });
+    return project;
+  }
+  async #projectFields(input, current, projects) {
+    const extra = Object.keys(input).filter((key) => !['name', 'missionId', 'workspace', 'localPath', 'repo', 'githubSeats'].includes(key));
+    if (extra.length) throw badRequest('unsupported project fields', { fields: extra.slice(0, 10).map((key) => key.slice(0, 64)) });
+    const has = (key) => Object.hasOwn(input, key);
+    const name = has('name') ? projectName(input.name) : current?.name;
+    if (!name) throw badRequest('project name is required');
+    if (projects.some((project) => project.id !== current?.id && project.name.toLocaleLowerCase() === name.toLocaleLowerCase())) throw conflict('a project with this name already exists', { name });
+    const missionId = has('missionId') ? (input.missionId ? assertStoredId('mission', String(input.missionId)) : null) : current?.missionId ?? null;
+    if (has('missionId') && missionId && !(await readJson(this.missionPath(missionId)))) throw badRequest('missionId does not match a stored mission', { missionId });
+    let localPath = has('localPath') ? (input.localPath ? String(input.localPath).trim().slice(0, 1000) : null) : current?.localPath ?? null;
+    const workspace = has('workspace') ? input.workspace : current?.workspace ?? (localPath ? 'local' : 'pod');
+    if (!['local', 'pod'].includes(workspace)) throw badRequest('workspace must be local or pod');
+    if (workspace === 'local') localPath = await assertProjectFolder(localPath);
+    else localPath = null;
+    const repo = has('repo') ? (input.repo ? normalizeRepo(input.repo) : null) : current?.repo ?? null;
+    let githubSeats = current?.githubSeats ?? [];
+    if (has('githubSeats')) {
+      if (!Array.isArray(input.githubSeats) || input.githubSeats.length > 50) throw badRequest('githubSeats must be a list of pod seat addresses');
+      githubSeats = [];
+      for (const address of input.githubSeats) {
+        const [podId, seatId, more] = String(address || '').split('/');
+        if (more !== undefined || !podId || !seatId) throw badRequest('githubSeats entries must be pod_<uuid>/<seat-id>');
+        const instance = await this.getInstance(podId);
+        if (!instance.seats.some((seat) => seat.id === seatId)) throw badRequest('githubSeats seat does not belong to its pod', { address: String(address).slice(0, 120) });
+        if (!githubSeats.includes(`${podId}/${seatId}`)) githubSeats.push(`${podId}/${seatId}`);
+      }
+    }
+    return { name, missionId, workspace, localPath, repo, githubSeats };
+  }
+  async seatGithubRepos(address) {
+    return [...new Set((await this.readProjects()).filter((project) => project.repo && (project.githubSeats || []).includes(address)).map((project) => project.repo))];
   }
 
   claimTaskRun(taskId, { manualRetry = false } = {}) {

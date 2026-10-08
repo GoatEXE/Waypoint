@@ -185,7 +185,6 @@ function TaskDetails({ task, queue, onSaved }: { task: TaskRecord; queue: Return
       <div className="section-title">Details</div>
       <TaskFields draft={draft} onChange={setDraft} tasks={queue.tasks} projects={queue.projects} pods={queue.pods} selfId={task.id}
         onProjectCreated={p => queue.setProjects(ps => [...ps, p])} disabled={busy} />
-      {task.state === 'running' && <div style={{ fontSize: 12, color: 'var(--faint)' }}>A running task keeps its assignee until the run ends.</div>}
       {error && <div role="alert" style={{ fontSize: 12.5, color: 'var(--text)' }}>{error}</div>}
       {dirty && <div style={{ display: 'flex', gap: 8 }}>
         <button className="btn btn-primary" disabled={busy || !draft.summary.trim()} onClick={() => void save()}>{busy ? 'Saving…' : 'Save changes'}</button>

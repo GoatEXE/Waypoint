@@ -182,7 +182,15 @@ export const api = {
   createTask: (body: TaskInput) => json<TaskRecord>('/tasks', { method: 'POST', body: JSON.stringify(body) }),
   updateTask: (id: string, body: TaskInput) => json<TaskRecord>(`/tasks/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
   projects: () => json<{ projects: Project[] }>('/projects'),
-  createProject: (name: string) => json<Project>('/projects', { method: 'POST', body: JSON.stringify({ name }) }),
+  updateProject: (id: string, body: Partial<Pick<Project, 'name' | 'missionId' | 'workspace' | 'localPath' | 'repo' | 'githubSeats'>>) => json<Project & { pods?: { updated: string[]; pending: string[] }; toolsInstalled?: string[] }>(`/projects/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  deleteProject: (id: string) => json<{ deleted: true; projectId: string }>(`/projects/${encodeURIComponent(id)}`, { method: 'DELETE', body: '{}' }),
+  pickFolder: (start: string) => json<{ path: string | null; cancelled: boolean }>('/folders/pick', { method: 'POST', body: JSON.stringify({ start }) }),
+  inspectLocalPath: (localPath: string) => json<LocalRepoInfo>('/projects/inspect', { method: 'POST', body: JSON.stringify({ localPath }) }),
+  githubStatus: (fresh = false) => json<GitHubStatus>(`/github${fresh ? '?fresh=1' : ''}`),
+  githubManifest: (origin: string, owner: string) => json<{ state: string; url: string; manifest: object }>('/github/manifest', { method: 'POST', body: JSON.stringify({ origin, owner }) }),
+  githubComplete: (code: string, state: string) => json<GitHubStatus>('/github/complete', { method: 'POST', body: JSON.stringify({ code, state }) }),
+  githubDisconnect: () => json<{ connected: false }>('/github', { method: 'DELETE', body: '{}' }),
+  createProject: (body: { name: string; missionId?: string | null; workspace?: ProjectWorkspace; localPath?: string | null; repo?: string | null }) => json<Project>('/projects', { method: 'POST', body: JSON.stringify(body) }),
   runTask: (id: string) => json<TaskRunStartResponse>(`/tasks/${encodeURIComponent(id)}/run`, { method: 'POST', body: JSON.stringify({}) }),
   retryTaskAfterReview: (id: string) => json<TaskRunStartResponse>(`/tasks/${encodeURIComponent(id)}/manual-retry`, { method: 'POST', body: JSON.stringify({ reviewed: true }) }),
 };
@@ -229,7 +237,10 @@ export interface TaskSummary {
   updatedAt: string;
 }
 export interface TaskInput { summary?: string; description?: string; status?: TaskStatus; podId?: string | null; seatId?: string | null; projectId?: string | null; labels?: string[]; parentId?: string | null; blockedBy?: string[] }
-export interface Project { id: string; name: string; createdAt: string; updatedAt: string }
+export type ProjectWorkspace = 'local' | 'pod';
+export interface Project { id: string; name: string; missionId?: string | null; workspace?: ProjectWorkspace; localPath?: string | null; repo?: string | null; githubSeats?: string[]; createdAt: string; updatedAt: string }
+export interface LocalRepoInfo { localPath: string; exists: boolean; isGit: boolean; root: string | null; remote: string | null; repo: string | null; branch: string | null }
+export interface GitHubStatus { connected: boolean; app: { appId: number; slug: string; name: string; htmlUrl: string; owner: string | null } | null; installUrl: string | null; installations: { id: number; account: string; selection: string; repos: string[] }[]; error?: string | null }
 export interface MessageDelivery {
   id: string;
   from: string;

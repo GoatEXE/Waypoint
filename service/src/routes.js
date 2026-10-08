@@ -2,21 +2,26 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import { publicConfig } from './config.js';
 import { badRequest, conflict, forbidden, toErrorResponse, unsupportedMediaType } from './errors.js';
 import { normalizeSeatModel, publicSeatsResult } from './podSeats.js';
+import { inspectLocalPath } from './github.js';
+import { FolderDialog } from './folderDialog.js';
+import { podProjectMounts } from './projectMounts.js';
+
+const folderDialog = new FolderDialog();
 
 const NOT_FOUND = { status: 404, body: { error: { code: 'not_found', message: 'Route not found' } } };
 
-export function createHandler({ config, store, organization, docker, hermes, podSeats, podSeatAuth, taskRuns, messaging, seatChat, logger }) {
+export function createHandler({ config, store, organization, docker, hermes, podSeats, podSeatAuth, taskRuns, messaging, seatChat, github, logger }) {
   return createJsonHandler(logger, (request, url) => {
     assertMutationSafety(request);
-    return route(request, url, { config, store, organization, docker, hermes, podSeats, podSeatAuth, taskRuns, messaging, seatChat, logger });
+    return route(request, url, { config, store, organization, docker, hermes, podSeats, podSeatAuth, taskRuns, messaging, seatChat, github, logger });
   });
 }
 
-export function createBridgeHandler({ config, store, docker, hermes, podSeats, taskRuns, messaging, logger }) {
+export function createBridgeHandler({ config, store, docker, hermes, podSeats, taskRuns, messaging, github, logger }) {
   return createJsonHandler(logger, async (request, url) => {
     if (request.method !== 'POST' || url.pathname !== '/bridge/tools') return NOT_FOUND;
     assertMutationSafety(request);
-    return { body: await bridgeTool(request, { config, store, docker, hermes, podSeats, taskRuns, messaging }) };
+    return { body: await bridgeTool(request, { config, store, docker, hermes, podSeats, taskRuns, messaging, github }) };
   });
 }
 
@@ -35,7 +40,18 @@ function createJsonHandler(logger, dispatch) {
     }
   };
 }
-async function route(request, url, { config, store, organization, docker, hermes, podSeats, podSeatAuth, taskRuns, messaging, seatChat, logger }) {
+async function route(request, url, { config, store, organization, docker, hermes, podSeats, podSeatAuth, taskRuns, messaging, seatChat, github, logger }) {
+  if (url.pathname.startsWith('/github') && github) {
+    if (request.method === 'GET' && url.pathname === '/github') return { body: await github.status({ fresh: url.searchParams.get('fresh') === '1' }) };
+    if (request.method === 'POST' && url.pathname === '/github/manifest') {
+      const body = await readBody(request);
+      return { body: github.manifest({ origin: body.origin, owner: body.owner, orgName: (await organization.get())?.name }) };
+    }
+    if (request.method === 'POST' && url.pathname === '/github/complete') return { body: await github.completeManifest(await readBody(request)) };
+    if (request.method === 'DELETE' && url.pathname === '/github') return { body: await github.disconnect() };
+  }
+  if (request.method === 'POST' && url.pathname === '/folders/pick') return { body: await folderDialog.pick({ start: (await readBody(request)).start }) };
+  if (request.method === 'POST' && url.pathname === '/projects/inspect') return { body: await inspectLocalPath((await readBody(request)).localPath) };
   if (request.method === 'GET' && url.pathname === '/healthz') return { body: { ok: true, service: config.serviceName, dryRun: config.dryRun, uptimeSeconds: Math.round(process.uptime()) } };
   if (request.method === 'GET' && url.pathname === '/config') return { body: publicConfig(config) };
   if (request.method === 'GET' && url.pathname === '/organization') return { body: await organization.describe() };
@@ -89,7 +105,7 @@ async function route(request, url, { config, store, organization, docker, hermes
     const body = await readBody(request);
     let instance = await store.getInstance(match[1], { dockerPlanFactory: ({ podId, podName }) => docker.startPlan({ podId, podName }) });
     if (body.action === 'start' && !config.dryRun) instance = await defaultPodModelFromCeo(store, hermes, instance);
-    const result = await docker.lifecycle(instance, body.action);
+    const result = await docker.lifecycle(instance, body.action, { projectMounts: podProjectMounts(await store.listProjects(), instance.id) });
     await store.recordLifecycle(instance.id, result, ({ podId, podName }) => docker.startPlan({ podId, podName }));
     return { body: result };
   }
@@ -146,7 +162,20 @@ async function route(request, url, { config, store, organization, docker, hermes
   if (request.method === 'POST' && url.pathname === '/tasks') return { status: 201, body: await store.createTask(await readBody(request)) };
   if (request.method === 'GET' && url.pathname === '/tasks') return { body: { tasks: await store.listTasks() } };
   if (request.method === 'GET' && url.pathname === '/projects') return { body: { projects: await store.listProjects() } };
-  if (request.method === 'POST' && url.pathname === '/projects') return { status: 201, body: await store.createProject(await readBody(request)) };
+  if (request.method === 'POST' && url.pathname === '/projects') {
+    const project = await store.createProject(await withDetectedRepo(await readBody(request)));
+    const pods = await applyProjectMounts(null, project, { config, store, docker, taskRuns, logger });
+    return { status: 201, body: { ...project, pods, toolsInstalled: await installGithubTools(project.githubSeats, [], { config, store, podSeats, messaging, logger }) } };
+  }
+  match = url.pathname.match(/^\/projects\/([^/]+)$/);
+  if (request.method === 'GET' && match) return { body: await store.getProject(decodeRouteParam(match[1])) };
+  if (request.method === 'DELETE' && match) return { body: await store.deleteProject(decodeRouteParam(match[1])) };
+  if (request.method === 'PATCH' && match) {
+    const before = await store.getProject(decodeRouteParam(match[1]));
+    const project = await store.updateProject(before.id, await withDetectedRepo(await readBody(request)));
+    const pods = await applyProjectMounts(before, project, { config, store, docker, taskRuns, logger });
+    return { body: { ...project, pods, toolsInstalled: await installGithubTools(project.githubSeats, before.githubSeats || [], { config, store, podSeats, messaging, logger }) } };
+  }
   match = url.pathname.match(/^\/tasks\/([^/]+)$/);
   if (request.method === 'GET' && match) {
     const task = await store.getTaskView(decodeRouteParam(match[1]));
@@ -172,10 +201,11 @@ async function route(request, url, { config, store, organization, docker, hermes
   }
   return NOT_FOUND;
 }
-async function bridgeTool(request, { config, store, docker, hermes, podSeats, taskRuns, messaging }) {
+async function bridgeTool(request, { config, store, docker, hermes, podSeats, taskRuns, messaging, github }) {
   const body = await readBody(request);
   const tool = String(body.tool || '');
   const args = body.args || {};
+  if (['github_token', 'github_api'].includes(tool)) return seatGithubTool(request, tool, args, { store, messaging, github });
   if (['org_chart', 'inbox', 'send_message', 'ack_message'].includes(tool)) {
     if (!messaging) throw forbidden('Waypoint messaging is unavailable');
     const actor = await messaging.actorFromAuthorization(request.headers.authorization);
@@ -272,6 +302,71 @@ function actionSummary(tool, args = {}, result = {}) {
   if (tool === 'list_tasks') return `${result.tasks?.length ?? 0} tasks`;
   return '';
 }
+async function applyProjectMounts(before, after, { config, store, docker, taskRuns, logger }) {
+  const podsOf = (project) => (project?.workspace === 'local' ? (project.githubSeats || []).map((address) => address.split('/')[0]) : []);
+  const affected = [...new Set([...podsOf(before), ...podsOf(after)])];
+  const result = { updated: [], pending: [] };
+  if (!affected.length || config.dryRun) return result;
+  const projects = await store.listProjects();
+  for (const podId of affected) {
+    try {
+      const instance = await store.getInstance(podId);
+      const status = await docker.lifecycle(instance, 'status');
+      if (!status.status?.running) continue;
+      const busy = [...(taskRuns?.executor?.activeSeats || [])].some((key) => key.startsWith(`${podId}/`));
+      if (busy) { result.pending.push(podId); continue; }
+      const started = await docker.lifecycle(instance, 'start', { projectMounts: podProjectMounts(projects, podId) });
+      await store.recordLifecycle(instance.id, started, ({ podId: id, podName }) => docker.startPlan({ podId: id, podName }));
+      if (started.recreated) result.updated.push(podId);
+    } catch (error) {
+      result.pending.push(podId);
+      logger?.warn?.('project_mount_apply_failed', { podId, message: String(error.message || error).slice(0, 200) });
+    }
+  }
+  return result;
+}
+async function installGithubTools(seats = [], previous = [], { config, store, podSeats, messaging, logger }) {
+  const added = seats.filter((address) => !previous.includes(address));
+  if (!added.length || config.dryRun || !messaging || !podSeats) return [];
+  const installed = [];
+  const byPod = new Map();
+  for (const address of added) {
+    const [podId, seatId] = address.split('/');
+    byPod.set(podId, [...(byPod.get(podId) || []), seatId]);
+  }
+  for (const [podId, seatIds] of byPod) {
+    try {
+      const instance = await store.getInstance(podId);
+      if (instance.state !== 'running') continue;
+      await messaging.installSeatTools(instance, seatIds, podSeats);
+      installed.push(...seatIds.map((seatId) => `${podId}/${seatId}`));
+    } catch (error) {
+      logger?.warn?.('github_tools_install_failed', { podId, message: String(error.message || error).slice(0, 200) });
+    }
+  }
+  return installed;
+}
+async function withDetectedRepo(body) {
+  if (!body || typeof body !== 'object' || Array.isArray(body) || !body.localPath || Object.hasOwn(body, 'repo')) return body;
+  const found = await inspectLocalPath(body.localPath).catch(() => null);
+  return found?.repo ? { ...body, repo: found.repo } : body;
+}
+async function seatGithubTool(request, tool, args, { store, messaging, github }) {
+  if (!messaging || !github) throw forbidden('GitHub access is unavailable');
+  const actor = await messaging.actorFromAuthorization(request.headers.authorization);
+  if (actor === 'ceo') throw forbidden('GitHub access is for designated seats; ask a seat on the project to do it');
+  if (!args || typeof args !== 'object' || Array.isArray(args)) throw badRequest('args must be an object');
+  const allowed = await store.seatGithubRepos(actor);
+  const repo = allowed.find((item) => item.toLowerCase() === String(args.repo || '').trim().replace(/\.git$/i, '').toLowerCase());
+  if (!repo) throw forbidden('This seat is not designated for GitHub on that repository', { allowed });
+  if (tool === 'github_token') {
+    assertBridgeFields(args, ['repo']);
+    const { token, expiresAt } = await github.repoToken(repo);
+    return { repo, token, expiresAt };
+  }
+  assertBridgeFields(args, ['repo', 'method', 'path', 'body']);
+  return github.api(repo, { method: args.method, path: args.path, body: args.body });
+}
 function assertBridgeFields(args, allowed) {
   const extra = Object.keys(args).filter((key) => !allowed.includes(key));
   if (extra.length) throw badRequest('unsupported message fields', { fields: extra.slice(0, 10).map((key) => key.slice(0, 64)) });
@@ -285,7 +380,7 @@ function bridgeTaskId(args) {
 async function bridgePodLifecycle(config, store, docker, hermes, podSeats, messaging, podId, action) {
   let instance = await store.getInstance(podId, { dockerPlanFactory: ({ podId: id, podName }) => docker.startPlan({ podId: id, podName }) });
   if (action === 'start' && !config.dryRun) instance = await defaultPodModelFromCeo(store, hermes, instance);
-  const result = await docker.lifecycle(instance, action);
+  const result = await docker.lifecycle(instance, action, { projectMounts: podProjectMounts(await store.listProjects(), instance.id) });
   await store.recordLifecycle(instance.id, result, ({ podId: id, podName }) => docker.startPlan({ podId: id, podName }));
   if (action !== 'start' || result.dryRun || !result.status?.running) return result;
   const template = instance.templateId ? await store.getTemplate(instance.templateId) : undefined;

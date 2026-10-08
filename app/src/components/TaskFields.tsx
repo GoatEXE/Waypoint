@@ -68,27 +68,16 @@ interface Props {
   projects: Project[];
   pods: OrgPod[];
   selfId?: string;
-  onProjectCreated: (project: Project) => void;
+  onProjectCreated?: (project: Project) => void;
   disabled?: boolean;
   showSummary?: boolean;
 }
 
-export function TaskFields({ draft, onChange, tasks, projects, pods, selfId, onProjectCreated, disabled, showSummary = true }: Props) {
-  const [newProject, setNewProject] = useState<string | null>(null);
-  const [projectError, setProjectError] = useState('');
+export function TaskFields({ draft, onChange, tasks, projects, pods, selfId, disabled, showSummary = true }: Props) {
   const set = <K extends keyof TaskDraft>(key: K, value: TaskDraft[K]) => onChange({ ...draft, [key]: value });
   const others = tasks.filter(t => t.id !== selfId).sort((a, b) => (a.number ?? 0) - (b.number ?? 0));
   const blockerOptions = others.filter(t => !draft.blockedBy.includes(t.id));
 
-  const createProject = async () => {
-    if (!newProject?.trim()) return;
-    try {
-      const project = await api.createProject(newProject.trim());
-      onProjectCreated(project);
-      onChange({ ...draft, projectId: project.id });
-      setNewProject(null); setProjectError('');
-    } catch (e) { setProjectError(e instanceof Error ? e.message : String(e)); }
-  };
 
   return (
     <div className="stack" style={{ gap: 14 }}>
@@ -115,22 +104,12 @@ export function TaskFields({ draft, onChange, tasks, projects, pods, selfId, onP
             ))}
           </select>
         </label>
-        <div className="field"><span className="field-label">Project</span>
-          {newProject === null ? (
-            <select className="input" value={draft.projectId} disabled={disabled} onChange={e => e.target.value === '__new__' ? setNewProject('') : set('projectId', e.target.value)}>
-              <option value="">No project</option>
-              {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-              <option value="__new__">New project…</option>
-            </select>
-          ) : (
-            <div style={{ display: 'flex', gap: 6 }}>
-              <input className="input" autoFocus value={newProject} maxLength={80} placeholder="Project name" onChange={e => setNewProject(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); void createProject(); } }} style={{ flex: 1, minWidth: 0 }} />
-              <button type="button" className="btn btn-ghost sm" onClick={() => void createProject()}>Add</button>
-              <button type="button" className="btn btn-ghost sm" onClick={() => { setNewProject(null); setProjectError(''); }}>×</button>
-            </div>
-          )}
-          {projectError && <span role="alert" style={{ fontSize: 12, color: 'var(--text)' }}>{projectError}</span>}
-        </div>
+        <label className="field"><span className="field-label">Project</span>
+          <select className="input" value={draft.projectId} disabled={disabled} onChange={e => set('projectId', e.target.value)}>
+            <option value="">No project</option>
+            {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+        </label>
         <label className="field"><span className="field-label">Labels</span>
           <input className="input" value={draft.labels} disabled={disabled} onChange={e => set('labels', e.target.value)} placeholder="frontend, urgent" />
         </label>

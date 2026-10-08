@@ -29,7 +29,7 @@ function TaskMeta({ task, pods, projectName, blocked }: { task: TaskSummary; pod
 export function TasksView() {
   const nav = useNavigate();
   const { flash } = useStore();
-  const { tasks, projects, pods, loading, error, reload, setProjects } = useQueueData();
+  const { tasks, projects, pods, loading, error, reload } = useQueueData();
   const [prefs, setPrefs] = useState(loadPrefs);
   const [creating, setCreating] = useState(false);
   const [dragging, setDragging] = useState<string | null>(null);
@@ -51,7 +51,7 @@ export function TasksView() {
 
   return (
     <div className="page" style={{ maxWidth: prefs.layout === 'board' ? 1400 : 1040, gap: 20 }}>
-      <WorkspaceHead title="Tasks" lede="Every task in the organization, by status, project, parent, or owner." />
+      <WorkspaceHead title="Tasks" />
       <div className="task-toolbar">
         <div className="segmented" role="group" aria-label="Layout">
           <button className={prefs.layout === 'list' ? 'on' : ''} aria-pressed={prefs.layout === 'list'} onClick={() => setPrefs(p => ({ ...p, layout: 'list' }))}>List</button>
@@ -67,7 +67,7 @@ export function TasksView() {
 
       {error && <div className="card" role="alert" style={{ padding: 12 }}>{error}</div>}
       {loading && !tasks.length && <div className="empty" role="status">Loading tasks…</div>}
-      {!loading && !error && !tasks.length && <div className="empty">No tasks yet. Create one, or ask the CEO to plan the work.</div>}
+      {!loading && !error && !tasks.length && <div className="empty">No tasks yet.</div>}
 
       {prefs.layout === 'list' && groupTasks(tasks, prefs.groupBy, { projects, pods }).map(group => (
         <section key={group.key || 'none'} className="stack" style={{ gap: 6 }}>
@@ -112,19 +112,19 @@ export function TasksView() {
         </div>
       )}
 
-      {creating && <NewTaskDialog tasks={tasks} projects={projects} pods={pods} onProjectCreated={p => setProjects(ps => [...ps, p])}
+      {creating && <NewTaskDialog tasks={tasks} projects={projects} pods={pods}
         onClose={() => setCreating(false)}
         onCreated={async task => { setCreating(false); flash(`Created ${taskLabel(task)}`); await reload(); }} />}
     </div>
   );
 }
 
-function NewTaskDialog({ tasks, projects, pods, onProjectCreated, onClose, onCreated }: {
+export function NewTaskDialog({ tasks, projects, pods, initial, onClose, onCreated }: {
   tasks: TaskSummary[]; projects: Project[]; pods: OrgPod[];
-  onProjectCreated: (p: Project) => void;
+  initial?: Partial<TaskDraft>;
   onClose: () => void; onCreated: (task: TaskSummary) => void;
 }) {
-  const [draft, setDraft] = useState<TaskDraft>(emptyDraft);
+  const [draft, setDraft] = useState<TaskDraft>({ ...emptyDraft, ...initial });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -148,7 +148,7 @@ function NewTaskDialog({ tasks, projects, pods, onProjectCreated, onClose, onCre
           <div className="eyebrow">NEW TASK</div>
           <h2 className="h1" style={{ fontSize: 20 }}>Create a task</h2>
         </div>
-        <TaskFields draft={draft} onChange={setDraft} tasks={tasks} projects={projects} pods={pods} onProjectCreated={onProjectCreated} disabled={busy} />
+        <TaskFields draft={draft} onChange={setDraft} tasks={tasks} projects={projects} pods={pods} disabled={busy} />
         {error && <div role="alert" style={{ fontSize: 12.5, color: 'var(--text)' }}>{error}</div>}
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
           <button type="button" className="btn btn-ghost" disabled={busy} onClick={onClose}>Cancel</button>

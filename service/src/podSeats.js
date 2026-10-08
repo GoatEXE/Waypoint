@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { badRequest, conflict, lifecycleError } from './errors.js';
 import { HERMES_RESERVED_PROFILE_NAMES } from './store.js';
 import { verifySharedAuthVolume } from './authVolume.js';
+import { isProjectBindMount } from './projectMounts.js';
 
 export const CONTAINER_DATA_DIR = '/opt/data';
 export const SEAT_PROFILE_ROOT = `${CONTAINER_DATA_DIR}/profiles`;
@@ -357,7 +358,8 @@ function parseJsonLine(stdout, message) {
 function assertSafeExistingPodContainer(parsed, { podId, volumeName, image, sharedAuth }) {
   if (!imageMatchesConfigured(parsed.image, image)) throw lifecycleError('refusing to use pod container with unexpected image', { podId });
   const expectAuth = sharedAuth?.enabled === true;
-  if (!Array.isArray(parsed.mounts) || parsed.mounts.length !== (expectAuth ? 2 : 1)) throw lifecycleError('refusing to use pod container with unexpected mounts', { podId });
+  const coreMounts = Array.isArray(parsed.mounts) ? parsed.mounts.filter((entry) => !isProjectBindMount(entry)) : null;
+  if (!coreMounts || coreMounts.length !== (expectAuth ? 2 : 1)) throw lifecycleError('refusing to use pod container with unexpected mounts', { podId });
   const mount = parsed.mounts.find((entry) => entry.Destination === CONTAINER_DATA_DIR);
   if (!mount || mount.Type !== 'volume' || mount.Name !== volumeName || mount.Destination !== CONTAINER_DATA_DIR) throw lifecycleError('refusing to use pod container without its Waypoint-owned volume at /opt/data', { podId });
   if (expectAuth) {

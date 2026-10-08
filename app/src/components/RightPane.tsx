@@ -194,7 +194,7 @@ function CeoChat() {
           </div>
         )}
         {!ceo.loading && !ceo.loadError && !hasVisibleMessages && !timeline.length && (
-          <div className="empty">{state.ceoThread === 'general' ? `No messages yet. Send ${ceoName} a message to start.` : seatThread ? `Talk directly with the ${seatThread.seatId} seat. It answers inside its pod and must be ready, with no task running.` : `No messages in this task thread yet. ${ceoName} will get the task details with your first message.`}</div>
+          <div className="empty">No messages yet.</div>
         )}
         {timeline.map((entry, i) => {
           if (entry.kind === 'run') return <RunEntry key={`run-${entry.run.id}`} entry={entry} seatId={extras?.seatId || null} />;
@@ -225,7 +225,7 @@ function CeoChat() {
         )}
       </div>
       <div style={{ padding: '12px 14px 14px', borderTop: '1px solid var(--line)' }}>
-        {otherBusy && <div className="act-hint" style={{ marginBottom: 8 }}>{ceoName} is working in another thread. You can send here when it finishes.</div>}
+        {otherBusy && <div className="act-hint" style={{ marginBottom: 8 }}>{ceoName} is busy in another thread.</div>}
         <div className="composer">
           <textarea
             rows={2}

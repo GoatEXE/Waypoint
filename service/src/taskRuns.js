@@ -1,5 +1,6 @@
 import { AppError, badRequest, conflict } from './errors.js';
 import { publicActivity } from './activity.js';
+import { localProjectGitEnv, podProjectMounts, projectMountTarget } from './projectMounts.js';
 
 const START_FIELDS = new Set(['files']);
 const STATUS_EVIDENCE_KEEP = 8;
@@ -44,6 +45,7 @@ export class TaskRunService {
     const pod = await this.store.getInstance(task.podId);
     const template = await this.resolveTemplate(pod);
 
+    const workspace = await this.projectWorkspace(task);
     const target = this.executor.resolveTarget({ task, pod, files });
 
     if (this.config.dryRun) {
@@ -61,7 +63,7 @@ export class TaskRunService {
 
     const { runId } = claimed;
     this.logger?.info?.('task_run_started', { taskId: task.id, runId, podId: target.podId, seatId: target.seatId });
-    const job = this.dispatch(claimed.task, runId, { pod, template, files })
+    const job = this.dispatch(claimed.task, runId, { pod, template, files, workspace })
       .catch((error) => this.logger?.error?.('task_run_persist_failed', { taskId: task.id, runId, message: String(error?.message || error).slice(0, 200) }))
       .finally(() => {
         this.seats.delete(seatKey);
@@ -71,12 +73,20 @@ export class TaskRunService {
     return { taskId: task.id, runId, state: 'running', message: `Run claimed and executing in the background; poll the task for its outcome. ${RUN_REQUIREMENTS}` };
   }
 
-  async dispatch(task, runId, { pod, template, files }) {
+  async projectWorkspace(task) {
+    if (!task.projectId) return null;
+    const project = await this.store.getProject(task.projectId).catch(() => null);
+    if (project?.workspace !== 'local' || !project.localPath) return null;
+    if (!podProjectMounts([project], task.podId).length) throw conflict('add this seat to the project so its pod can use the local folder', { taskId: task.id, projectId: project.id });
+    return { workdir: projectMountTarget(project.id), env: await localProjectGitEnv(project, task.seatId) };
+  }
+
+  async dispatch(task, runId, { pod, template, files, workspace }) {
     let result;
     try {
       const items = [];
       this.live.set(task.id, { runId, items });
-      result = await this.executor.execute({ task, pod, template, files, activity: items });
+      result = await this.executor.execute({ task, pod, template, files, activity: items, workspace });
     } catch (error) {
       if (error instanceof AppError) {
 
