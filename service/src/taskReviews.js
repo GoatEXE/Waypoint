@@ -19,6 +19,7 @@ export function reviewRequestText(task) {
     task.description ? `\nTask description:\n${clip(task.description, DESCRIPTION_MAX)}` : '',
     `\nThe seat's reply:\n${clip(task.reply, REPLY_MAX) || '(no reply text)'}`,
     `\nRecord your decision with review_task { "taskId": "${task.ref || task.id}", "decision": "done" or "needs_human", "reason": "one sentence" }.`,
+    'You may inspect the work to verify it, for example a pull request\'s diff and its CI checks (CI runs npm run check).',
     'Choose needs_human when the work is incomplete, unverified, risky, or needs the user\'s judgment. This request does not authorize running tasks or other changes.',
   ];
   return lines.filter(Boolean).join('\n').slice(0, 3900);
