@@ -112,11 +112,7 @@ async function route(request, url, { config, store, organization, docker, hermes
   match = url.pathname.match(/^\/pod-instances\/([^/]+)\/lifecycle$/);
   if (request.method === 'POST' && match) {
     const body = await readBody(request);
-    let instance = await store.getInstance(match[1], { dockerPlanFactory: ({ podId, podName }) => docker.startPlan({ podId, podName }) });
-    if (body.action === 'start' && !config.dryRun) instance = await defaultPodModelFromCeo(store, hermes, instance);
-    const result = await docker.lifecycle(instance, body.action, { projectMounts: podProjectMounts(await store.listProjects(), instance.id) });
-    await store.recordLifecycle(instance.id, result, ({ podId, podName }) => docker.startPlan({ podId, podName }));
-    return { body: result };
+    return { body: await podLifecycle(config, store, docker, hermes, podSeats, messaging, match[1], body.action) };
   }
   match = url.pathname.match(/^\/pod-instances\/([^/]+)\/seats\/status$/);
   if (request.method === 'GET' && match) {
@@ -257,9 +253,9 @@ async function ceoControlTool(tool, args, { config, store, docker, hermes, podSe
   if (tool === 'health') return { ok: true, service: config.serviceName };
   if (tool === 'create_template') return store.createTemplate(args);
   if (tool === 'clone_template') return store.cloneTemplate(String(args.templateId || ''), args, ({ podId, podName }) => docker.startPlan({ podId, podName }));
-  if (tool === 'pod_status') return bridgePodLifecycle(config, store, docker, hermes, podSeats, messaging, String(args.podId || ''), 'status');
-  if (tool === 'pod_start') return bridgePodLifecycle(config, store, docker, hermes, podSeats, messaging, String(args.podId || ''), 'start');
-  if (tool === 'pod_stop') return bridgePodLifecycle(config, store, docker, hermes, podSeats, messaging, String(args.podId || ''), 'stop');
+  if (tool === 'pod_status') return podLifecycle(config, store, docker, hermes, podSeats, messaging, String(args.podId || ''), 'status');
+  if (tool === 'pod_start') return podLifecycle(config, store, docker, hermes, podSeats, messaging, String(args.podId || ''), 'start');
+  if (tool === 'pod_stop') return podLifecycle(config, store, docker, hermes, podSeats, messaging, String(args.podId || ''), 'stop');
   if (tool === 'create_task') return store.createTask(args, { actor: 'ceo' });
   if (tool === 'update_task') {
     if (!args || typeof args !== 'object' || Array.isArray(args)) throw badRequest('args must be an object');
@@ -388,7 +384,7 @@ function bridgeTaskId(args) {
   if (extra.length) throw badRequest('this bridge tool accepts only taskId', { fields: extra.slice(0, 10).map((key) => key.slice(0, 64)) });
   return String(args.taskId || '');
 }
-async function bridgePodLifecycle(config, store, docker, hermes, podSeats, messaging, podId, action) {
+async function podLifecycle(config, store, docker, hermes, podSeats, messaging, podId, action) {
   let instance = await store.getInstance(podId, { dockerPlanFactory: ({ podId: id, podName }) => docker.startPlan({ podId: id, podName }) });
   if (action === 'start' && !config.dryRun) instance = await defaultPodModelFromCeo(store, hermes, instance);
   const result = await docker.lifecycle(instance, action, { projectMounts: podProjectMounts(await store.listProjects(), instance.id) });

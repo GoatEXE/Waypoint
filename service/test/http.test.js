@@ -64,7 +64,7 @@ test('CEO mailbox turn permits messaging while refusing control tools', async ()
   } finally { await stop(app.server, app.bridgeServer); }
 });
 
-test('CEO pod_start prepares the new pod seats and reports shared-auth readiness', async () => {
+test('starting a pod from the CEO or the app prepares its seats and reports shared-auth readiness', async () => {
   const app = await start();
   try {
     const template = await app.store.createTemplate({ name: 'on demand', version: '1', seats: [{ id: 'builder', role: 'Builder' }], config: { model: { provider: 'openai-codex', default: 'gpt-6-luna' } } });
@@ -95,11 +95,17 @@ test('CEO pod_start prepares the new pod seats and reports shared-auth readiness
     assert.equal(provisionCalls, 1);
     assert.equal(toolsInstalled, 1);
 
+    const fromApp = await fetch(`${app.base}/pod-instances/${pod.id}/lifecycle`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'start' }) });
+    assert.equal(fromApp.status, 200);
+    assert.equal((await fromApp.json()).seats.ready, true, 'starting from the app prepares seats like pod_start');
+    assert.equal(provisionCalls, 2);
+    assert.equal(toolsInstalled, 2);
+
     app.docker.lifecycle = async () => ({ action: 'start', executed: false, dryRun: true, plan: app.docker.startPlan({ podId: pod.id, podName: pod.podName }) });
     const preview = await fetch(`${app.bridgeBase}/bridge/tools`, { method: 'POST', headers, body: JSON.stringify({ tool: 'pod_start', args: { podId: pod.id } }) }).then((r) => r.json());
     assert.equal(preview.dryRun, true);
-    assert.equal(provisionCalls, 1);
-    assert.equal(toolsInstalled, 1);
+    assert.equal(provisionCalls, 2);
+    assert.equal(toolsInstalled, 2);
   } finally { await stop(app.server, app.bridgeServer); }
 });
 
