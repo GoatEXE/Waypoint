@@ -5,6 +5,7 @@ import { needsYourReview, taskLabel } from '../taskQueueModel';
 import { addressLabel } from '../threadTimeline';
 import { ceoNameOf } from '../orgModel';
 import { useStore } from '../store';
+import { WorkspaceHead } from '../components/ui';
 
 function ReviewItem({ task, onDone }: { task: TaskSummary; onDone: () => Promise<void> }) {
   const nav = useNavigate();
@@ -68,11 +69,7 @@ export function MessageInboxView() {
 
   return (
     <div className="page" style={{ maxWidth: 820, gap: 24 }}>
-      <div className="page-head">
-        <div className="eyebrow">INBOX</div>
-        <h1 className="h1">Inbox</h1>
-        <p className="lede">Things that need you.</p>
-      </div>
+      <WorkspaceHead title="Inbox" />
       {error && <div role="alert">{error}</div>}
       {loading && <div role="status" className="empty">Loading…</div>}
       {!loading && !tasks.length && !failed.length && <div className="empty">You're all caught up.</div>}
