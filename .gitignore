@@ -21,6 +21,4 @@ Thumbs.db
 
 # Local inspection and process state
 tmp/
-.forge/*
-!.forge/uf3k.json
 .forge/
