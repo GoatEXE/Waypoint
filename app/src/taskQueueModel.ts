@@ -55,6 +55,20 @@ function byNumber(a: TaskSummary, b: TaskSummary) {
   return (a.number ?? Infinity) - (b.number ?? Infinity) || a.id.localeCompare(b.id);
 }
 
+export function savedStatusFilter(value: unknown): TaskStatus[] {
+  if (!Array.isArray(value)) return [];
+  return STATUSES.map(s => s.id).filter(id => value.includes(id));
+}
+
+export function toggleStatusFilter(filter: TaskStatus[], status: TaskStatus): TaskStatus[] {
+  const next = filter.includes(status) ? filter.filter(s => s !== status) : [...filter, status];
+  return next.length === STATUSES.length ? [] : STATUSES.map(s => s.id).filter(id => next.includes(id));
+}
+
+export function filterByStatus(tasks: TaskSummary[], filter: TaskStatus[]): TaskSummary[] {
+  return filter.length ? tasks.filter(t => filter.includes(t.status)) : tasks;
+}
+
 export function groupTasks(tasks: TaskSummary[], by: GroupBy, ctx: QueueContext): TaskGroup[] {
   const sorted = [...tasks].sort(byNumber);
   if (by === 'status') return STATUSES.map(s => ({ key: s.id, label: s.label, tasks: sorted.filter(t => t.status === s.id) })).filter(g => g.tasks.length);

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { TaskSummary } from '../src/api.ts';
-import { groupTasks, isBlocked, ownerLabel, parseLabels, relations, statusOptions } from '../src/taskQueueModel.ts';
+import { groupTasks, isBlocked, ownerLabel, parseLabels, relations, statusOptions, savedStatusFilter, toggleStatusFilter, filterByStatus } from '../src/taskQueueModel.ts';
 
 function task(number: number, fields: Partial<TaskSummary> = {}): TaskSummary {
   return { id: `task_${number}`, number, ref: `ORT-${number}`, summary: `Task ${number}`, description: '', status: 'todo', state: 'delegated', podId: null, seatId: null, projectId: null, labels: [], parentId: null, blockedBy: [], createdAt: '', updatedAt: '', ...fields };
@@ -45,4 +45,16 @@ test('statusOptions offers the current status plus allowed transitions, and only
   assert.deepEqual(statusOptions('canceled'), ['backlog', 'todo', 'canceled']);
   assert.deepEqual(statusOptions('in_progress', true), ['in_progress']);
   assert.equal(statusOptions(undefined).length, 6);
+});
+
+test('status filter toggles, normalizes order, resets to all, and filters tasks', () => {
+  assert.deepEqual(toggleStatusFilter([], 'done'), ['done']);
+  assert.deepEqual(toggleStatusFilter(['done'], 'todo'), ['todo', 'done']);
+  assert.deepEqual(toggleStatusFilter(['todo', 'done'], 'done'), ['todo']);
+  assert.deepEqual(toggleStatusFilter(['backlog', 'todo', 'in_progress', 'in_review', 'done'], 'canceled'), [], 'every status selected means all');
+  assert.deepEqual(savedStatusFilter(['done', 'bogus', 'todo']), ['todo', 'done']);
+  assert.deepEqual(savedStatusFilter('done'), []);
+  const tasks = [task(1, { id: 'a', status: 'todo' }), task(2, { id: 'b', status: 'done' })];
+  assert.deepEqual(filterByStatus(tasks, ['done']).map(t => t.id), ['b']);
+  assert.equal(filterByStatus(tasks, []).length, 2);
 });
