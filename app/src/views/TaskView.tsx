@@ -5,7 +5,7 @@ import { podStateLabel, shortDate, taskStateLabel } from '../missionsModel';
 import { OnDot } from '../components/ui';
 import { useSplitCols } from '../components/layout';
 import { TaskFields, draftFromTask, draftToInput, useQueueData } from '../components/TaskFields';
-import { relations, statusLabel, taskLabel } from '../taskQueueModel';
+import { relations, reviewSentence, statusLabel, taskLabel } from '../taskQueueModel';
 import { ActivityBlock, ActivityList } from '../components/Activity';
 import type { TaskSummary } from '../api';
 import { useStore } from '../store';
@@ -86,8 +86,8 @@ function runEvidence(task: TaskRecord, runId?: string): TaskRecord['evidence'] {
   return (task.evidence || []).filter(entry => entry.runId === runId).slice(-6);
 }
 
-const ACTOR_LABEL: Record<StatusChange['by'], string> = { user: 'You', ceo: 'CEO', system: 'Waypoint' };
-const REASON_LABEL: Record<string, string> = { created: 'created the task', run_started: 'when a run started', run_completed: 'when the run completed', run_failed: 'when the run failed', run_outcome_unknown: 'when the run ended with an unknown outcome', run_aborted: 'when the run was released before starting' };
+const ACTOR_LABEL: Record<StatusChange['by'], string> = { user: 'You', ceo: 'CEO', seat: 'Reviewer seat', system: 'Waypoint' };
+const REASON_LABEL: Record<string, string> = { review: 'after reviewing the result', created: 'created the task', run_started: 'when a run started', run_completed: 'when the run completed', run_failed: 'when the run failed', run_outcome_unknown: 'when the run ended with an unknown outcome', run_aborted: 'when the run was released before starting' };
 
 function StatusHistory({ task, ceoName }: { task: TaskRecord; ceoName: string }) {
   const history = task.statusHistory || [];
@@ -399,6 +399,7 @@ export function TaskView({ id }: { id: string }) {
         <div style={{ fontSize: 14.5, lineHeight: 1.55, color: 'var(--text-2)', maxWidth: 760, textWrap: 'pretty' }}>
           {taskStatusSentence(task)}
         </div>
+        {task.review && reviewSentence(task.review, ceoNameOf(appState.org.organization)) && <div style={{ fontSize: 12.5, color: task.review.state === 'needs_human' ? 'var(--text)' : 'var(--text-3)' }}>{reviewSentence(task.review, ceoNameOf(appState.org.organization))}</div>}
         {startDisabledReason && <div style={{ fontSize: 12.5, color: 'var(--faint)' }}>{startDisabledReason}</div>}
         {runNotice && <div role={runNotice.kind === 'error' ? 'alert' : 'status'} style={{ fontSize: 12.5, color: runNotice.kind === 'error' ? 'var(--text)' : 'var(--text-3)' }}>{runNotice.text}</div>}
       </div>

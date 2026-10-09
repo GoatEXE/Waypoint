@@ -55,6 +55,19 @@ function byNumber(a: TaskSummary, b: TaskSummary) {
   return (a.number ?? Infinity) - (b.number ?? Infinity) || a.id.localeCompare(b.id);
 }
 
+export function needsYourReview(tasks: TaskSummary[]): TaskSummary[] {
+  return tasks.filter(t => t.status === 'in_review').sort((a, b) => (b.review?.at || b.updatedAt).localeCompare(a.review?.at || a.updatedAt));
+}
+
+export function reviewSentence(review: TaskSummary['review'], ceoName: string): string {
+  if (!review) return '';
+  const who = review.reviewer === 'ceo' ? ceoName : review.reviewer === 'me' ? 'you' : review.reviewer.split('/')[1];
+  if (review.state === 'pending') return `Waiting for ${who} to review the result.`;
+  if (review.state === 'needs_human') return `Needs your review${review.reason ? `: ${review.reason}` : '.'}`;
+  if (review.state === 'done') return `Reviewed by ${who} and marked done${review.reason ? `: ${review.reason}` : '.'}`;
+  return '';
+}
+
 export function savedStatusFilter(value: unknown): TaskStatus[] {
   if (!Array.isArray(value)) return [];
   return STATUSES.map(s => s.id).filter(id => value.includes(id));

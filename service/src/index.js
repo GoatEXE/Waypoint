@@ -16,6 +16,7 @@ import { SeatChatService } from './seatChat.js';
 import { GitHubConnector } from './github.js';
 import { MessageWakeService } from './messageWakes.js';
 import { HermesPortal } from './hermesPortal.js';
+import { TaskReviewService } from './taskReviews.js';
 import { createBridgeHandler, createHandler } from './routes.js';
 import { listenControl } from './controlChannel.js';
 
@@ -39,11 +40,12 @@ export async function createApp(env = process.env) {
   const podSeatAuth = new PodSeatAuth({ config, docker, podSeats, logger });
 
   const taskExecutor = new PodTaskExecutor({ config, docker, readiness: podSeatsReadiness(podSeats), logger });
-  const taskRuns = new TaskRunService({ config, store, executor: taskExecutor, logger });
+  const reviews = new TaskReviewService({ store, organization, messaging, hermes, logger });
+  const taskRuns = new TaskRunService({ config, store, executor: taskExecutor, reviews, logger });
   const seatChat = new SeatChatService({ config, store, executor: taskExecutor, logger });
   const github = new GitHubConnector({ config });
   const portal = new HermesPortal({ config, store, docker, hermes, logger });
-  const messageWakes = new MessageWakeService({ config, messaging, store, hermes, executor: taskExecutor, logger });
+  const messageWakes = new MessageWakeService({ config, messaging, store, hermes, executor: taskExecutor, logger, onWakeFinished: (message) => reviews.afterWake(message) });
   if (config.hermes.autoStart) {
     void hermes.reconcileStartup()
       .then((result) => logger.info('hermes_reconciled', { action: result.action, executed: result.executed, state: result.status?.state, running: result.status?.running }))
@@ -51,8 +53,8 @@ export async function createApp(env = process.env) {
   }
 
   const server = http.createServer(createHandler({ config, store, organization, docker, hermes, podSeats, podSeatAuth, taskRuns, messaging, seatChat, github, portal, logger }));
-  const bridgeServer = http.createServer(createBridgeHandler({ config, store, docker, hermes, podSeats, taskRuns, messaging, github, logger }));
-  return { config, logger, store, organization, seatChat, github, docker, hermes, podSeats, podSeatAuth, taskExecutor, taskRuns, messaging, messageWakes, portal, server, bridgeServer };
+  const bridgeServer = http.createServer(createBridgeHandler({ config, store, docker, hermes, podSeats, taskRuns, messaging, github, reviews, logger }));
+  return { config, logger, store, organization, seatChat, github, docker, hermes, podSeats, podSeatAuth, taskExecutor, taskRuns, messaging, messageWakes, portal, reviews, server, bridgeServer };
 }
 export async function main() {
   const { server, bridgeServer, config, logger, messageWakes, portal } = await createApp();

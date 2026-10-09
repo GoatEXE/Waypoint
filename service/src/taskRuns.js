@@ -19,7 +19,8 @@ const ABORT_REASONS = [
 ];
 
 export class TaskRunService {
-  constructor({ config, store, executor, logger = undefined }) {
+  constructor({ config, store, executor, reviews = undefined, logger = undefined }) {
+    this.reviews = reviews;
     this.config = config;
     this.store = store;
     this.executor = executor;
@@ -107,7 +108,15 @@ export class TaskRunService {
     finally { this.live.delete(task.id); }
     if (result?.outcome === 'dry_run') return this.store.abortTaskRun(task.id, runId, { reason: 'dry_run' });
     this.logger?.info?.('task_run_finished', { taskId: task.id, runId, outcome: result.outcome, durationMs: result.durationMs });
-    return this.store.finishTaskRun(task.id, runId, result);
+    const reviewer = result.outcome === 'completed' && this.reviews ? await this.reviews.reviewer().catch(() => 'me') : undefined;
+    const finished = await this.store.finishTaskRun(task.id, runId, result, { reviewer });
+    if (finished.review?.state === 'pending') {
+      await this.reviews.request(task.id).catch(async (error) => {
+        this.logger?.warn?.('task_review_request_failed', { taskId: task.id, message: String(error?.message || error).slice(0, 160) });
+        await this.store.recordReview(task.id, { decision: 'needs_human', reason: 'The review request could not be sent.', by: 'system' }).catch(() => undefined);
+      });
+    }
+    return finished;
   }
 
   async status(taskId) {

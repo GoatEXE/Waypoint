@@ -261,3 +261,23 @@ test('the CEO and the app can hire a seat into an existing pod', async () => {
     assert.deepEqual(steps, ['seed qa', 'provision qa', 'tools qa']);
   } finally { await stop(app.server, app.bridgeServer); }
 });
+
+test('the reviewer records a decision through the bridge, even during a CEO mailbox turn', async () => {
+  const app = await start();
+  try {
+    await app.organization.update({ name: 'Sunchip' });
+    const template = await app.store.createTemplate({ name: 'team', version: '1', seats: [{ id: 'builder', role: 'Builder' }] });
+    const pod = await app.store.cloneTemplate(template.id, { podName: 'review-test' }, ({ podId, podName }) => app.docker.startPlan({ podId, podName }));
+    const task = await app.store.createTask({ summary: 'Ship it', podId: pod.id, seatId: 'builder' });
+    const { runId } = await app.store.claimTaskRun(task.id);
+    await app.store.finishTaskRun(task.id, runId, { outcome: 'completed', text: 'Done.', evidence: [] }, { reviewer: 'ceo' });
+    app.hermes.mailboxTurnInFlight = true;
+    const call = (token, args) => fetch(`${app.bridgeBase}/bridge/tools`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` }, body: JSON.stringify({ tool: 'review_task', args }) }).then(async (r) => ({ status: r.status, body: await r.json() }));
+    assert.equal((await call(app.messaging.seatToken(pod.id, 'builder'), { taskId: task.id, decision: 'done', reason: 'mine' })).status, 403);
+    const decided = await call(app.config.bridge.token, { taskId: task.id, decision: 'needs_human', reason: 'No PR link in the reply.' });
+    assert.equal(decided.status, 200);
+    assert.deepEqual([decided.body.status, decided.body.review.state], ['in_review', 'needs_human']);
+    const listed = await fetch(`${app.base}/tasks`).then((r) => r.json());
+    assert.equal(listed.tasks.find((t) => t.id === task.id).review.reason, 'No PR link in the reply.');
+  } finally { app.hermes.mailboxTurnInFlight = false; await stop(app.server, app.bridgeServer); }
+});

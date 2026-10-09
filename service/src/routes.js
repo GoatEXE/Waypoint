@@ -17,11 +17,11 @@ export function createHandler({ config, store, organization, docker, hermes, pod
   });
 }
 
-export function createBridgeHandler({ config, store, docker, hermes, podSeats, taskRuns, messaging, github, logger }) {
+export function createBridgeHandler({ config, store, docker, hermes, podSeats, taskRuns, messaging, github, reviews, logger }) {
   return createJsonHandler(logger, async (request, url) => {
     if (request.method !== 'POST' || url.pathname !== '/bridge/tools') return NOT_FOUND;
     assertMutationSafety(request);
-    return { body: await bridgeTool(request, { config, store, docker, hermes, podSeats, taskRuns, messaging, github }) };
+    return { body: await bridgeTool(request, { config, store, docker, hermes, podSeats, taskRuns, messaging, github, reviews }) };
   });
 }
 
@@ -208,12 +208,12 @@ async function route(request, url, { config, store, organization, docker, hermes
   }
   return NOT_FOUND;
 }
-async function bridgeTool(request, { config, store, docker, hermes, podSeats, taskRuns, messaging, github }) {
+async function bridgeTool(request, { config, store, docker, hermes, podSeats, taskRuns, messaging, github, reviews }) {
   const body = await readBody(request);
   const tool = String(body.tool || '');
   const args = body.args || {};
   if (tool === 'github_token') return githubToken(request, args, { store, messaging, github });
-  if (['org_chart', 'inbox', 'outbox', 'send_message', 'ack_message'].includes(tool)) {
+  if (['org_chart', 'inbox', 'outbox', 'send_message', 'ack_message', 'review_task'].includes(tool)) {
     if (!messaging) throw forbidden('Waypoint messaging is unavailable');
     const actor = await messaging.actorFromAuthorization(request.headers.authorization);
     if (!args || typeof args !== 'object' || Array.isArray(args)) throw badRequest('args must be an object');
@@ -224,6 +224,13 @@ async function bridgeTool(request, { config, store, docker, hermes, podSeats, ta
     if (tool === 'inbox') {
       assertBridgeFields(args, ['limit', 'includeRead']);
       return messaging.inbox(actor, { limit: args.limit ?? 50, includeRead: args.includeRead ?? false });
+    }
+    if (tool === 'review_task') {
+      assertBridgeFields(args, ['taskId', 'decision', 'reason']);
+      if (!reviews) throw forbidden('Task review is unavailable');
+      const reviewed = await reviews.decide(actor, args);
+      if (actor === 'ceo') hermes.recordCeoAction?.('review_task', `${reviewed.ref || reviewed.id} ${reviewed.review?.state}`);
+      return { taskId: reviewed.id, ref: reviewed.ref, status: reviewed.status, review: reviewed.review };
     }
     if (tool === 'outbox') {
       assertBridgeFields(args, ['limit', 'taskId']);

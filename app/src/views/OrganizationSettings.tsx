@@ -1,10 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
-import type { OrganizationInput } from '../api';
+import { api, type OrganizationInput } from '../api';
 import { useStore } from '../store';
 import { KEY_RE, cleanKey, readLogo } from '../orgModel';
 
 export function OrganizationSettings() {
   const { state, saveOrganization, flash } = useStore();
+  const [reviewSeats, setReviewSeats] = useState<{ address: string; label: string }[]>([]);
+  useEffect(() => {
+    api.orgChart().then(chart => setReviewSeats(chart.pods.flatMap(pod => pod.seats.map(seat => ({ address: `${pod.podId}/${seat.seatId}`, label: `${seat.seatId} · ${seat.role} (${pod.name})` }))))).catch(() => setReviewSeats([]));
+  }, []);
   const org = state.org.organization;
   const [name, setName] = useState(org?.name || '');
   const [key, setKey] = useState(org?.key || '');
@@ -63,6 +67,14 @@ export function OrganizationSettings() {
           <input className="input" value={ceoName} maxLength={40} disabled={busy} onChange={e => setCeoName(e.target.value)} />
         </label>
       </div>
+      <label className="field" style={{ maxWidth: 420 }}><span className="field-label">Reviews finished tasks</span>
+        <select className="input" value={org?.reviewer || 'ceo'} disabled={busy} onChange={e => void save({ reviewer: e.target.value }, 'Reviewer updated')}>
+          <option value="ceo">{org?.ceoName || 'CEO'} (CEO)</option>
+          {reviewSeats.map(seat => <option key={seat.address} value={seat.address}>{seat.label}</option>)}
+          <option value="me">Me (no automatic review)</option>
+        </select>
+        <span style={{ fontSize: 11.5, color: 'var(--faint)' }}>When a seat finishes a run, the reviewer marks it done or sends it to your inbox for review.</span>
+      </label>
       {error && <div role="alert" style={{ fontSize: 12, color: 'var(--text)' }}>{error}</div>}
       <div>
         <button className="btn btn-primary" disabled={busy || !dirty || !valid} onClick={() => void save({ name: name.trim(), key, ceoName: ceoName.trim() }, 'Organization saved')}>Save organization</button>

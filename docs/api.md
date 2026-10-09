@@ -174,6 +174,14 @@ Status changes follow one transition table for the app and the CEO bridge (`400`
 
 Moving a task whose run `completed` back to `todo` or `backlog` re-opens it: `state` returns to `delegated` (with a `reopened` evidence note) so a new run can start. Failed and `outcome_unknown` runs are not re-opened by a status change; they still need the explicit manual retry after review.
 
+**Review after a run.** When a run completes, the organization's reviewer decides what happens next. The reviewer is `reviewer` on `PUT /organization`: `ceo` (default), a seat address `pod_<uuid>/<seat-id>`, or `me`.
+- With an agent reviewer, the task stays `in_progress` with `review: { state: "pending", reviewer }`. Waypoint sends the reviewer a review request message (the task's title, description, and the seat's reply), which wakes it for one bounded turn.
+- The reviewer calls the bridge tool `review_task` `{ taskId, decision: "done" | "needs_human", reason }` (seats: `waypoint-message.py review TASK done|needs_human --reason "..."`). `done` moves the task to `done`; `needs_human` moves it to `in_review`. Only the configured reviewer may call it, and it is allowed during a CEO mailbox turn.
+- If the reviewer is unavailable (the CEO container or the seat's pod is not running), the request cannot be sent, or the reviewer's turn ends without a decision, the task goes to `in_review` with a reason.
+- With `me`, a completed run goes straight to `in_review`.
+
+Tasks in `in_review` appear under "Needs your review" in the app Inbox (with Accept → `done` and Reopen → `todo`), and they count toward the sidebar Inbox badge. Changing the status yourself closes an open review; starting a new run clears it. Tasks carry `review: { state, reviewer, reason, by, at } | null` in lists and views.
+
 `GET /tasks/:taskId` includes `statusHistory`: `[{ from, to, by, at, reason? }]`, oldest first (last 100). `by` is `user` (app), `ceo` (bridge), or `system` (automatic, with `reason` `run_started`, `run_completed`, `run_failed`, `run_outcome_unknown`, or `run_aborted`). Creation records `from: null` with `reason: "created"`.
 
 ## `PATCH /tasks/:taskId`
