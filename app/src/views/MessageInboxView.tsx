@@ -29,13 +29,13 @@ function ReviewItem({ task, onDone }: { task: TaskSummary; onDone: () => Promise
       {writing ? (
         <div className="stack" style={{ gap: 8 }}>
           <textarea className="input" rows={3} autoFocus value={text} maxLength={2000} disabled={busy} placeholder={`What should ${seat} change or do next?`} onChange={e => setText(e.target.value)} />
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
             <button className="btn btn-primary sm" disabled={busy || !text.trim()} onClick={() => void act(() => api.requestTaskChanges(task.id, text.trim()))}>{busy ? 'Sending…' : `Send to ${seat}`}</button>
             <button className="btn btn-ghost sm" disabled={busy} onClick={() => { setWriting(false); setText(''); }}>Cancel</button>
           </div>
         </div>
       ) : (
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
           <button className="btn btn-primary sm" disabled={busy} title="Close the task as done. Nothing is merged or run." onClick={() => void act(() => api.updateTask(task.id, { status: 'done' }))}>Mark done</button>
           <button className="btn btn-ghost sm" disabled={busy} onClick={() => setWriting(true)}>Request changes</button>
         </div>
