@@ -78,7 +78,8 @@ export class TaskRunService {
     const project = await this.store.getProject(task.projectId).catch(() => null);
     if (project?.workspace !== 'local' || !project.localPath) return null;
     if (!podProjectMounts([project], task.podId).length) throw conflict('add this seat to the project so its pod can use the local folder', { taskId: task.id, projectId: project.id });
-    return { workdir: projectMountTarget(project.id), env: await localProjectGitEnv(project, task.seatId) };
+    const ref = `${(await this.store.taskPrefix?.()) || 'task'}-${task.number ?? task.id.slice(5, 13)}`.toLowerCase().replace(/[^a-z0-9._-]/g, '-');
+    return { source: projectMountTarget(project.id), origin: project.repo ? `https://github.com/${project.repo}.git` : '', branch: `waypoint/${ref}`, env: localProjectGitEnv(task.seatId) };
   }
 
   async dispatch(task, runId, { pod, template, files, workspace }) {

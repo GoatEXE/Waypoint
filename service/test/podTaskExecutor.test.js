@@ -8,7 +8,7 @@ import { DockerAdapter } from '../src/docker.js';
 import { loadConfig } from '../src/config.js';
 import { AppError } from '../src/errors.js';
 import {
-  ByteTail, MANUAL_REVIEW_NOTICE, PodTaskExecutor, TASK_WORKSPACE_SCRIPT, tailRunner, buildTaskChatArgs, parseTaskStream, podSeatsReadiness, sanitizeResponse, taskSessionName, taskWorkspacePath,
+  ByteTail, MANUAL_REVIEW_NOTICE, PROJECT_CLONE_SCRIPT, PodTaskExecutor, TASK_WORKSPACE_SCRIPT, tailRunner, buildTaskChatArgs, parseTaskStream, podSeatsReadiness, sanitizeResponse, taskSessionName, taskWorkspacePath,
 } from '../src/podTaskExecutor.js';
 
 const POD_ID = 'pod_11111111-2222-4333-8444-555555555555';
@@ -525,4 +525,25 @@ test('local project runs work in the mounted folder with git settings passed thr
   assert.equal(args[args.indexOf('--in') + 1], '/opt/data/projects/project_1');
   assert.deepEqual(args.slice(args.indexOf('env'), args.indexOf('-p') - 1), ['env', 'GIT_CONFIG_COUNT=1', 'GIT_CONFIG_KEY_0=safe.directory', 'GIT_CONFIG_VALUE_0=/opt/data/projects/project_1']);
   assert.equal(buildTaskChatArgs({ containerName: 'c1', seatId: 'coder', taskId: TASK_ID, timeoutSeconds: 60, runBudgetSeconds: 50, maxTurns: 5 }).includes('env'), false);
+});
+
+test('local projects run in a per-task clone on a waypoint branch, never in the mounted folder', async () => {
+  const calls = [];
+  const runner = async (_command, args, options = {}) => {
+    calls.push({ args, options });
+    if (args.includes('test')) return { code: 0, stdout: '' };
+    if (args.includes('python3')) return { code: 0, stdout: `${JSON.stringify({ ok: true, path: JSON.parse(options.input).dest, created: true })}\n` };
+    if (args.includes('chat')) return { timedOut: false, code: 0, stdout: OK_STREAM };
+    throw new Error(`unexpected docker call ${args.join(' ')}`);
+  };
+  const executor = new PodTaskExecutor({ config: config(false), docker, readiness: { check: async () => readyStatus() }, runner, now: () => 1 });
+  const workspace = { source: '/opt/data/projects/project_1', origin: 'https://github.com/acme/site.git', branch: 'waypoint/sun-7', env: ['GIT_CONFIG_COUNT=0'] };
+  const result = await executor.execute({ task: task(), pod: pod(), workspace });
+  const clone = calls.find((call) => call.args.includes('python3'));
+  assert.equal(clone.args.at(-1), PROJECT_CLONE_SCRIPT);
+  assert.deepEqual(JSON.parse(clone.options.input), { source: '/opt/data/projects/project_1', dest: WORKSPACE, origin: 'https://github.com/acme/site.git', branch: 'waypoint/sun-7' });
+  const chat = calls.find((call) => call.args.includes('chat')).args;
+  assert.equal(chat[chat.indexOf('--in') + 1], WORKSPACE);
+  assert.match(result.evidence.find((item) => item.type === 'workspace').message, /Cloned the project into .* on branch waypoint\/sun-7\. The project folder on the host is mounted read-only/);
+  await rejectsApp(executor.execute({ task: task(), pod: pod(), workspace: { ...workspace, branch: 'main; rm -rf /' } }), 400, /invalid task branch name/);
 });

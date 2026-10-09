@@ -62,7 +62,7 @@ The CEO conversation is split into threads: `general` plus one thread per task, 
 
 ## GitHub connector
 
-Seats reach GitHub through a private Waypoint GitHub App. Repository code is cloned into the seat's pod volume; the user's local folder is never mounted.
+Seats reach GitHub through a private Waypoint GitHub App. A local-folder project is bind-mounted read-only into pods that have a GitHub seat on it (`/opt/data/projects/<projectId>`). Each task run on that project works in its own clone, made from the mounted folder's committed history into the task workspace (`/opt/data/workspaces/<taskId>`). The clone is on a new `waypoint/<task-ref>` branch, with `origin` set to the project's GitHub repository. A rerun reuses the clone. Seats never change the user's checkout, branch, or `node_modules`, and uncommitted changes in the folder are not copied.
 
 - `GET /github` returns `{ connected, app, installUrl, installations: [{ id, account, selection, repos }] }`. The private key never leaves the service.
 - `POST /github/manifest` with `{ "origin": "http://127.0.0.1:5173", "owner": "optional-org" }` returns `{ state, url, manifest }`. The app form-posts `manifest` to `url` (GitHub's app manifest flow). GitHub redirects to `/connectors/github/callback?code&state`, and the app calls `POST /github/complete` with `{ code, state }`; states expire after 30 minutes and work once. The app requests contents, pull requests, and issues write; metadata, checks, and actions read; and no webhook events. Installation returns to `/connectors/github/installed`.

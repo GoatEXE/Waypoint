@@ -42,7 +42,7 @@ export class DockerAdapter {
     const args = ['run', '-d', '--name', containerName, '--network', POD_NETWORK, '--mount', mount];
     const authMount = sharedAuthMount(this.config);
     if (authMount) args.push('--mount', authMount);
-    for (const project of projectMounts) args.push('--mount', `type=bind,source=${project.source},target=${project.target}`);
+    for (const project of projectMounts) args.push('--mount', `type=bind,source=${project.source},target=${project.target},readonly`);
     for (const [key, value] of Object.entries(labels)) args.push('--label', `${key}=${value}`);
     args.push(this.config.docker.image, ...this.config.docker.idleCommand);
     return {

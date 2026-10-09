@@ -353,7 +353,7 @@ test('local project folders are bind mounted and a running pod is recreated when
   const cname = containerName(instance.id);
   const projectMounts = [{ projectId: 'project_11111111-1111-4111-8111-111111111111', source: 'E:/Repositories/goat-ops', target: '/opt/data/projects/project_11111111-1111-4111-8111-111111111111' }];
   const plan = new DockerAdapter(liveConfig).startPlan({ podId: instance.id, podName: 'gamma', projectMounts });
-  assert.ok(plan.args.includes(`type=bind,source=E:/Repositories/goat-ops,target=${projectMounts[0].target}`));
+  assert.ok(plan.args.includes(`type=bind,source=E:/Repositories/goat-ops,target=${projectMounts[0].target},readonly`));
   assert.ok(plan.args.some((arg) => /^com\.waypoint\.pod\.project_mounts=[0-9a-f]{32}$/.test(arg) || arg.includes('.project_mounts=')));
 
   const calls = [];
@@ -370,7 +370,7 @@ test('local project folders are bind mounted and a running pod is recreated when
   const result = await new DockerAdapter(liveConfig, undefined, runner).lifecycle(instance, 'start', { projectMounts });
   assert.equal(result.recreated, true);
   assert.deepEqual(calls.filter((args) => ['stop', 'rm', 'run'].includes(args[0])).map((args) => args[0]), ['stop', 'rm', 'run']);
-  assert.ok(calls.find((args) => args[0] === 'run').includes(`type=bind,source=E:/Repositories/goat-ops,target=${projectMounts[0].target}`));
+  assert.ok(calls.find((args) => args[0] === 'run').includes(`type=bind,source=E:/Repositories/goat-ops,target=${projectMounts[0].target},readonly`));
   assert.equal(calls.find((args) => args[0] === 'rm')[1], cname);
 
   const foreignBind = new DockerAdapter(liveConfig, undefined, async (command, args) => {

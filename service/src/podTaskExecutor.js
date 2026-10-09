@@ -30,6 +30,8 @@ const KILL_AFTER_SECONDS = 2;
 const HOST_TIMEOUT_MARGIN_MS = 5000;
 const WORKSPACE_TIMEOUT_MS = 30000;
 const WORKSPACE_OUTPUT_LIMIT = 8 * 1024;
+const CLONE_TIMEOUT_MS = 5 * 60 * 1000;
+const CLONE_BRANCH_RE = /^waypoint\/[a-z0-9][a-z0-9._-]{0,63}$/;
 const ERROR_TEXT_LIMIT = 200;
 const NOT_STARTED_CODES = new Set([2, 125, 126, 127]);
 const TIMEOUT_CODES = new Set([124, 137]);
@@ -53,7 +55,7 @@ export class PodTaskExecutor {
 
   async execute({ task, pod, template = undefined, prompt = undefined, files = [], turnLimits = undefined, guardHostDisconnect = false, activity = undefined, workspace = null } = {}) {
     const target = this.resolveTarget({ task, pod, prompt, files, turnLimits });
-    if (workspace?.workdir) { target.workdir = workspace.workdir; target.env = Array.isArray(workspace.env) ? workspace.env : []; }
+    if (workspace?.source) { target.clone = { source: workspace.source, origin: workspace.origin || '', branch: workspace.branch }; target.env = Array.isArray(workspace.env) ? workspace.env : []; }
     target.guardHostDisconnect = guardHostDisconnect === true;
     target.activity = Array.isArray(activity) ? activity : [];
     if (this.config?.dryRun) return this.dryRunResult(target);
@@ -147,11 +149,7 @@ export class PodTaskExecutor {
   }
 
   async prepareWorkspace(target) {
-    if (target.workdir) {
-      const found = await this.runner('docker', ['exec', '--user', 'hermes', target.containerName, 'test', '-d', target.workdir], { timeoutMs: WORKSPACE_TIMEOUT_MS, outputLimitBytes: WORKSPACE_OUTPUT_LIMIT });
-      if (found.code !== 0) throw conflict('the project folder is not mounted in this pod; restart the pod to mount it', { taskId: target.taskId });
-      return evidenceEntry(this.now, 'workspace', `Working directly in the project folder mounted at ${target.workdir}.`);
-    }
+    if (target.clone) return this.prepareProjectClone(target);
     const input = JSON.stringify({ taskId: target.taskId, files: target.files });
     const result = await this.runner('docker', workspaceArgs(target.containerName), { input, timeoutMs: WORKSPACE_TIMEOUT_MS, outputLimitBytes: WORKSPACE_OUTPUT_LIMIT });
     if (result.timedOut) throw lifecycleError('task workspace preparation timed out; no model call was made', { taskId: target.taskId });
@@ -165,6 +163,24 @@ export class PodTaskExecutor {
     const written = Number.isInteger(parsed.files) ? parsed.files : 0;
     const unchanged = Number.isInteger(parsed.unchanged) ? parsed.unchanged : 0;
     return evidenceEntry(this.now, 'workspace', `Task workspace ${target.workspace} ${parsed.created ? 'created' : 'reused'}; ${written} fixture file(s) created, ${unchanged} already present and unchanged; existing files are never overwritten.`, { fixturesCreated: written, fixturesUnchanged: unchanged });
+  }
+
+  async prepareProjectClone(target) {
+    const { source, origin, branch } = target.clone;
+    if (!CLONE_BRANCH_RE.test(String(branch))) throw badRequest('invalid task branch name');
+    const found = await this.runner('docker', ['exec', '--user', 'hermes', target.containerName, 'test', '-d', source], { timeoutMs: WORKSPACE_TIMEOUT_MS, outputLimitBytes: WORKSPACE_OUTPUT_LIMIT });
+    if (found.code !== 0) throw conflict('the project folder is not mounted in this pod; restart the pod to mount it', { taskId: target.taskId });
+    const input = JSON.stringify({ source, dest: target.workspace, origin, branch });
+    const result = await this.runner('docker', ['exec', '-i', '--user', 'hermes', target.containerName, 'python3', '-c', PROJECT_CLONE_SCRIPT], { input, timeoutMs: CLONE_TIMEOUT_MS, outputLimitBytes: WORKSPACE_OUTPUT_LIMIT });
+    if (result.timedOut) throw lifecycleError('project clone timed out; no model call was made', { taskId: target.taskId });
+    const parsed = parseJsonLine(result.stdout);
+    if (result.code !== 0 || parsed?.ok !== true || parsed.path !== target.workspace) {
+      const reason = typeof parsed?.error === 'string' && /^[A-Za-z_]{1,64}$/.test(parsed.error) ? parsed.error : 'unexpected_output';
+      throw lifecycleError('the project could not be cloned for this task; no model call was made', { taskId: target.taskId, reason });
+    }
+    target.workdir = target.workspace;
+    const where = parsed.created ? `Cloned the project into ${target.workspace} on branch ${branch}` : `Reusing the task's project clone at ${target.workspace}`;
+    return evidenceEntry(this.now, 'workspace', `${where}. The project folder on the host is mounted read-only and is never changed by the seat.`);
   }
 
   async runTurn(target) {
@@ -355,6 +371,36 @@ function normalizeLimits(overrides) {
     maxTotalFileBytes: pick('maxTotalFileBytes', 1, 4 * 1024 * 1024),
   };
 }
+
+export const PROJECT_CLONE_SCRIPT = String.raw`
+import json, os, subprocess, sys
+p = json.loads(sys.stdin.read())
+src, dest, origin, branch = p['source'], p['dest'], p.get('origin') or '', p['branch']
+def done(**fields):
+    print(json.dumps(fields))
+    sys.exit(0)
+if not src.startswith('/opt/data/projects/project_') or not dest.startswith('/opt/data/workspaces/task_') or '..' in src + dest:
+    done(ok=False, error='invalid_paths')
+if os.path.isdir(os.path.join(dest, '.git')):
+    done(ok=True, path=dest, created=False)
+if os.path.exists(dest) and os.listdir(dest):
+    done(ok=False, error='workspace_not_empty')
+os.makedirs(os.path.dirname(dest), mode=0o700, exist_ok=True)
+trust = os.path.join(os.path.dirname(dest), '.waypoint-clone-' + os.path.basename(dest) + '.gitconfig')
+with open(trust, 'w', encoding='utf-8') as handle:
+    handle.write('[safe]\n\tdirectory = ' + src + '\n\tdirectory = ' + src + '/.git\n')
+env = dict(os.environ, GIT_CONFIG_GLOBAL=trust)
+def git(*args):
+    result = subprocess.run(['git', *args], capture_output=True, text=True, timeout=280, env=env)
+    if result.returncode:
+        done(ok=False, error='git_' + args[0].lstrip('-').replace('-', '_'))
+git('clone', '--no-hardlinks', '--quiet', src, dest)
+if origin:
+    git('-C', dest, 'remote', 'set-url', 'origin', origin)
+git('-C', dest, 'checkout', '--quiet', '-b', branch)
+os.remove(trust)
+done(ok=True, path=dest, created=True)
+`;
 
 function workspaceArgs(containerName) {
   return ['exec', '-i', '--user', 'hermes', containerName, 'python3', '-c', TASK_WORKSPACE_SCRIPT];
