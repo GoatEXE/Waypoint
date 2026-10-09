@@ -23,3 +23,4 @@ Thumbs.db
 tmp/
 .forge/*
 !.forge/uf3k.json
+.forge/
