@@ -109,7 +109,7 @@ Starts a native Hermes OAuth/login flow. OpenAI Codex is exposed as device-code 
 
 ## `POST /bridge/tools`
 
-Internal CEO bridge. The CEO runtime token supports `health`, `list_missions`, `create_mission`, `link_mission`, `create_template`, `list_templates`, `clone_template`, `add_seat`, `pod_status`, `pod_start`, `pod_stop`, `create_task`, `run_task`, `task_status`, and the five messaging tools above. Missions created through the bridge are recorded with `source: "ceo"`. Anonymous requests are rejected.
+Internal CEO bridge. The CEO runtime token supports `health`, `list_missions`, `create_mission`, `link_mission`, `update_mission`, `create_template`, `list_templates`, `clone_template`, `add_seat`, `pod_status`, `pod_start`, `pod_stop`, `create_task`, `run_task`, `task_status`, and the five messaging tools above. Missions created through the bridge are recorded with `source: "ceo"`. Anonymous requests are rejected.
 
 For a new pod, the CEO can create a template, clone it, and call `pod_start`. If the pod and template have no model, a live start captures the CEO's current model as the pod default; explicit seat models take priority. It then provisions every seat, installs messaging tools, and returns readiness. When shared auth is enabled, those seats use the CEO's provider connection without another login. A dry-run start writes nothing. If the CEO has no configured model and the pod has no model, start is refused before launching the pod.
 
@@ -200,7 +200,9 @@ Returns `{ "missions": [...] }`, newest first. Each mission includes a short sum
 
 Records a mission. Body fields: `title` (required, max 120 chars), optional `outcome` (max 1000), optional `target` (`YYYY-MM-DD`), optional `podId` and `taskId`. Linked ids must match stored records, and a task must belong to the given pod; a `taskId` alone implies its pod.
 
-`state` is `delegated` when a task is linked, otherwise `planned`. It records hand-off only; it never means work has run.
+`status` is an independent workflow status and does not represent task hand-off or task run state.
+
+Missions have an independent workflow `status`: `backlog`, `todo`, `in_progress`, `in_review`, `done`, or `canceled`. New unlinked missions start in `backlog`; missions created with linked work inherit the linked task's workflow status. Older missions without a status derive one from their linked task status/run state when read. `PATCH /missions/:missionId` accepts `{ "status": "in_review" }` and validates the same transitions as tasks.
 
 Idempotent by title (case-insensitive): repeating a title with the same links returns the existing mission with `200`; a new mission returns `201`; the same title with different links returns `409`.
 

@@ -210,7 +210,7 @@ test('missions linked to a task still report the task state', async () => {
   const { runId } = await store.claimTaskRun(task.id);
   await store.finishTaskRun(task.id, runId, completed());
   const view = await store.getMission(mission.id);
-  assert.equal(view.state, 'delegated');
+  assert.equal(view.status, 'todo');
   assert.equal(view.task.state, 'completed');
   assert.deepEqual(view.missing, []);
 });

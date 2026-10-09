@@ -6,7 +6,7 @@ import { sanitizeResponse } from './podTaskExecutor.js';
 import { normalizeActivity } from './activity.js';
 import { normalizeRepo } from './github.js';
 import { assertProjectFolder } from './projectMounts.js';
-import { TASK_EDIT_FIELDS, TASK_REF_RE, assertStatusTransition, projectName, publicTask, stateAfterStatus, statusAfterRun, taskBlockers, taskDescription, taskLabels, taskStatus, taskTitle, withStatusChange } from './taskQueue.js';
+import { TASK_EDIT_FIELDS, TASK_REF_RE, TASK_STATUSES, assertStatusTransition, defaultStatus, projectName, publicTask, stateAfterStatus, statusAfterRun, taskBlockers, taskDescription, taskLabels, taskStatus, taskTitle, withStatusChange } from './taskQueue.js';
 
 export const ALLOWED_BASELINE_FILES = ['SOUL.md', 'memories/MEMORY.md', 'memories/USER.md'];
 const NAME_RE = /^[a-z][a-z0-9_-]{1,62}$/;
@@ -759,7 +759,8 @@ export class PodStore {
       throw conflict('a mission with this title already exists', { missionId: existing.id });
     }
     const now = new Date().toISOString();
-    const mission = { id: safeId('mission'), title, outcome, target, podId, taskId, state: taskId ? 'delegated' : 'planned', source, createdAt: now, updatedAt: now };
+    const linkedTask = taskId ? await this.getTask(taskId) : null;
+    const mission = { id: safeId('mission'), title, outcome, target, podId, taskId, status: linkedTask ? (TASK_STATUSES.includes(linkedTask.status) ? linkedTask.status : defaultStatus(linkedTask.state)) : 'backlog', source, createdAt: now, updatedAt: now };
     await writeJson(this.missionPath(mission.id), mission);
     return { created: true, mission: await this.missionView(mission) };
   }
@@ -776,7 +777,8 @@ export class PodStore {
     const links = await this.resolveMissionLinks({ podId: input.podId || mission.podId, taskId: input.taskId || mission.taskId });
     if (!links.podId && !links.taskId) throw badRequest('podId or taskId is required');
     if ((mission.podId && mission.podId !== links.podId) || (mission.taskId && mission.taskId !== links.taskId)) throw conflict('mission is already linked to a different pod or task', { missionId });
-    const updated = { ...mission, ...links, state: links.taskId ? 'delegated' : mission.state, updatedAt: new Date().toISOString() };
+    const linkedTask = links.taskId ? await this.getTask(links.taskId) : null;
+    const updated = { ...mission, ...links, status: mission.status || (linkedTask ? (TASK_STATUSES.includes(linkedTask.status) ? linkedTask.status : defaultStatus(linkedTask.state)) : 'backlog'), updatedAt: new Date().toISOString() };
     await writeJson(this.missionPath(mission.id), updated);
     return this.missionView(updated);
   }
@@ -800,6 +802,17 @@ export class PodStore {
     const mission = await readJson(this.missionPath(missionId));
     if (!mission) throw notFound('mission not found', { missionId });
     return this.missionView(mission);
+  }
+
+  async updateMissionStatus(missionId, status) {
+    const next = taskStatus(status);
+    const mission = await readJson(this.missionPath(missionId));
+    if (!mission) throw notFound('mission not found', { missionId });
+    const current = (await this.missionView(mission)).status;
+    assertStatusTransition(current, next);
+    const updated = { ...mission, status: next, updatedAt: new Date().toISOString() };
+    await writeJson(this.missionPath(mission.id), updated);
+    return this.missionView(updated);
   }
 
   deleteMission(missionId) {
@@ -840,10 +853,11 @@ export class PodStore {
     }
     if (mission.taskId) {
       const record = await readJson(this.taskPath(mission.taskId));
-      if (record) task = { id: record.id, podId: record.podId, seatId: record.seatId, summary: record.summary, state: record.state, evidence: record.evidence || [], updatedAt: record.updatedAt };
+      if (record) task = { id: record.id, podId: record.podId, seatId: record.seatId, summary: record.summary, state: record.state, status: record.status || defaultStatus(record.state), evidence: record.evidence || [], updatedAt: record.updatedAt };
       else missing.push('task');
     }
-    return { ...mission, pod, task, missing };
+    const status = TASK_STATUSES.includes(mission.status) ? mission.status : (task?.status || 'backlog');
+    return { ...mission, status, pod, task, missing };
   }
   templatePath(templateId) { return path.join(this.dataDir, 'templates', assertStoredId('tpl', templateId), 'manifest.json'); }
   instancePath(podId) { return path.join(instanceDirFor(this.dataDir, podId), 'manifest.json'); }

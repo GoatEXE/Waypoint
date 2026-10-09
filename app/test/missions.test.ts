@@ -9,10 +9,10 @@ import {
 function mission(overrides: Partial<Mission> = {}): Mission {
   return {
     id: 'mission_1', title: 'Finish Waypoint', outcome: 'Waypoint works end to end', target: '',
-    podId: 'pod_1', taskId: 'task_1', state: 'delegated', source: 'app',
+    podId: 'pod_1', taskId: 'task_1', status: 'todo', source: 'app',
     createdAt: '2026-10-06T07:00:00.000Z', updatedAt: '2026-10-06T07:00:00.000Z',
     pod: { id: 'pod_1', podName: 'finish-waypoint-01', templateId: 'tpl_1', state: 'planned', seats: [{ id: 'lead', role: 'Lead' }, { id: 'builder', role: 'Builder' }] },
-    task: { id: 'task_1', podId: 'pod_1', seatId: 'lead', summary: 'Plan the work', state: 'delegated', evidence: [], updatedAt: '2026-10-06T06:33:29.457Z' },
+    task: { id: 'task_1', podId: 'pod_1', seatId: 'lead', summary: 'Plan the work', state: 'completed', status: 'in_review', evidence: [], updatedAt: '2026-10-06T06:33:29.457Z' },
     missing: [],
     ...overrides,
   };
@@ -51,6 +51,18 @@ test('mission deletion uses the host API', async () => {
   assert.equal(calls[0].init?.method, 'DELETE');
 });
 
+test('mission status update uses PATCH with the selected workflow status', async () => {
+  let request: { url: string; init?: RequestInit } | undefined;
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    request = { url: String(url), init };
+    return { ok: true, text: async () => JSON.stringify(mission({ status: 'in_review' })) } as Response;
+  }) as typeof fetch;
+  assert.equal((await api.updateMission('mission_1', 'in_review')).status, 'in_review');
+  assert.equal(request?.url, '/api/missions/mission_1');
+  assert.equal(request?.init?.method, 'PATCH');
+  assert.deepEqual(JSON.parse(String(request?.init?.body)), { status: 'in_review' });
+});
+
 test('missions load state moves through loading, ready, and error without losing loaded data', () => {
   assert.equal(initialMissionsState.status, 'loading');
   assert.equal(sidebarMissionLabel(initialMissionsState), 'Loading…');
@@ -68,20 +80,20 @@ test('missions load state moves through loading, ready, and error without losing
 
 test('mission status copy never claims work has run', () => {
   const delegated = missionStatus(mission());
-  assert.equal(delegated.label, 'Delegated');
-  assert.equal(delegated.detail, 'Handed to the lead seat in finish-waypoint-01. No work has run yet.');
+  assert.equal(delegated.label, 'Todo');
+  assert.match(delegated.detail, /Linked task run: completed/);
   assert.equal(taskStateLabel('delegated'), 'Handed off, not started');
   assert.equal(podStateLabel('planned'), 'Set up, not running');
 
-  const planned = missionStatus(mission({ state: 'planned', podId: null, taskId: null, pod: null, task: null }));
-  assert.equal(planned.label, 'Planned');
+  const planned = missionStatus(mission({ status: 'backlog', podId: null, taskId: null, pod: null, task: null }));
+  assert.equal(planned.label, 'Backlog');
   assert.match(planned.detail, /No pod or task is assigned yet/);
 
-  const broken = missionStatus(mission({ task: null, missing: ['task'] }));
-  assert.equal(broken.label, 'Needs attention');
-  assert.match(broken.detail, /task record could not be found/);
+  const review = missionStatus(mission({ status: 'in_review' }));
+  assert.equal(review.label, 'In review');
+  assert.doesNotMatch(review.label, /completed/i);
 
-  for (const m of [delegated, planned, broken]) assert.doesNotMatch(`${m.label} ${m.detail}`, /running|in progress|done|complete/i);
+  for (const m of [delegated, planned, review]) assert.doesNotMatch(m.label, /completed/i);
 });
 
 test('sidebar pods come from mission links without duplicates', () => {

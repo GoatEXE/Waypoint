@@ -160,6 +160,7 @@ export const api = {
   messageDeliveries: () => json<{ messages: MessageDelivery[] }>('/message-deliveries'),
   reviewMessageDelivery: (to: string, messageId: string) => json<{ id: string; to: string; reviewedAt: string; wakeState: string }>('/message-deliveries/review', { method: 'POST', body: JSON.stringify({ to, messageId }) }),
   createMission: (body: MissionInput) => json<Mission>('/missions', { method: 'POST', body: JSON.stringify(body) }),
+  updateMission: (id: string, status: MissionStatus) => json<Mission>(`/missions/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ status }) }),
   addSeat: (podId: string, body: { id: string; role: string; instructions?: string }) => json<{ podId: string; seat: { id: string; role: string }; podState: string; seats: unknown }>(`/pod-instances/${encodeURIComponent(podId)}/seats`, { method: 'POST', body: JSON.stringify(body) }),
   hermesPortal: () => json<HermesPortalStatus>('/hermes-portal'),
   openHermesPortal: (target: string) => json<HermesPortalStatus & { url: string }>('/hermes-portal', { method: 'POST', body: JSON.stringify({ target }) }),
@@ -205,7 +206,7 @@ export type OrganizationInput = Partial<Pick<Organization, 'name' | 'key' | 'ceo
 export interface AppConfig { dryRun: boolean; serviceName?: string; sharedAuth?: { enabled: boolean }; docker?: { imageConfigured?: boolean; imagePinned?: boolean }; hermes?: { imagePinned?: boolean } }
 export interface MissionEvidence { type: string; message: string; at: string }
 export interface MissionPod { id: string; podName: string; templateId: string; state: string; seats: { id: string; role: string }[] }
-export interface MissionTask { id: string; podId: string; seatId: string; summary: string; state: string; evidence: MissionEvidence[]; updatedAt: string }
+export interface MissionTask { id: string; podId: string; seatId: string; summary: string; state: string; status: TaskStatus; evidence: MissionEvidence[]; updatedAt: string }
 export interface Mission {
   id: string;
   title: string;
@@ -213,7 +214,7 @@ export interface Mission {
   target: string;
   podId: string | null;
   taskId: string | null;
-  state: 'planned' | 'delegated';
+  status: MissionStatus;
   source: 'ceo' | 'app';
   createdAt: string;
   updatedAt: string;
@@ -223,6 +224,7 @@ export interface Mission {
 }
 export interface MissionInput { title: string; outcome?: string; target?: string }
 export type TaskStatus = 'backlog' | 'todo' | 'in_progress' | 'in_review' | 'done' | 'canceled';
+export type MissionStatus = TaskStatus;
 export interface TaskSummary {
   id: string;
   number: number | null;
