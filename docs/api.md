@@ -109,7 +109,7 @@ Starts a native Hermes OAuth/login flow. OpenAI Codex is exposed as device-code 
 
 ## `POST /bridge/tools`
 
-Internal CEO bridge. The CEO runtime token supports `health`, `list_missions`, `create_mission`, `link_mission`, `create_template`, `clone_template`, `pod_status`, `pod_start`, `pod_stop`, `create_task`, `run_task`, `task_status`, and the five messaging tools above. Missions created through the bridge are recorded with `source: "ceo"`. Anonymous requests are rejected.
+Internal CEO bridge. The CEO runtime token supports `health`, `list_missions`, `create_mission`, `link_mission`, `create_template`, `list_templates`, `clone_template`, `add_seat`, `pod_status`, `pod_start`, `pod_stop`, `create_task`, `run_task`, `task_status`, and the five messaging tools above. Missions created through the bridge are recorded with `source: "ceo"`. Anonymous requests are rejected.
 
 For a new pod, the CEO can create a template, clone it, and call `pod_start`. If the pod and template have no model, a live start captures the CEO's current model as the pod default; explicit seat models take priority. It then provisions every seat, installs messaging tools, and returns readiness. When shared auth is enabled, those seats use the CEO's provider connection without another login. A dry-run start writes nothing. If the CEO has no configured model and the pod has no model, start is refused before launching the pod.
 
@@ -266,6 +266,10 @@ Body fields:
 - `action`: `start`, `stop`, or `status`.
 
 In dry-run mode the response contains the command plan and `executed: false`. Start plans use one idle container per pod, Docker `bridge` networking, a Waypoint-owned named Docker volume mounted to `/opt/data`, no published ports, and no host pod directory, `docker.sock`, or Waypoint bridge token mount/injection. With `WAYPOINT_SHARED_AUTH=true`, a second labeled named volume is mounted at `/opt/waypoint-auth`; the configured image must carry the Waypoint shared-auth overlay label. The CEO and pods use that one Hermes auth store, including its atomic writes and refresh lock. Container and volume names are derived from validated configuration, not stored manifests. Live starts and reuses verify ownership labels, the exact expected mounts and image, non-privileged host config, no port bindings or added capabilities, and bridge-only networking. Unsafe or older containers are refused and may require manual recreation while keeping their data volumes. Seeding copies the derived host `profiles/<seatId>` baseline with `docker cp` and fixes ownership before writing its marker.
+
+## `POST /pod-instances/:podId/seats`
+
+Hires a seat into an existing pod. Body: `{ "id": "builder", "role": "Builder", "instructions": "..." }` (`instructions` optional; `id` follows seat id rules and must be new in the pod, otherwise `409`). The seat's profile is materialized from the pod's template baseline files. If the pod is running (and not in dry-run mode), its profile is copied into the pod volume, prepared, and given its tools right away, and the response includes `seats` readiness; otherwise that happens on the next start. The CEO bridge equivalent is `add_seat` `{ podId, seatId, role, instructions? }`, and `list_templates` lists stored templates with their seats. The New Assignment dialog adds a line telling the CEO whether it must ask before hiring.
 
 ## `GET /pod-instances/:podId/seats/status`
 

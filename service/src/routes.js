@@ -114,6 +114,8 @@ async function route(request, url, { config, store, organization, docker, hermes
     const body = await readBody(request);
     return { body: await podLifecycle(config, store, docker, hermes, podSeats, messaging, match[1], body.action) };
   }
+  match = url.pathname.match(/^\/pod-instances\/([^/]+)\/seats$/);
+  if (request.method === 'POST' && match) return { status: 201, body: await hireSeat({ config, store, docker, podSeats, messaging }, decodeRouteParam(match[1]), await readBody(request)) };
   match = url.pathname.match(/^\/pod-instances\/([^/]+)\/seats\/status$/);
   if (request.method === 'GET' && match) {
     const seatIds = url.searchParams.get('seatIds');
@@ -252,6 +254,12 @@ async function bridgeTool(request, { config, store, docker, hermes, podSeats, ta
 async function ceoControlTool(tool, args, { config, store, docker, hermes, podSeats, taskRuns, messaging }) {
   if (tool === 'health') return { ok: true, service: config.serviceName };
   if (tool === 'create_template') return store.createTemplate(args);
+  if (tool === 'list_templates') return { templates: await store.listTemplates() };
+  if (tool === 'add_seat') {
+    if (!args || typeof args !== 'object' || Array.isArray(args)) throw badRequest('args must be an object');
+    const { podId, seatId, ...rest } = args;
+    return hireSeat({ config, store, docker, podSeats, messaging }, String(podId || ''), { id: seatId, ...rest });
+  }
   if (tool === 'clone_template') return store.cloneTemplate(String(args.templateId || ''), args, ({ podId, podName }) => docker.startPlan({ podId, podName }));
   if (tool === 'pod_status') return podLifecycle(config, store, docker, hermes, podSeats, messaging, String(args.podId || ''), 'status');
   if (tool === 'pod_start') return podLifecycle(config, store, docker, hermes, podSeats, messaging, String(args.podId || ''), 'start');
@@ -305,6 +313,8 @@ function actionSummary(tool, args = {}, result = {}) {
   if (tool === 'run_task' || tool === 'task_status') return `${value(args.taskId)} ${value(result.state)}`;
   if (tool === 'create_mission') return value(result.mission?.title || args.title);
   if (tool === 'create_template') return value(result.name || args.name);
+  if (tool === 'add_seat') return `${value(result.seat?.id || args.seatId)} ${value(result.seat?.role || args.role)}`;
+  if (tool === 'list_templates') return `${result.templates?.length ?? 0} templates`;
   if (tool === 'clone_template') return value(result.podName || args.podName);
   if (tool === 'create_project') return value(result.name || args.name);
   if (['pod_status', 'pod_start', 'pod_stop'].includes(tool)) return `${value(args.podId)} ${value(result.status?.state)}`;
@@ -383,6 +393,19 @@ function bridgeTaskId(args) {
   const extra = Object.keys(args).filter((key) => key !== 'taskId');
   if (extra.length) throw badRequest('this bridge tool accepts only taskId', { fields: extra.slice(0, 10).map((key) => key.slice(0, 64)) });
   return String(args.taskId || '');
+}
+async function hireSeat({ config, store, docker, podSeats, messaging }, podId, input) {
+  const instance = await store.addSeat(podId, input);
+  const seat = instance.seats.at(-1);
+  const result = { podId: instance.id, seat: { id: seat.id, role: seat.role }, podState: instance.state, seats: null };
+  if (config.dryRun || instance.state !== 'running') return result;
+  const containerName = docker.makeContainerName(instance.id);
+  const inspected = await docker.inspectOwnedContainer(containerName, instance.id, { allowMissing: true });
+  if (!inspected.exists || !inspected.state.running) return result;
+  await docker.seedSeatProfile(instance.id, containerName, seat.id);
+  result.seats = await podSeatsAction(store, podSeats, instance.id, 'provision', { seatIds: [seat.id] });
+  if (messaging && result.seats.seats.some((item) => item.seatId === seat.id && item.profile?.state === 'ready')) await messaging.installSeatTools(instance, [seat.id], podSeats);
+  return result;
 }
 async function podLifecycle(config, store, docker, hermes, podSeats, messaging, podId, action) {
   let instance = await store.getInstance(podId, { dockerPlanFactory: ({ podId: id, podName }) => docker.startPlan({ podId: id, podName }) });

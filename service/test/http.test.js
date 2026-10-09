@@ -227,3 +227,37 @@ test('HTTP API creates templates, clones pods, delegates tasks, and structures e
     assert.equal(JSON.stringify(error).includes('stack'), false);
   } finally { await stop(app.server, app.bridgeServer); }
 });
+
+test('the CEO and the app can hire a seat into an existing pod', async () => {
+  const app = await start();
+  try {
+    const template = await app.store.createTemplate({ name: 'team', version: '1', seats: [{ id: 'reviewer', role: 'Reviewer' }], baselineFiles: { 'SOUL.md': 'Team baseline' } });
+    const pod = await app.store.cloneTemplate(template.id, { podName: 'hire-test' }, ({ podId, podName }) => app.docker.startPlan({ podId, podName }));
+    const headers = { 'content-type': 'application/json', authorization: `Bearer ${app.config.bridge.token}` };
+    const bridge = (tool, args) => fetch(`${app.bridgeBase}/bridge/tools`, { method: 'POST', headers, body: JSON.stringify({ tool, args }) }).then(async (r) => ({ status: r.status, body: await r.json() }));
+
+    const listed = await bridge('list_templates', {});
+    assert.deepEqual(listed.body.templates.map((t) => [t.name, t.seats.map((s) => s.id)]), [['team', ['reviewer']]]);
+
+    const stopped = await bridge('add_seat', { podId: pod.id, seatId: 'builder', role: 'Builder', instructions: 'Implement changes' });
+    assert.equal(stopped.status, 200);
+    assert.deepEqual([stopped.body.seat, stopped.body.seats], [{ id: 'builder', role: 'Builder' }, null]);
+    const saved = await app.store.getInstance(pod.id);
+    assert.deepEqual(saved.seats.map((s) => s.id), ['reviewer', 'builder']);
+    assert.equal(await fs.readFile(path.join(saved.profilesDir, 'builder', 'SOUL.md'), 'utf8'), 'Team baseline');
+    assert.equal((await bridge('add_seat', { podId: pod.id, seatId: 'builder', role: 'Builder' })).status, 409);
+    assert.equal((await bridge('add_seat', { podId: pod.id, seatId: 'Bad Id', role: 'X' })).status, 400);
+
+    app.config.dryRun = false;
+    await app.store.recordLifecycle(pod.id, { executed: true, dryRun: false, status: { state: 'running', running: true } }, ({ podId, podName }) => app.docker.startPlan({ podId, podName }));
+    const steps = [];
+    app.docker.inspectOwnedContainer = async () => ({ exists: true, state: { running: true } });
+    app.docker.seedSeatProfile = async (_podId, _container, seatId) => { steps.push(`seed ${seatId}`); return { changed: true }; };
+    app.podSeats.provision = async (_instance, { seatIds }) => { steps.push(`provision ${seatIds}`); return { podId: pod.id, action: 'provision', dryRun: false, executed: true, changed: true, ready: true, seats: [{ seatId: 'qa', ready: true, blockers: [], profile: { state: 'ready', identity: true, writable: true, envPrivate: true, missingSubdirs: [], changed: [] }, model: { state: 'configured' }, auth: { providers: {}, stores: {} } }], notes: [] }; };
+    app.messaging.installSeatTools = async (_instance, seatIds) => { steps.push(`tools ${seatIds}`); };
+    const fromApp = await fetch(`${app.base}/pod-instances/${pod.id}/seats`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: 'qa', role: 'QA' }) });
+    assert.equal(fromApp.status, 201);
+    assert.equal((await fromApp.json()).seats.ready, true);
+    assert.deepEqual(steps, ['seed qa', 'provision qa', 'tools qa']);
+  } finally { await stop(app.server, app.bridgeServer); }
+});

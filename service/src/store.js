@@ -271,6 +271,37 @@ export class PodStore {
     await writeJson(this.instancePath(podId), instance);
     return instance;
   }
+  async listTemplates() {
+    const dir = path.join(this.dataDir, 'templates');
+    let names = [];
+    try { names = await fs.readdir(dir); }
+    catch (error) { if (error.code !== 'ENOENT') throw error; }
+    const templates = [];
+    for (const name of names.filter((item) => STORED_ID_RE.tpl.test(item)).sort()) {
+      const template = await readJson(this.templatePath(name));
+      if (template?.id) templates.push({ id: template.id, name: template.name, version: template.version, seats: (template.seats || []).map((seat) => ({ id: seat.id, role: seat.role })), createdAt: template.createdAt });
+    }
+    return templates;
+  }
+  addSeat(podId, input) {
+    podId = assertStoredId('pod', podId);
+    return this.#serialize(`pod:${podId}`, async () => {
+      assertPlainObject(input, 'body');
+      const extra = Object.keys(input).filter((key) => !['id', 'role', 'instructions'].includes(key));
+      if (extra.length) throw badRequest('a seat takes only id, role, and instructions', { fields: extra.slice(0, 10).map((key) => key.slice(0, 64)) });
+      const [seat] = normalizeSeats([input]);
+      const filePath = this.instancePath(podId);
+      const stored = await readJson(filePath);
+      if (!stored) throw notFound('pod instance not found', { podId });
+      const current = normalizeStoredInstance(stored, podId, this.dataDir);
+      if (current.seats.some((item) => item.id === seat.id)) throw conflict('a seat with this id already exists in the pod', { podId, seatId: seat.id });
+      const template = current.templateId ? await readJson(this.templatePath(current.templateId)) : null;
+      const profileDir = path.join(current.profilesDir, seat.id);
+      const copiedFiles = await materializeSeatProfile(profileDir, seat, template?.baselineFiles || {});
+      await writeJson(filePath, { ...stored, seats: [...(stored.seats || []), { ...seat, state: 'materialized', profileDir, copiedFiles }], updatedAt: new Date().toISOString() });
+      return this.getInstance(podId);
+    });
+  }
   async getInstance(podId, { dockerPlanFactory } = {}) {
     podId = assertStoredId('pod', podId);
     const instance = await readJson(this.instancePath(podId));
