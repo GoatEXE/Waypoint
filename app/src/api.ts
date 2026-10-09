@@ -185,6 +185,7 @@ export const api = {
   task: (id: string) => json<TaskRecord>(`/tasks/${encodeURIComponent(id)}`),
   taskMessages: (id: string) => json<{ messages: MessageDelivery[] }>(`/tasks/${encodeURIComponent(id)}/messages`),
   createTask: (body: TaskInput) => json<TaskRecord>('/tasks', { method: 'POST', body: JSON.stringify(body) }),
+  requestTaskChanges: (id: string, text: string) => json<TaskRecord>(`/tasks/${encodeURIComponent(id)}/changes`, { method: 'POST', body: JSON.stringify({ text }) }),
   updateTask: (id: string, body: TaskInput) => json<TaskRecord>(`/tasks/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
   projects: () => json<{ projects: Project[] }>('/projects'),
   updateProject: (id: string, body: Partial<Pick<Project, 'name' | 'missionId' | 'workspace' | 'localPath' | 'repo' | 'githubSeats'>>) => json<Project & { pods?: { updated: string[]; pending: string[] }; toolsInstalled?: string[] }>(`/projects/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),

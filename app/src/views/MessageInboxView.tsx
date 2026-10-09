@@ -2,87 +2,96 @@ import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, type MessageDelivery, type TaskSummary } from '../api';
 import { needsYourReview, taskLabel } from '../taskQueueModel';
+import { addressLabel } from '../threadTimeline';
+import { ceoNameOf } from '../orgModel';
+import { useStore } from '../store';
+import { WorkspaceHead } from '../components/ui';
+
+function ReviewItem({ task, onDone }: { task: TaskSummary; onDone: () => Promise<void> }) {
+  const nav = useNavigate();
+  const [writing, setWriting] = useState(false);
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const act = async (action: () => Promise<unknown>) => {
+    setBusy(true); setError('');
+    try { await action(); await onDone(); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); setBusy(false); }
+  };
+  const seat = task.seatId || 'the seat';
+  return (
+    <div className="row stack" style={{ gap: 10, padding: '14px 18px' }}>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'baseline', flexWrap: 'wrap' }}>
+        <button type="button" className="ref-link task-ref" onClick={() => nav('/tasks/' + encodeURIComponent(task.ref || task.id))}>{taskLabel(task)}</button>
+        <strong style={{ fontWeight: 500 }}>{task.summary}</strong>
+      </div>
+      {task.review?.reason && <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>{task.review.reason}</div>}
+      {writing ? (
+        <div className="stack" style={{ gap: 8 }}>
+          <textarea className="input" rows={3} autoFocus value={text} maxLength={2000} disabled={busy} placeholder={`What should ${seat} change or do next?`} onChange={e => setText(e.target.value)} />
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <button className="btn btn-primary sm" disabled={busy || !text.trim()} onClick={() => void act(() => api.requestTaskChanges(task.id, text.trim()))}>{busy ? 'Sending…' : `Send to ${seat}`}</button>
+            <button className="btn btn-ghost sm" disabled={busy} onClick={() => { setWriting(false); setText(''); }}>Cancel</button>
+          </div>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <button className="btn btn-primary sm" disabled={busy} title="Close the task as done. Nothing is merged or run." onClick={() => void act(() => api.updateTask(task.id, { status: 'done' }))}>Mark done</button>
+          <button className="btn btn-ghost sm" disabled={busy} onClick={() => setWriting(true)}>Request changes</button>
+        </div>
+      )}
+      {error && <div role="alert" style={{ fontSize: 12.5, color: 'var(--text)' }}>{error}</div>}
+    </div>
+  );
+}
 
 export function MessageInboxView() {
-  const [messages, setMessages] = useState<MessageDelivery[]>([]);
+  const { state } = useStore();
+  const ceoName = ceoNameOf(state.org.organization);
+  const [tasks, setTasks] = useState<TaskSummary[]>([]);
+  const [failed, setFailed] = useState<MessageDelivery[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [reviewing, setReviewing] = useState<string | null>(null);
-  const [tasks, setTasks] = useState<TaskSummary[]>([]);
-  const nav = useNavigate();
   const refresh = useCallback(async () => {
     try {
-      const [result, list] = await Promise.all([api.messageDeliveries(), api.tasks()]);
-      setMessages(result.messages); setTasks(needsYourReview(list.tasks)); setError('');
-    }
-    catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+      const [list, deliveries] = await Promise.all([api.tasks(), api.messageDeliveries().catch(() => ({ messages: [] as MessageDelivery[] }))]);
+      setTasks(needsYourReview(list.tasks));
+      setFailed(deliveries.messages.filter(message => !message.readAt && ['failed', 'outcome_unknown'].includes(message.wake?.state || '')));
+      setError('');
+    } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
     finally { setLoading(false); }
   }, []);
   useEffect(() => { void refresh(); const timer = window.setInterval(() => void refresh(), 15000); return () => window.clearInterval(timer); }, [refresh]);
-  async function review(message: MessageDelivery) {
-    setReviewing(message.id);
+  const dismiss = async (message: MessageDelivery) => {
     try { await api.reviewMessageDelivery(message.to, message.id); await refresh(); }
     catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
-    finally { setReviewing(null); }
-  }
-  async function settle(task: TaskSummary, status: 'done' | 'todo') {
-    setReviewing(task.id);
-    try { await api.updateTask(task.id, { status }); await refresh(); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
-    finally { setReviewing(null); }
-  }
-  const attention = messages.filter(message => !message.readAt && ['failed', 'outcome_unknown'].includes(message.wake?.state || ''));
+  };
+
   return (
     <div className="page" style={{ maxWidth: 820, gap: 24 }}>
-      <div className="page-head">
-        <div className="eyebrow">INBOX</div>
-        <h1 className="h1">Inbox</h1>
-        <p className="lede">Finished tasks waiting for your review, then CEO and pod seat messages.</p>
-      </div>
-      <section className="stack" style={{ gap: 10 }}>
-        <div className="section-title">Needs your review <span className="task-count">{tasks.length}</span></div>
-        {!tasks.length && <div className="empty">Nothing is waiting for your review.</div>}
-        {tasks.map(task => (
-          <div key={task.id} className="row stack" style={{ gap: 8, padding: '14px 18px' }}>
-            <div style={{ display: 'flex', gap: 10, alignItems: 'baseline', flexWrap: 'wrap' }}>
-              <span className="task-ref">{taskLabel(task)}</span>
-              <strong style={{ fontWeight: 500 }}>{task.summary}</strong>
-            </div>
-            {task.review?.reason && <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>{task.review.reason}</div>}
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button className="btn btn-primary sm" disabled={reviewing === task.id} onClick={() => void settle(task, 'done')}>Accept</button>
-              <button className="btn btn-ghost sm" disabled={reviewing === task.id} onClick={() => void settle(task, 'todo')}>Reopen</button>
-              <button className="btn btn-ghost sm" onClick={() => nav('/tasks/' + encodeURIComponent(task.ref || task.id))}>Open task</button>
-            </div>
-          </div>
-        ))}
-      </section>
-      <div className="section-title">Message delivery</div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}><span>{attention.length} need review</span><button className="btn btn-ghost" onClick={() => void refresh()}>Refresh</button></div>
+      <WorkspaceHead title="Inbox" />
       {error && <div role="alert">{error}</div>}
-      {loading && <div role="status">Loading messages…</div>}
-      {!loading && !messages.length && <div className="empty">No messages recorded.</div>}
-      <div className="list">
-        {messages.map(message => {
-          const state = message.wake?.state || 'not scheduled';
-          const needsReview = !message.readAt && ['failed', 'outcome_unknown'].includes(state);
-          return <div key={message.id} className="row stack" style={{ gap: 8, padding: '16px 18px' }}>
-            <div style={{ display: 'flex', gap: 10, alignItems: 'baseline', flexWrap: 'wrap' }}>
-              <strong>{state.replaceAll('_', ' ')}</strong>
-              <span className="mono" style={{ fontSize: 12 }}>{message.from} → {message.to}</span>
-              <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--faint)' }}>{new Date(message.createdAt).toLocaleString()}</span>
+      {loading && <div role="status" className="empty">Loading…</div>}
+      {!loading && !tasks.length && !failed.length && <div className="empty">You're all caught up.</div>}
+      {tasks.length > 0 && (
+        <section className="stack" style={{ gap: 10 }}>
+          <div className="section-title">Needs your review <span className="task-count">{tasks.length}</span></div>
+          {tasks.map(task => <ReviewItem key={task.id} task={task} onDone={refresh} />)}
+        </section>
+      )}
+      {failed.length > 0 && (
+        <section className="stack" style={{ gap: 10 }}>
+          <div className="section-title">Messages that didn't go through <span className="task-count">{failed.length}</span></div>
+          <div style={{ fontSize: 12, color: 'var(--faint)' }}>New messages to that agent wait until you dismiss these. The agent may have acted before the result was lost.</div>
+          {failed.map(message => (
+            <div key={message.id} className="row" style={{ display: 'flex', gap: 12, alignItems: 'center', padding: '10px 14px' }}>
+              <span style={{ fontSize: 12.5 }}>To <span className="mono">{addressLabel(message.to, ceoName)}</span></span>
+              <span className="ellipsis" style={{ fontSize: 12.5, color: 'var(--muted)', flex: 1 }}>{message.text}</span>
+              <button className="btn btn-ghost sm" onClick={() => void dismiss(message)}>Dismiss</button>
             </div>
-            <div style={{ fontSize: 13, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{message.text}</div>
-            {message.wake?.reply && <div className="thread-peer-reply"><span className="mono">Reply</span><div className="thread-peer-text">{message.wake.reply}</div></div>}
-            <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-              {message.wake?.reason && <>Reason: {message.wake.reason.replaceAll('_', ' ')} · </>}
-              {state === 'queued' && message.wake?.nextAttemptAt ? `Waiting until ${new Date(message.wake.nextAttemptAt).toLocaleString()}` : `${message.wake?.attempts || 0} turn attempt(s)`}
-              {message.readAt && ' · Reviewed or acknowledged'}
-            </div>
-            {needsReview && <div className="stack" style={{ gap: 7 }}><span style={{ fontSize: 12, color: 'var(--muted)' }}>The recipient may have acted before the result was lost. Check for a reply or other effects before closing this alert. This action does not send the message again.</span><button className="btn btn-ghost" style={{ alignSelf: 'flex-start' }} disabled={reviewing === message.id} onClick={() => void review(message)}>{reviewing === message.id ? 'Saving…' : 'Mark reviewed'}</button></div>}
-          </div>;
-        })}
-      </div>
+          ))}
+        </section>
+      )}
     </div>
   );
 }

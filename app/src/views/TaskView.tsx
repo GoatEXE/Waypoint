@@ -92,7 +92,7 @@ function runEvidence(task: TaskRecord, runId?: string): TaskRecord['evidence'] {
 }
 
 const ACTOR_LABEL: Record<StatusChange['by'], string> = { user: 'You', ceo: 'CEO', seat: 'Reviewer seat', system: 'Waypoint' };
-const REASON_LABEL: Record<string, string> = { review: 'after reviewing the result', created: 'created the task', run_started: 'when a run started', run_completed: 'when the run completed', run_failed: 'when the run failed', run_outcome_unknown: 'when the run ended with an unknown outcome', run_aborted: 'when the run was released before starting' };
+const REASON_LABEL: Record<string, string> = { review: 'after reviewing the result', changes_requested: 'and asked for changes', created: 'created the task', run_started: 'when a run started', run_completed: 'when the run completed', run_failed: 'when the run failed', run_outcome_unknown: 'when the run ended with an unknown outcome', run_aborted: 'when the run was released before starting' };
 
 function StatusHistory({ task, ceoName }: { task: TaskRecord; ceoName: string }) {
   const history = task.statusHistory || [];
