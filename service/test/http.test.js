@@ -151,6 +151,24 @@ test('CEO conversation HTTP endpoints expose only the agreed contract', async ()
   } finally { await stop(app.server, app.bridgeServer); }
 });
 
+test('CEO threads list General first, then every task as a thread by latest activity', async () => {
+  const app = await start();
+  try {
+    const older = await app.store.createTask({ summary: 'Older task' });
+    const newer = await app.store.createTask({ summary: 'Newer task' });
+    app.hermes.listCeoThreads = async () => ({ busyThreadId: older.id, threads: [
+      { threadId: 'general', messageCount: 4, updatedAt: '2026-10-06T00:00:00.000Z', lastText: 'hi' },
+      { threadId: older.id, messageCount: 2, updatedAt: '2999-01-01T00:00:00.000Z', lastText: 'talked' },
+      { threadId: 'task_00000000-0000-4000-8000-000000000000', messageCount: 1, updatedAt: '2026-10-06T00:00:00.000Z', lastText: 'gone' },
+    ] });
+    const body = await fetch(`${app.base}/hermes/ceo/threads`).then((r) => r.json());
+    assert.equal(body.busyThreadId, older.id);
+    assert.deepEqual(body.threads.map((t) => [t.threadId, t.title, t.messageCount]), [['general', 'General', 4], [older.id, 'Older task', 2], [newer.id, 'Newer task', 0]]);
+    assert.equal(body.threads[2].ref, newer.ref);
+    assert.equal(body.threads[2].updatedAt, newer.updatedAt);
+  } finally { await stop(app.server, app.bridgeServer); }
+});
+
 test('Hermes skill HTTP routes expose all skills, safe detail, and toggle errors', async () => {
   const app = await start();
   try {

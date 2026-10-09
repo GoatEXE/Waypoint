@@ -282,14 +282,15 @@ async function ceoControlTool(tool, args, { config, store, docker, hermes, podSe
 }
 async function ceoThreads(store, hermes) {
   const { threads, busyThreadId } = await hermes.listCeoThreads();
-  const tasks = new Map((await store.listTasks()).map((task) => [task.id, task]));
-  return {
-    busyThreadId,
-    threads: threads.map((thread) => {
-      const task = tasks.get(thread.threadId);
-      return { ...thread, title: thread.threadId === 'general' ? 'General' : task ? task.summary : 'Deleted task', ref: task?.ref || null, status: task?.status || null };
-    }),
-  };
+  const byId = new Map(threads.map((thread) => [thread.threadId, thread]));
+  const general = byId.get('general');
+  const taskThreads = (await store.listTasks()).map((task) => {
+    const thread = byId.get(task.id);
+    const updatedAt = [thread?.updatedAt, task.updatedAt].filter(Boolean).sort().at(-1) || null;
+    return { threadId: task.id, title: task.summary, ref: task.ref || null, status: task.status || null, messageCount: thread?.messageCount || 0, updatedAt, lastText: thread?.lastText || '' };
+  });
+  taskThreads.sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
+  return { busyThreadId, threads: [{ ...general, title: 'General', ref: null, status: null }, ...taskThreads] };
 }
 async function taskThreadContext(store, threadId) {
   if (threadId === 'general') return '';

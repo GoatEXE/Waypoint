@@ -54,7 +54,7 @@ The CEO home is seeded with a `waypoint-onboarding` skill alongside the bridge s
 
 The CEO conversation is split into threads: `general` plus one thread per task, keyed by the task id. Each thread is its own Hermes session. Only one CEO turn runs at a time across all threads.
 
-- `GET /hermes/ceo/threads` returns `{ "threads": [...], "busyThreadId" }`, with each thread's `threadId`, `title`, task `ref` and `status`, `messageCount`, `updatedAt`, and `lastText`.
+- `GET /hermes/ceo/threads` returns `{ "threads": [...], "busyThreadId" }`, with each thread's `threadId`, `title`, task `ref` and `status`, `messageCount`, `updatedAt`, and `lastText`. `general` comes first, then one thread per task (including tasks with no messages yet) ordered by the latest of its last message and the task's `updatedAt`. Threads whose task was deleted are left out.
 - `GET /hermes/ceo/conversation?threadId=general` returns `{ threadId, sessionId, messages, live, busyThreadId }`. `live` is present while a turn is running in that thread: `{ startedAt, message, items }`. The user's message is stored with status `sent` when the turn starts, so it survives a page reload; the app follows a running turn's `live` state after a reload. A trailing `sent` message with no running turn (for example after a service restart) is reported as `outcome_unknown`. Seat chat threads behave the same way.
 - `POST /hermes/ceo/messages` takes `{ "message": "...", "threadId": "task_<uuid>" }` and waits for the turn to finish. The first message in a task thread is prefixed with the task's ref, title, description, status, and assignee.
 
