@@ -396,8 +396,7 @@ export class PodStore {
     const fields = await this.#taskFields(input, null);
     const now = new Date().toISOString();
     const number = await this.#nextTaskNumber();
-    const message = fields.podId ? 'Delegation recorded only; no Hermes execution performed.' : 'Task recorded; no pod is assigned yet.';
-    const task = withoutEmptyLinks(withStatusChange({ id: safeId('task'), number, ...fields, state: 'delegated', evidence: [{ type: 'record', message, at: now }], createdAt: now, updatedAt: now }, null, fields.status, actor, now, 'created'));
+    const task = withoutEmptyLinks(withStatusChange({ id: safeId('task'), number, ...fields, state: 'delegated', evidence: [], createdAt: now, updatedAt: now }, null, fields.status, actor, now, 'created'));
     await writeJson(this.taskPath(task.id), task);
     return this.#taskView(task);
   }
