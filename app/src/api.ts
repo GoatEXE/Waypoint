@@ -155,11 +155,12 @@ export const api = {
   ceoThreads: () => json<{ threads: CeoThread[]; busyThreadId: string | null }>('/hermes/ceo/threads'),
   sendCeoMessage: (message: string, threadId = 'general') => json<CeoSendResponse>('/hermes/ceo/messages', { method: 'POST', body: JSON.stringify({ message, threadId }) }),
   missions: () => json<{ missions: Mission[] }>('/missions'),
-  orgChart: () => json<{ pods: { podId: string; name: string; state: string; seats: { seatId: string; role: string }[] }[] }>('/org-chart'),
+  orgChart: () => json<{ pods: OrgChartPod[] }>('/org-chart'),
   tasks: () => json<{ tasks: TaskSummary[] }>('/tasks'),
   messageDeliveries: () => json<{ messages: MessageDelivery[] }>('/message-deliveries'),
   reviewMessageDelivery: (to: string, messageId: string) => json<{ id: string; to: string; reviewedAt: string; wakeState: string }>('/message-deliveries/review', { method: 'POST', body: JSON.stringify({ to, messageId }) }),
   createMission: (body: MissionInput) => json<Mission>('/missions', { method: 'POST', body: JSON.stringify(body) }),
+  addSeat: (podId: string, body: { id: string; role: string; instructions?: string }) => json<{ podId: string; seat: { id: string; role: string }; podState: string; seats: unknown }>(`/pod-instances/${encodeURIComponent(podId)}/seats`, { method: 'POST', body: JSON.stringify(body) }),
   hermesPortal: () => json<HermesPortalStatus>('/hermes-portal'),
   openHermesPortal: (target: string) => json<HermesPortalStatus & { url: string }>('/hermes-portal', { method: 'POST', body: JSON.stringify({ target }) }),
   closeHermesPortal: () => json<HermesPortalStatus>('/hermes-portal', { method: 'DELETE', body: '{}' }),
@@ -198,9 +199,9 @@ export const api = {
   retryTaskAfterReview: (id: string) => json<TaskRunStartResponse>(`/tasks/${encodeURIComponent(id)}/manual-retry`, { method: 'POST', body: JSON.stringify({ reviewed: true }) }),
 };
 
-export interface Organization { name: string; key: string; ceoName: string; logo: string | null; createdAt: string; updatedAt: string }
+export interface Organization { name: string; key: string; ceoName: string; logo: string | null; reviewer?: string; createdAt: string; updatedAt: string }
 export interface OrganizationState { configured: boolean; organization: Organization | null }
-export type OrganizationInput = Partial<Pick<Organization, 'name' | 'key' | 'ceoName' | 'logo'>>
+export type OrganizationInput = Partial<Pick<Organization, 'name' | 'key' | 'ceoName' | 'logo' | 'reviewer'>>
 export interface AppConfig { dryRun: boolean; serviceName?: string; sharedAuth?: { enabled: boolean }; docker?: { imageConfigured?: boolean; imagePinned?: boolean }; hermes?: { imagePinned?: boolean } }
 export interface MissionEvidence { type: string; message: string; at: string }
 export interface MissionPod { id: string; podName: string; templateId: string; state: string; seats: { id: string; role: string }[] }
@@ -236,10 +237,12 @@ export interface TaskSummary {
   labels: string[];
   parentId: string | null;
   blockedBy: string[];
+  review?: TaskReview | null;
   createdAt: string;
   updatedAt: string;
 }
-export interface StatusChange { from: TaskStatus | null; to: TaskStatus; by: 'user' | 'ceo' | 'system'; at: string; reason?: string }
+export interface TaskReview { state: 'pending' | 'needs_human' | 'done' | 'resolved'; reviewer: string; reason: string; by: string | null; at: string }
+export interface StatusChange { from: TaskStatus | null; to: TaskStatus; by: 'user' | 'ceo' | 'seat' | 'system'; at: string; reason?: string }
 export interface TaskInput { summary?: string; description?: string; status?: TaskStatus; podId?: string | null; seatId?: string | null; projectId?: string | null; labels?: string[]; parentId?: string | null; blockedBy?: string[] }
 export type ProjectWorkspace = 'local' | 'pod';
 export interface Project { id: string; name: string; missionId?: string | null; workspace?: ProjectWorkspace; localPath?: string | null; repo?: string | null; githubSeats?: string[]; createdAt: string; updatedAt: string }
@@ -259,6 +262,7 @@ export interface MessageDelivery {
 
 export interface SeatModel { provider: string; default: string; api_mode?: string; base_url?: string }
 export interface PodInstanceSeat { id: string; role: string; state?: string; copiedFiles?: string[]; model?: SeatModel }
+export interface OrgChartPod { podId: string; name: string; state: string; seats: { seatId: string; role: string }[] }
 export interface HermesPortalStatus { open: boolean; target: string | null; url: string | null; openedAt: string | null }
 export interface PodInstance {
   id: string;

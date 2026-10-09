@@ -3,16 +3,18 @@ import { useNavigate } from 'react-router-dom';
 import { api, type Project, type TaskStatus, type TaskSummary } from '../api';
 import { WorkspaceHead } from '../components/ui';
 import { TaskFields, draftToInput, emptyDraft, useQueueData, type TaskDraft } from '../components/TaskFields';
-import { GROUP_BY, STATUSES, groupTasks, isBlocked, ownerLabel, statusLabel, taskLabel, type GroupBy, type OrgPod } from '../taskQueueModel';
+import { GROUP_BY, STATUSES, filterByStatus, groupTasks, isBlocked, ownerLabel, savedStatusFilter, statusLabel, taskLabel, toggleStatusFilter, type GroupBy, type OrgPod } from '../taskQueueModel';
 import { useStore } from '../store';
 
 const PREFS_KEY = 'waypoint-task-view';
 
-function loadPrefs(): { layout: 'list' | 'board'; groupBy: GroupBy } {
+interface ViewPrefs { layout: 'list' | 'board'; groupBy: GroupBy; statuses: TaskStatus[] }
+
+function loadPrefs(): ViewPrefs {
   try {
     const saved = JSON.parse(localStorage.getItem(PREFS_KEY) || '{}');
-    return { layout: saved.layout === 'board' ? 'board' : 'list', groupBy: GROUP_BY.some(g => g.id === saved.groupBy) ? saved.groupBy : 'status' };
-  } catch { return { layout: 'list', groupBy: 'status' }; }
+    return { layout: saved.layout === 'board' ? 'board' : 'list', groupBy: GROUP_BY.some(g => g.id === saved.groupBy) ? saved.groupBy : 'status', statuses: savedStatusFilter(saved.statuses) };
+  } catch { return { layout: 'list', groupBy: 'status', statuses: [] }; }
 }
 
 function TaskMeta({ task, pods, projectName, blocked }: { task: TaskSummary; pods: OrgPod[]; projectName?: string; blocked: boolean }) {
@@ -38,6 +40,9 @@ export function TasksView() {
   useEffect(() => { try { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)); } catch {   } }, [prefs]);
 
   const projectName = (id: string | null) => projects.find(p => p.id === id)?.name;
+  const shown = filterByStatus(tasks, prefs.statuses);
+  const columns = prefs.statuses.length ? STATUSES.filter(s => prefs.statuses.includes(s.id)) : STATUSES;
+  const showAll = () => setPrefs(p => ({ ...p, statuses: [] }));
   const open = (task: TaskSummary) => nav('/tasks/' + encodeURIComponent(task.ref || task.id));
 
   const moveTo = async (taskId: string, status: TaskStatus) => {
@@ -62,14 +67,23 @@ export function TasksView() {
             {GROUP_BY.map(g => <option key={g.id} value={g.id}>{g.label}</option>)}
           </select>
         </label>}
+        <div className="segmented" role="group" aria-label="Status filter">
+          <button className={!prefs.statuses.length ? 'on' : ''} aria-pressed={!prefs.statuses.length} onClick={showAll}>All</button>
+          {STATUSES.map(s => (
+            <button key={s.id} className={prefs.statuses.includes(s.id) ? 'on' : ''} aria-pressed={prefs.statuses.includes(s.id)} onClick={() => setPrefs(p => ({ ...p, statuses: toggleStatusFilter(p.statuses, s.id) }))}>{s.label}</button>
+          ))}
+        </div>
         <button className="btn btn-primary" style={{ marginLeft: 'auto' }} onClick={() => setCreating(true)}>New task</button>
       </div>
 
       {error && <div className="card" role="alert" style={{ padding: 12 }}>{error}</div>}
       {loading && !tasks.length && <div className="empty" role="status">Loading tasks…</div>}
       {!loading && !error && !tasks.length && <div className="empty">No tasks yet.</div>}
+      {!loading && !error && tasks.length > 0 && !shown.length && (
+        <div className="empty">No tasks match this filter. <button type="button" className="btn sm btn-ghost" onClick={showAll}>Show all</button></div>
+      )}
 
-      {prefs.layout === 'list' && groupTasks(tasks, prefs.groupBy, { projects, pods }).map(group => (
+      {prefs.layout === 'list' && groupTasks(shown, prefs.groupBy, { projects, pods }).map(group => (
         <section key={group.key || 'none'} className="stack" style={{ gap: 6 }}>
           <div className="task-group-head" data-status={prefs.groupBy === 'status' ? group.key : undefined}>{prefs.groupBy === 'status' && <span className="status-dot" />}<span>{group.label}</span><span className="task-count">{group.tasks.length}</span></div>
           <div className="task-list">
@@ -85,9 +99,9 @@ export function TasksView() {
         </section>
       ))}
 
-      {prefs.layout === 'board' && tasks.length > 0 && (
+      {prefs.layout === 'board' && shown.length > 0 && (
         <div className="task-board">
-          {STATUSES.map(status => {
+          {columns.map(status => {
             const column = tasks.filter(t => t.status === status.id).sort((a, b) => (a.number ?? 0) - (b.number ?? 0));
             return (
               <div key={status.id} data-status={status.id}

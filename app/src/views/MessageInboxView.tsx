@@ -1,13 +1,20 @@
 import { useCallback, useEffect, useState } from 'react';
-import { api, type MessageDelivery } from '../api';
+import { useNavigate } from 'react-router-dom';
+import { api, type MessageDelivery, type TaskSummary } from '../api';
+import { needsYourReview, taskLabel } from '../taskQueueModel';
 
 export function MessageInboxView() {
   const [messages, setMessages] = useState<MessageDelivery[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [reviewing, setReviewing] = useState<string | null>(null);
+  const [tasks, setTasks] = useState<TaskSummary[]>([]);
+  const nav = useNavigate();
   const refresh = useCallback(async () => {
-    try { const result = await api.messageDeliveries(); setMessages(result.messages); setError(''); }
+    try {
+      const [result, list] = await Promise.all([api.messageDeliveries(), api.tasks()]);
+      setMessages(result.messages); setTasks(needsYourReview(list.tasks)); setError('');
+    }
     catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
     finally { setLoading(false); }
   }, []);
@@ -18,14 +25,39 @@ export function MessageInboxView() {
     catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
     finally { setReviewing(null); }
   }
+  async function settle(task: TaskSummary, status: 'done' | 'todo') {
+    setReviewing(task.id);
+    try { await api.updateTask(task.id, { status }); await refresh(); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+    finally { setReviewing(null); }
+  }
   const attention = messages.filter(message => !message.readAt && ['failed', 'outcome_unknown'].includes(message.wake?.state || ''));
   return (
     <div className="page" style={{ maxWidth: 820, gap: 24 }}>
       <div className="page-head">
         <div className="eyebrow">INBOX</div>
-        <h1 className="h1">Message delivery</h1>
-        <p className="lede">CEO and pod seat messages, including queued and uncertain turns.</p>
+        <h1 className="h1">Inbox</h1>
+        <p className="lede">Finished tasks waiting for your review, then CEO and pod seat messages.</p>
       </div>
+      <section className="stack" style={{ gap: 10 }}>
+        <div className="section-title">Needs your review <span className="task-count">{tasks.length}</span></div>
+        {!tasks.length && <div className="empty">Nothing is waiting for your review.</div>}
+        {tasks.map(task => (
+          <div key={task.id} className="row stack" style={{ gap: 8, padding: '14px 18px' }}>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'baseline', flexWrap: 'wrap' }}>
+              <span className="task-ref">{taskLabel(task)}</span>
+              <strong style={{ fontWeight: 500 }}>{task.summary}</strong>
+            </div>
+            {task.review?.reason && <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>{task.review.reason}</div>}
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="btn btn-primary sm" disabled={reviewing === task.id} onClick={() => void settle(task, 'done')}>Accept</button>
+              <button className="btn btn-ghost sm" disabled={reviewing === task.id} onClick={() => void settle(task, 'todo')}>Reopen</button>
+              <button className="btn btn-ghost sm" onClick={() => nav('/tasks/' + encodeURIComponent(task.ref || task.id))}>Open task</button>
+            </div>
+          </div>
+        ))}
+      </section>
+      <div className="section-title">Message delivery</div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}><span>{attention.length} need review</span><button className="btn btn-ghost" onClick={() => void refresh()}>Refresh</button></div>
       {error && <div role="alert">{error}</div>}
       {loading && <div role="status">Loading messages…</div>}

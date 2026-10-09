@@ -47,7 +47,7 @@ export function Sidebar() {
         if (!active) return;
         setOrgPods(chart.pods.map(pod => ({ id: pod.podId, podName: pod.name, templateId: '', state: pod.state, seats: pod.seats.map(seat => ({ id: seat.seatId, role: seat.role })) })));
         setStoredTasks(taskList.tasks);
-        if (deliveries) setDeliveryAttention(deliveries.messages.filter(message => !message.readAt && ['failed', 'outcome_unknown'].includes(message.wake?.state || '')).length);
+        setDeliveryAttention((deliveries ? deliveries.messages.filter(message => !message.readAt && ['failed', 'outcome_unknown'].includes(message.wake?.state || '')).length : 0) + taskList.tasks.filter(task => task.status === 'in_review').length);
       } catch {   }
     };
     void refresh();

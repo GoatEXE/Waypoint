@@ -1,5 +1,4 @@
 import { createHash } from 'node:crypto';
-import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -17,7 +16,7 @@ export function isProjectBindMount(entry) {
 }
 
 export function mountsKey(mounts = []) {
-  const normalized = mounts.map((m) => `${path.resolve(m.source).toLowerCase()}=>${m.target}`).sort();
+  const normalized = mounts.map((m) => `${path.resolve(m.source).toLowerCase()}=>${m.target}:ro`).sort();
   return normalized.length ? createHash('sha256').update(normalized.join('\n')).digest('hex').slice(0, 32) : '';
 }
 
@@ -36,18 +35,8 @@ export function podProjectMounts(projects, podId) {
     .map((project) => ({ projectId: project.id, source: project.localPath, target: projectMountTarget(project.id) }));
 }
 
-function hostGit(dir, key) {
-  return new Promise((resolve) => {
-    execFile('git', ['-C', dir, 'config', '--get', key], { timeout: 5000, windowsHide: true }, (error, stdout) => resolve(error ? '' : String(stdout).trim()));
-  });
-}
-
-export async function localProjectGitEnv(project, seatId) {
-  const autocrlf = await hostGit(project.localPath, 'core.autocrlf');
-  const workdir = projectMountTarget(project.id);
+export function localProjectGitEnv(seatId) {
   const entries = [
-    ['safe.directory', workdir],
-    ['core.autocrlf', ['true', 'input', 'false'].includes(autocrlf) ? autocrlf : 'false'],
     ['credential.helper', ''],
     ['credential.helper', '!/usr/local/bin/waypoint-git-credential'],
     ['credential.useHttpPath', 'true'],

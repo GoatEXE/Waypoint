@@ -92,6 +92,7 @@ export class FolderDialog {
     this.platform = platform;
     this.runner = runner;
     this.open = false;
+    this.paths = platform === 'win32' ? path.win32 : path.posix;
   }
 
   async pick({ start = '' } = {}) {
@@ -99,12 +100,12 @@ export class FolderDialog {
     this.open = true;
     try {
       const from = String(start || '').trim().slice(0, 1000);
-      const { command, args } = pickerCommand(this.platform, from && path.isAbsolute(from) ? from : '');
+      const { command, args } = pickerCommand(this.platform, from && this.paths.isAbsolute(from) ? from : '');
       const result = await this.runner(command, args, { timeoutMs: PICK_TIMEOUT_MS });
       if (result.timedOut) return { path: null, cancelled: true };
       const output = result.stdout.split(/\r?\n/).map((line) => line.trim()).filter((line) => line && !line.startsWith('<') && !line.startsWith('#<')).pop() || '';
       const picked = /^[A-Za-z]:[\\/]$|^\/$/.test(output) ? output : output.replace(/[\\/]$/, '');
-      if (picked && path.isAbsolute(picked)) return { path: picked, cancelled: false };
+      if (picked && this.paths.isAbsolute(picked)) return { path: picked, cancelled: false };
       if (result.code === 0 || result.code === 1) return { path: null, cancelled: true };
       throw lifecycleError('The folder picker could not be opened on this computer.');
     } finally { this.open = false; }

@@ -62,7 +62,7 @@ The CEO conversation is split into threads: `general` plus one thread per task, 
 
 ## GitHub connector
 
-Seats reach GitHub through a private Waypoint GitHub App. Repository code is cloned into the seat's pod volume; the user's local folder is never mounted.
+Seats reach GitHub through a private Waypoint GitHub App. A local-folder project is bind-mounted read-only into pods that have a GitHub seat on it (`/opt/data/projects/<projectId>`). Each task run on that project works in its own clone, made from the mounted folder's committed history into the task workspace (`/opt/data/workspaces/<taskId>`). The clone is on a new `waypoint/<task-ref>` branch, with `origin` set to the project's GitHub repository. A rerun reuses the clone. Seats never change the user's checkout, branch, or `node_modules`, and uncommitted changes in the folder are not copied.
 
 - `GET /github` returns `{ connected, app, installUrl, installations: [{ id, account, selection, repos }] }`. The private key never leaves the service.
 - `POST /github/manifest` with `{ "origin": "http://127.0.0.1:5173", "owner": "optional-org" }` returns `{ state, url, manifest }`. The app form-posts `manifest` to `url` (GitHub's app manifest flow). GitHub redirects to `/connectors/github/callback?code&state`, and the app calls `POST /github/complete` with `{ code, state }`; states expire after 30 minutes and work once. The app requests contents, pull requests, and issues write; metadata, checks, and actions read; and no webhook events. Installation returns to `/connectors/github/installed`.
@@ -109,7 +109,7 @@ Starts a native Hermes OAuth/login flow. OpenAI Codex is exposed as device-code 
 
 ## `POST /bridge/tools`
 
-Internal CEO bridge. The CEO runtime token supports `health`, `list_missions`, `create_mission`, `link_mission`, `create_template`, `clone_template`, `pod_status`, `pod_start`, `pod_stop`, `create_task`, `run_task`, `task_status`, and the five messaging tools above. Missions created through the bridge are recorded with `source: "ceo"`. Anonymous requests are rejected.
+Internal CEO bridge. The CEO runtime token supports `health`, `list_missions`, `create_mission`, `link_mission`, `create_template`, `list_templates`, `clone_template`, `add_seat`, `pod_status`, `pod_start`, `pod_stop`, `create_task`, `run_task`, `task_status`, and the five messaging tools above. Missions created through the bridge are recorded with `source: "ceo"`. Anonymous requests are rejected.
 
 For a new pod, the CEO can create a template, clone it, and call `pod_start`. If the pod and template have no model, a live start captures the CEO's current model as the pod default; explicit seat models take priority. It then provisions every seat, installs messaging tools, and returns readiness. When shared auth is enabled, those seats use the CEO's provider connection without another login. A dry-run start writes nothing. If the CEO has no configured model and the pod has no model, start is refused before launching the pod.
 
@@ -173,6 +173,14 @@ Status changes follow one transition table for the app and the CEO bridge (`400`
 | `canceled` | `backlog`, `todo` |
 
 Moving a task whose run `completed` back to `todo` or `backlog` re-opens it: `state` returns to `delegated` (with a `reopened` evidence note) so a new run can start. Failed and `outcome_unknown` runs are not re-opened by a status change; they still need the explicit manual retry after review.
+
+**Review after a run.** When a run completes, the organization's reviewer decides what happens next. The reviewer is `reviewer` on `PUT /organization`: `ceo` (default), a seat address `pod_<uuid>/<seat-id>`, or `me`.
+- With an agent reviewer, the task stays `in_progress` with `review: { state: "pending", reviewer }`. Waypoint sends the reviewer a review request message (the task's title, description, and the seat's reply), which wakes it for one bounded turn.
+- The reviewer calls the bridge tool `review_task` `{ taskId, decision: "done" | "needs_human", reason }` (seats: `waypoint-message.py review TASK done|needs_human --reason "..."`). `done` moves the task to `done`; `needs_human` moves it to `in_review`. Only the configured reviewer may call it, and it is allowed during a CEO mailbox turn.
+- If the reviewer is unavailable (the CEO container or the seat's pod is not running), the request cannot be sent, or the reviewer's turn ends without a decision, the task goes to `in_review` with a reason.
+- With `me`, a completed run goes straight to `in_review`.
+
+Tasks in `in_review` appear under "Needs your review" in the app Inbox (with Accept → `done` and Reopen → `todo`), and they count toward the sidebar Inbox badge. Changing the status yourself closes an open review; starting a new run clears it. Tasks carry `review: { state, reviewer, reason, by, at } | null` in lists and views.
 
 `GET /tasks/:taskId` includes `statusHistory`: `[{ from, to, by, at, reason? }]`, oldest first (last 100). `by` is `user` (app), `ceo` (bridge), or `system` (automatic, with `reason` `run_started`, `run_completed`, `run_failed`, `run_outcome_unknown`, or `run_aborted`). Creation records `from: null` with `reason: "created"`.
 
@@ -266,6 +274,10 @@ Body fields:
 - `action`: `start`, `stop`, or `status`.
 
 In dry-run mode the response contains the command plan and `executed: false`. Start plans use one idle container per pod, Docker `bridge` networking, a Waypoint-owned named Docker volume mounted to `/opt/data`, no published ports, and no host pod directory, `docker.sock`, or Waypoint bridge token mount/injection. With `WAYPOINT_SHARED_AUTH=true`, a second labeled named volume is mounted at `/opt/waypoint-auth`; the configured image must carry the Waypoint shared-auth overlay label. The CEO and pods use that one Hermes auth store, including its atomic writes and refresh lock. Container and volume names are derived from validated configuration, not stored manifests. Live starts and reuses verify ownership labels, the exact expected mounts and image, non-privileged host config, no port bindings or added capabilities, and bridge-only networking. Unsafe or older containers are refused and may require manual recreation while keeping their data volumes. Seeding copies the derived host `profiles/<seatId>` baseline with `docker cp` and fixes ownership before writing its marker.
+
+## `POST /pod-instances/:podId/seats`
+
+Hires a seat into an existing pod. Body: `{ "id": "builder", "role": "Builder", "instructions": "..." }` (`instructions` optional; `id` follows seat id rules and must be new in the pod, otherwise `409`). The seat's profile is materialized from the pod's template baseline files. If the pod is running (and not in dry-run mode), its profile is copied into the pod volume, prepared, and given its tools right away, and the response includes `seats` readiness; otherwise that happens on the next start. The CEO bridge equivalent is `add_seat` `{ podId, seatId, role, instructions? }`, and `list_templates` lists stored templates with their seats. The New Assignment dialog adds a line telling the CEO whether it must ask before hiring.
 
 ## `GET /pod-instances/:podId/seats/status`
 

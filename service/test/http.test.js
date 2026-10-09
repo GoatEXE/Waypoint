@@ -64,7 +64,7 @@ test('CEO mailbox turn permits messaging while refusing control tools', async ()
   } finally { await stop(app.server, app.bridgeServer); }
 });
 
-test('CEO pod_start prepares the new pod seats and reports shared-auth readiness', async () => {
+test('starting a pod from the CEO or the app prepares its seats and reports shared-auth readiness', async () => {
   const app = await start();
   try {
     const template = await app.store.createTemplate({ name: 'on demand', version: '1', seats: [{ id: 'builder', role: 'Builder' }], config: { model: { provider: 'openai-codex', default: 'gpt-6-luna' } } });
@@ -95,11 +95,17 @@ test('CEO pod_start prepares the new pod seats and reports shared-auth readiness
     assert.equal(provisionCalls, 1);
     assert.equal(toolsInstalled, 1);
 
+    const fromApp = await fetch(`${app.base}/pod-instances/${pod.id}/lifecycle`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'start' }) });
+    assert.equal(fromApp.status, 200);
+    assert.equal((await fromApp.json()).seats.ready, true, 'starting from the app prepares seats like pod_start');
+    assert.equal(provisionCalls, 2);
+    assert.equal(toolsInstalled, 2);
+
     app.docker.lifecycle = async () => ({ action: 'start', executed: false, dryRun: true, plan: app.docker.startPlan({ podId: pod.id, podName: pod.podName }) });
     const preview = await fetch(`${app.bridgeBase}/bridge/tools`, { method: 'POST', headers, body: JSON.stringify({ tool: 'pod_start', args: { podId: pod.id } }) }).then((r) => r.json());
     assert.equal(preview.dryRun, true);
-    assert.equal(provisionCalls, 1);
-    assert.equal(toolsInstalled, 1);
+    assert.equal(provisionCalls, 2);
+    assert.equal(toolsInstalled, 2);
   } finally { await stop(app.server, app.bridgeServer); }
 });
 
@@ -238,4 +244,58 @@ test('HTTP API creates templates, clones pods, delegates tasks, and structures e
     assert.equal(error.error.code, 'bad_request');
     assert.equal(JSON.stringify(error).includes('stack'), false);
   } finally { await stop(app.server, app.bridgeServer); }
+});
+
+test('the CEO and the app can hire a seat into an existing pod', async () => {
+  const app = await start();
+  try {
+    const template = await app.store.createTemplate({ name: 'team', version: '1', seats: [{ id: 'reviewer', role: 'Reviewer' }], baselineFiles: { 'SOUL.md': 'Team baseline' } });
+    const pod = await app.store.cloneTemplate(template.id, { podName: 'hire-test' }, ({ podId, podName }) => app.docker.startPlan({ podId, podName }));
+    const headers = { 'content-type': 'application/json', authorization: `Bearer ${app.config.bridge.token}` };
+    const bridge = (tool, args) => fetch(`${app.bridgeBase}/bridge/tools`, { method: 'POST', headers, body: JSON.stringify({ tool, args }) }).then(async (r) => ({ status: r.status, body: await r.json() }));
+
+    const listed = await bridge('list_templates', {});
+    assert.deepEqual(listed.body.templates.map((t) => [t.name, t.seats.map((s) => s.id)]), [['team', ['reviewer']]]);
+
+    const stopped = await bridge('add_seat', { podId: pod.id, seatId: 'builder', role: 'Builder', instructions: 'Implement changes' });
+    assert.equal(stopped.status, 200);
+    assert.deepEqual([stopped.body.seat, stopped.body.seats], [{ id: 'builder', role: 'Builder' }, null]);
+    const saved = await app.store.getInstance(pod.id);
+    assert.deepEqual(saved.seats.map((s) => s.id), ['reviewer', 'builder']);
+    assert.equal(await fs.readFile(path.join(saved.profilesDir, 'builder', 'SOUL.md'), 'utf8'), 'Team baseline');
+    assert.equal((await bridge('add_seat', { podId: pod.id, seatId: 'builder', role: 'Builder' })).status, 409);
+    assert.equal((await bridge('add_seat', { podId: pod.id, seatId: 'Bad Id', role: 'X' })).status, 400);
+
+    app.config.dryRun = false;
+    await app.store.recordLifecycle(pod.id, { executed: true, dryRun: false, status: { state: 'running', running: true } }, ({ podId, podName }) => app.docker.startPlan({ podId, podName }));
+    const steps = [];
+    app.docker.inspectOwnedContainer = async () => ({ exists: true, state: { running: true } });
+    app.docker.seedSeatProfile = async (_podId, _container, seatId) => { steps.push(`seed ${seatId}`); return { changed: true }; };
+    app.podSeats.provision = async (_instance, { seatIds }) => { steps.push(`provision ${seatIds}`); return { podId: pod.id, action: 'provision', dryRun: false, executed: true, changed: true, ready: true, seats: [{ seatId: 'qa', ready: true, blockers: [], profile: { state: 'ready', identity: true, writable: true, envPrivate: true, missingSubdirs: [], changed: [] }, model: { state: 'configured' }, auth: { providers: {}, stores: {} } }], notes: [] }; };
+    app.messaging.installSeatTools = async (_instance, seatIds) => { steps.push(`tools ${seatIds}`); };
+    const fromApp = await fetch(`${app.base}/pod-instances/${pod.id}/seats`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: 'qa', role: 'QA' }) });
+    assert.equal(fromApp.status, 201);
+    assert.equal((await fromApp.json()).seats.ready, true);
+    assert.deepEqual(steps, ['seed qa', 'provision qa', 'tools qa']);
+  } finally { await stop(app.server, app.bridgeServer); }
+});
+
+test('the reviewer records a decision through the bridge, even during a CEO mailbox turn', async () => {
+  const app = await start();
+  try {
+    await app.organization.update({ name: 'Sunchip' });
+    const template = await app.store.createTemplate({ name: 'team', version: '1', seats: [{ id: 'builder', role: 'Builder' }] });
+    const pod = await app.store.cloneTemplate(template.id, { podName: 'review-test' }, ({ podId, podName }) => app.docker.startPlan({ podId, podName }));
+    const task = await app.store.createTask({ summary: 'Ship it', podId: pod.id, seatId: 'builder' });
+    const { runId } = await app.store.claimTaskRun(task.id);
+    await app.store.finishTaskRun(task.id, runId, { outcome: 'completed', text: 'Done.', evidence: [] }, { reviewer: 'ceo' });
+    app.hermes.mailboxTurnInFlight = true;
+    const call = (token, args) => fetch(`${app.bridgeBase}/bridge/tools`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` }, body: JSON.stringify({ tool: 'review_task', args }) }).then(async (r) => ({ status: r.status, body: await r.json() }));
+    assert.equal((await call(app.messaging.seatToken(pod.id, 'builder'), { taskId: task.id, decision: 'done', reason: 'mine' })).status, 403);
+    const decided = await call(app.config.bridge.token, { taskId: task.id, decision: 'needs_human', reason: 'No PR link in the reply.' });
+    assert.equal(decided.status, 200);
+    assert.deepEqual([decided.body.status, decided.body.review.state], ['in_review', 'needs_human']);
+    const listed = await fetch(`${app.base}/tasks`).then((r) => r.json());
+    assert.equal(listed.tasks.find((t) => t.id === task.id).review.reason, 'No PR link in the reply.');
+  } finally { app.hermes.mailboxTurnInFlight = false; await stop(app.server, app.bridgeServer); }
 });

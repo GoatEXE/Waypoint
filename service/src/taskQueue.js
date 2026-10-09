@@ -10,7 +10,7 @@ export const STATUS_TRANSITIONS = {
   done: ['todo', 'in_review'],
   canceled: ['backlog', 'todo'],
 };
-export const STATUS_ACTORS = ['user', 'ceo', 'system'];
+export const STATUS_ACTORS = ['user', 'ceo', 'seat', 'system'];
 const STATUS_HISTORY_KEEP = 100;
 const REOPEN_STATUSES = ['backlog', 'todo'];
 export const TASK_REF_RE = /^([A-Z][A-Z0-9]{1,5})-([1-9][0-9]{0,8})$/;
@@ -117,6 +117,7 @@ export function publicTask(task, prefix) {
     labels: Array.isArray(task.labels) ? task.labels : [],
     parentId: task.parentId || null,
     blockedBy: Array.isArray(task.blockedBy) ? task.blockedBy : [],
+    review: task.review ? { state: task.review.state, reviewer: task.review.reviewer, reason: task.review.reason || '', by: task.review.by || null, at: task.review.at || task.review.requestedAt } : null,
     createdAt: task.createdAt,
     updatedAt: task.updatedAt,
   };

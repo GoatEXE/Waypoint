@@ -28,3 +28,10 @@ test('pick returns the chosen folder, treats empty output as cancel, and allows 
   const failing = new FolderDialog({ platform: 'linux', runner: async () => ({ code: 127, stdout: '' }) });
   await assert.rejects(failing.pick(), /could not be opened/);
 });
+
+test('picked paths follow the dialog platform, not the host', async () => {
+  const run = (platform, stdout) => new FolderDialog({ platform, runner: async () => ({ code: 0, stdout }) }).pick();
+  assert.deepEqual(await run('win32', 'D:\\Work\\site\r\n'), { path: 'D:\\Work\\site', cancelled: false });
+  assert.deepEqual(await run('linux', '/home/me/site\n'), { path: '/home/me/site', cancelled: false });
+  assert.deepEqual(await run('linux', 'D:\\Work\\site\n'), { path: null, cancelled: true });
+});

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import * as D from '../data';
 import { chatContextFor, useRoute } from '../routes';
 import { useStore, type ModalKind } from '../store';
+import { api, type OrgChartPod } from '../api';
 
 interface Form { text: string; title: string; date: string; scope: string; hire: string; repos: string[]; tpl: string; proj: string; role: string; pod: string; ident: string; secrets: string[] }
 
@@ -13,9 +14,8 @@ const DEFAULTS: Record<FormKind, Partial<Form>> = {
   assignment: { scope: 'workspace', hire: 'ask' },
   mission: {},
   pod: {},
-  seat: { ident: 'new' },
+  seat: {},
 };
-const ROLE_NAMES: Record<string, string> = { frontend: 'frontend', backend: 'backend', qa: 'qa', ocr: 'ocr-specialist', compliance: 'compliance' };
 
 type Opt = string | [string, string];
 const optVal = (o: Opt) => (Array.isArray(o) ? o[0] : o);
@@ -49,7 +49,11 @@ export function Modal({ kind }: { kind: FormKind }) {
   const [error, setError] = useState<string | null>(null);
   const focusRef = useRef<HTMLInputElement & HTMLTextAreaElement>(null);
   const f = <K extends keyof Form>(k: K, v: Form[K]) => setForm(s => ({ ...s, [k]: v }));
-  const toggle = (k: 'repos' | 'secrets', v: string) => setForm(s => ({ ...s, [k]: s[k].includes(v) ? s[k].filter(x => x !== v) : [...s[k], v] }));
+  const [pods, setPods] = useState<OrgChartPod[] | null>(null);
+  useEffect(() => {
+    if (kind !== 'seat') return;
+    api.orgChart().then(chart => { setPods(chart.pods); if (chart.pods.length === 1) f('pod', chart.pods[0].podId); }).catch(() => setPods([]));
+  }, [kind]);
 
   useEffect(() => { const t = setTimeout(() => focusRef.current?.focus(), 60); return () => clearTimeout(t); }, []);
   useEffect(() => {
@@ -62,7 +66,7 @@ export function Modal({ kind }: { kind: FormKind }) {
     assignment: { eyebrow: 'NEW ASSIGNMENT · TO CEO', title: 'What needs doing?', cta: 'Send to CEO', note: 'Context: ' + ctx, ok: form.text.trim() },
     mission: { eyebrow: 'NEW MISSION', title: 'Set a mission', cta: 'Save mission', note: 'Saves the mission. Nothing starts until the CEO assigns a pod.', ok: form.title.trim() },
     pod: { eyebrow: 'NEW POD', title: 'Start a pod from a template', cta: 'Not connected', note: 'Pod creation is not connected in this view.', ok: '' },
-    seat: { eyebrow: 'NEW SEAT', title: 'Add a seat', cta: 'Not connected', note: 'Seat creation is not connected in this view.', ok: '' },
+    seat: { eyebrow: 'NEW SEAT', title: 'Hire a seat', cta: 'Hire seat', note: 'Adds the seat to the pod. A running pod prepares it right away.', ok: form.pod && form.title.trim() && form.role.trim() },
   }[kind];
 
   const submit = async () => {
@@ -70,7 +74,23 @@ export function Modal({ kind }: { kind: FormKind }) {
     if (kind === 'assignment') {
       if (state.ceo.sending) { setError('The CEO is still working on the previous message. Send this when it finishes.'); return; }
       closeModal();
-      void sendCeoMessage(form.text.trim(), true, ref => nav('/tasks/' + encodeURIComponent(ref)));
+      const hiring = form.hire === 'auto' ? 'Hiring: you may hire seats for this without asking.' : 'Hiring: ask me before hiring any seat.';
+      void sendCeoMessage(`${form.text.trim()}
+
+${hiring}`, true, ref => nav('/tasks/' + encodeURIComponent(ref)));
+    }
+    if (kind === 'seat') {
+      setSubmitting(true);
+      setError(null);
+      try {
+        const id = form.title.trim();
+        await api.addSeat(form.pod, { id, role: form.role.trim(), ...(form.text.trim() ? { instructions: form.text.trim() } : {}) });
+        closeModal();
+        flash(`Hired ${id}`);
+        nav('/pods/' + form.pod);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      } finally { setSubmitting(false); }
     }
     if (kind === 'mission') {
       setSubmitting(true);
@@ -136,20 +156,19 @@ export function Modal({ kind }: { kind: FormKind }) {
           </>}
 
           {kind === 'seat' && <>
-            <Field label="Role">
-              <Chips opts={['frontend', 'backend', 'qa', ['ocr', 'ocr-specialist'], 'compliance']} value={form.role} onPick={v => setForm(s => ({ ...s, role: v, title: ROLE_NAMES[v] }))} />
+            <Field label="Pod">
+              {pods === null ? <Hint>Loading pods…</Hint> : <Chips mono opts={pods.map(p => [p.podId, p.name] as [string, string])} value={form.pod} onPick={v => f('pod', v)} />}
             </Field>
-            <Field label="Join pod"><Chips mono opts={D.pods.map(p => p.name)} value={form.pod} onPick={v => f('pod', v)} /></Field>
-            <Field label="Identity"><Chips opts={[['new', 'New Hermes profile'], ['reuse', 'Reuse a retired profile']]} value={form.ident} onPick={v => f('ident', v)} /></Field>
-            <Field label="Secrets"><Chips opts={[]} value={form.secrets} onPick={v => toggle('secrets', v)} /></Field>
-            <Field label="Seat name"><input ref={focusRef} className="input mono" value={form.title} onChange={e => f('title', e.target.value)} /></Field>
+            <Field label="Seat id"><input ref={focusRef} className="input mono" value={form.title} placeholder="builder" maxLength={63} onChange={e => f('title', e.target.value.toLowerCase())} /></Field>
+            <Field label="Role"><input className="input" value={form.role} placeholder="Builder" maxLength={120} onChange={e => f('role', e.target.value)} /></Field>
+            <Field label="Instructions (optional)"><textarea className="input" rows={3} value={form.text} placeholder="What this seat is responsible for" onChange={e => f('text', e.target.value)} /></Field>
           </>}
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '14px 22px', borderTop: '1px solid var(--border)' }}>
           <span style={{ fontSize: 12, color: error ? 'var(--faint)' : 'var(--fainter)' }} role={error ? 'alert' : undefined}>{error || meta.note}</span>
           <button className="btn lg btn-ghost" style={{ marginLeft: 'auto' }} onClick={closeIfIdle} disabled={submitting}>Cancel</button>
-          <button className="btn lg btn-primary" style={{ opacity: meta.ok && !submitting ? 1 : 0.45 }} disabled={!meta.ok || submitting} onClick={submit}>{submitting ? (kind === 'mission' ? 'Saving…' : 'Sending…') : meta.cta}</button>
+          <button className="btn lg btn-primary" style={{ opacity: meta.ok && !submitting ? 1 : 0.45 }} disabled={!meta.ok || submitting} onClick={submit}>{submitting ? (kind === 'mission' ? 'Saving…' : kind === 'seat' ? 'Hiring…' : 'Sending…') : meta.cta}</button>
         </div>
       </div>
     </div>

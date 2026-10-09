@@ -39,6 +39,7 @@ const RUN_EVIDENCE_PER_RUN = 8;
 const RUN_EVIDENCE_KEEP = 32;
 const RUNS_KEEP = 10;
 const STATUS_RESTORABLE = new Set(['backlog', 'todo', 'in_progress', 'in_review']);
+const OPEN_REVIEW_STATES = new Set(['pending', 'needs_human']);
 const MAX_DURATION_MS = 24 * 60 * 60 * 1000;
 
 const RUN_EVIDENCE_INT_FIELDS = ['exitCode', 'resultExitCode', 'toolCalls', 'partialTextChars', 'fixturesCreated', 'fixturesUnchanged'];
@@ -271,6 +272,37 @@ export class PodStore {
     await writeJson(this.instancePath(podId), instance);
     return instance;
   }
+  async listTemplates() {
+    const dir = path.join(this.dataDir, 'templates');
+    let names = [];
+    try { names = await fs.readdir(dir); }
+    catch (error) { if (error.code !== 'ENOENT') throw error; }
+    const templates = [];
+    for (const name of names.filter((item) => STORED_ID_RE.tpl.test(item)).sort()) {
+      const template = await readJson(this.templatePath(name));
+      if (template?.id) templates.push({ id: template.id, name: template.name, version: template.version, seats: (template.seats || []).map((seat) => ({ id: seat.id, role: seat.role })), createdAt: template.createdAt });
+    }
+    return templates;
+  }
+  addSeat(podId, input) {
+    podId = assertStoredId('pod', podId);
+    return this.#serialize(`pod:${podId}`, async () => {
+      assertPlainObject(input, 'body');
+      const extra = Object.keys(input).filter((key) => !['id', 'role', 'instructions'].includes(key));
+      if (extra.length) throw badRequest('a seat takes only id, role, and instructions', { fields: extra.slice(0, 10).map((key) => key.slice(0, 64)) });
+      const [seat] = normalizeSeats([input]);
+      const filePath = this.instancePath(podId);
+      const stored = await readJson(filePath);
+      if (!stored) throw notFound('pod instance not found', { podId });
+      const current = normalizeStoredInstance(stored, podId, this.dataDir);
+      if (current.seats.some((item) => item.id === seat.id)) throw conflict('a seat with this id already exists in the pod', { podId, seatId: seat.id });
+      const template = current.templateId ? await readJson(this.templatePath(current.templateId)) : null;
+      const profileDir = path.join(current.profilesDir, seat.id);
+      const copiedFiles = await materializeSeatProfile(profileDir, seat, template?.baselineFiles || {});
+      await writeJson(filePath, { ...stored, seats: [...(stored.seats || []), { ...seat, state: 'materialized', profileDir, copiedFiles }], updatedAt: new Date().toISOString() });
+      return this.getInstance(podId);
+    });
+  }
   async getInstance(podId, { dockerPlanFactory } = {}) {
     podId = assertStoredId('pod', podId);
     const instance = await readJson(this.instancePath(podId));
@@ -381,7 +413,8 @@ export class PodStore {
       const now = new Date().toISOString();
       const state = stateAfterStatus(task.state, fields.status);
       const evidence = state !== task.state ? withRunEvidence(task.evidence, [{ type: 'reopened', message: `Status moved to ${fields.status} by ${actor}; the completed task is open for a new run.`, at: now }]) : task.evidence;
-      const updated = withoutEmptyLinks(withStatusChange({ ...task, ...fields, state, evidence, updatedAt: now }, fromStatus, fields.status, actor, now));
+      const review = task.review && OPEN_REVIEW_STATES.has(task.review.state) && fields.status !== fromStatus ? { ...task.review, state: 'resolved', by: actor, at: now } : task.review;
+      const updated = withoutEmptyLinks(withStatusChange({ ...task, ...fields, state, evidence, ...(review ? { review } : {}), updatedAt: now }, fromStatus, fields.status, actor, now));
       await writeJson(this.taskPath(id), updated);
       return this.#taskView(updated);
     });
@@ -580,7 +613,8 @@ export class PodStore {
       const run = { id: safeId('run'), state: 'running', startedAt: now, fromState, fromStatus, ...(manualRetry && fromState !== 'delegated' ? { manualRetry: true } : {}) };
       const runs = Array.isArray(task.runs) ? task.runs : [];
       const status = statusAfterRun(fromStatus, 'running');
-      const updated = withStatusChange({ ...task, state: 'running', status, activeRunId: run.id, runs: [...runs, run].slice(-RUNS_KEEP), updatedAt: now }, fromStatus, status, 'system', now, 'run_started');
+      const { review: _previousReview, ...unreviewed } = task;
+      const updated = withStatusChange({ ...unreviewed, state: 'running', status, activeRunId: run.id, runs: [...runs, run].slice(-RUNS_KEEP), updatedAt: now }, fromStatus, status, 'system', now, 'run_started');
       await writeJson(this.taskPath(id), updated);
       this.activeTaskRuns.add(run.id);
       return { task: updated, runId: run.id };
@@ -607,7 +641,7 @@ export class PodStore {
     return interrupted;
   }
 
-  finishTaskRun(taskId, runId, result) {
+  finishTaskRun(taskId, runId, result, { reviewer = undefined } = {}) {
     return this.#withTaskRunLock(taskId, async (id) => {
       assertPlainObject(result, 'run result');
       if (!TASK_RUN_OUTCOMES.includes(result.outcome)) throw badRequest('run outcome must be completed, failed, or outcome_unknown; release a run without a model turn with abortTaskRun');
@@ -624,7 +658,36 @@ export class PodStore {
         replyTruncated: fullReply.length > RUN_REPLY_MAX,
         activity: normalizeActivity(result.activity),
       };
-      return this.#closeRun(task, finished, result.outcome, runEvidence(result.evidence, run.id, this.dataDir, now), now);
+      const evidence = runEvidence(result.evidence, run.id, this.dataDir, now);
+      if (result.outcome !== 'completed' || !reviewer) return this.#closeRun(task, finished, result.outcome, evidence, now);
+      if (reviewer === 'me') return this.#closeRun(task, finished, result.outcome, evidence, now, 'in_review', { review: { state: 'needs_human', reviewer, reason: 'You review finished tasks.', by: 'system', requestedAt: now, at: now } });
+      return this.#closeRun(task, finished, result.outcome, evidence, now, 'in_progress', { review: { state: 'pending', reviewer, requestedAt: now } });
+    });
+  }
+
+  noteReviewMessage(taskId, messageId) {
+    return this.#withTaskRunLock(taskId, async (id) => {
+      const task = await this.getTask(id);
+      if (task.review?.state !== 'pending') return this.#taskView(task);
+      const updated = { ...task, review: { ...task.review, messageId } };
+      await writeJson(this.taskPath(id), updated);
+      return this.#taskView(updated);
+    });
+  }
+
+  recordReview(taskId, { decision, reason, by, actor = undefined }) {
+    return this.#withTaskRunLock(taskId, async (id) => {
+      const task = await this.getTask(id);
+      if (task.review?.state !== 'pending') throw conflict('this task is not waiting for a review', { taskId: id });
+      const now = new Date().toISOString();
+      const fromStatus = publicTask(task, '').status;
+      const status = decision === 'done' ? 'done' : 'in_review';
+      const who = by === 'seat' && actor ? `seat ${String(actor).split('/')[1]}` : by;
+      const review = { ...task.review, state: decision === 'done' ? 'done' : 'needs_human', reason, by, ...(actor ? { actor } : {}), at: now };
+      const evidence = withRunEvidence(task.evidence, [{ type: 'review', message: `${decision === 'done' ? 'Reviewed as done' : 'Needs your review'} (${who}): ${reason}`, at: now, runId: task.lastRunId }]);
+      const updated = withStatusChange({ ...task, status, review, evidence, updatedAt: now }, fromStatus, status, by, now, 'review');
+      await writeJson(this.taskPath(id), updated);
+      return this.#taskView(updated);
     });
   }
 
@@ -654,13 +717,13 @@ export class PodStore {
     const evidence = [{ type: 'run_interrupted', message: 'Service stopped before the run outcome was confirmed; outcome is unknown. Manual review is required before any retry; Waypoint never retries automatically.', reason: 'service_restarted', at: now, runId }];
     return this.#closeRun({ ...task, runs }, { ...run, state: 'outcome_unknown', finishedAt: now, reason: 'service_restarted' }, 'outcome_unknown', evidence, now);
   }
-  async #closeRun(task, run, state, evidence, now, restoreStatus = undefined) {
+  async #closeRun(task, run, state, evidence, now, restoreStatus = undefined, extra = {}) {
     const { activeRunId: _closed, ...rest } = task;
     const runs = Array.isArray(task.runs) ? task.runs : [];
     const merged = runs.some((item) => item?.id === run.id) ? runs.map((item) => (item?.id === run.id ? run : item)) : [...runs, run].slice(-RUNS_KEEP);
     const fromStatus = publicTask(task, '').status;
     const status = restoreStatus && STATUS_RESTORABLE.has(restoreStatus) ? restoreStatus : statusAfterRun(fromStatus, state);
-    const updated = withStatusChange({ ...rest, state, status, lastRunId: run.id, runs: merged, evidence: withRunEvidence(task.evidence, evidence), updatedAt: now }, fromStatus, status, 'system', now, `run_${run.state}`);
+    const updated = withStatusChange({ ...rest, ...extra, state, status, lastRunId: run.id, runs: merged, evidence: withRunEvidence(task.evidence, evidence), updatedAt: now }, fromStatus, status, 'system', now, `run_${run.state}`);
     await writeJson(this.taskPath(task.id), updated);
     this.activeTaskRuns.delete(run.id);
     return updated;

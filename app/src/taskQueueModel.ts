@@ -55,6 +55,33 @@ function byNumber(a: TaskSummary, b: TaskSummary) {
   return (a.number ?? Infinity) - (b.number ?? Infinity) || a.id.localeCompare(b.id);
 }
 
+export function needsYourReview(tasks: TaskSummary[]): TaskSummary[] {
+  return tasks.filter(t => t.status === 'in_review').sort((a, b) => (b.review?.at || b.updatedAt).localeCompare(a.review?.at || a.updatedAt));
+}
+
+export function reviewSentence(review: TaskSummary['review'], ceoName: string): string {
+  if (!review) return '';
+  const who = review.reviewer === 'ceo' ? ceoName : review.reviewer === 'me' ? 'you' : review.reviewer.split('/')[1];
+  if (review.state === 'pending') return `Waiting for ${who} to review the result.`;
+  if (review.state === 'needs_human') return `Needs your review${review.reason ? `: ${review.reason}` : '.'}`;
+  if (review.state === 'done') return `Reviewed by ${who} and marked done${review.reason ? `: ${review.reason}` : '.'}`;
+  return '';
+}
+
+export function savedStatusFilter(value: unknown): TaskStatus[] {
+  if (!Array.isArray(value)) return [];
+  return STATUSES.map(s => s.id).filter(id => value.includes(id));
+}
+
+export function toggleStatusFilter(filter: TaskStatus[], status: TaskStatus): TaskStatus[] {
+  const next = filter.includes(status) ? filter.filter(s => s !== status) : [...filter, status];
+  return next.length === STATUSES.length ? [] : STATUSES.map(s => s.id).filter(id => next.includes(id));
+}
+
+export function filterByStatus(tasks: TaskSummary[], filter: TaskStatus[]): TaskSummary[] {
+  return filter.length ? tasks.filter(t => filter.includes(t.status)) : tasks;
+}
+
 export function groupTasks(tasks: TaskSummary[], by: GroupBy, ctx: QueueContext): TaskGroup[] {
   const sorted = [...tasks].sort(byNumber);
   if (by === 'status') return STATUSES.map(s => ({ key: s.id, label: s.label, tasks: sorted.filter(t => t.status === s.id) })).filter(g => g.tasks.length);

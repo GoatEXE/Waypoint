@@ -42,7 +42,7 @@ export class DockerAdapter {
     const args = ['run', '-d', '--name', containerName, '--network', POD_NETWORK, '--mount', mount];
     const authMount = sharedAuthMount(this.config);
     if (authMount) args.push('--mount', authMount);
-    for (const project of projectMounts) args.push('--mount', `type=bind,source=${project.source},target=${project.target}`);
+    for (const project of projectMounts) args.push('--mount', `type=bind,source=${project.source},target=${project.target},readonly`);
     for (const [key, value] of Object.entries(labels)) args.push('--label', `${key}=${value}`);
     args.push(this.config.docker.image, ...this.config.docker.idleCommand);
     return {
@@ -162,6 +162,16 @@ export class DockerAdapter {
     const touch = await this.runner('docker', ['exec', containerName, 'sh', '-lc', `touch ${shellQuote(marker)}`]);
     if (touch.code !== 0) throw lifecycleError('pod volume seed marker could not be written', { containerName, code: touch.code });
     return { changed: true, marker };
+  }
+  async seedSeatProfile(podId, containerName, seatId) {
+    const target = `${CONTAINER_DATA_DIR}/profiles/${seatId}`;
+    if ((await this.runner('docker', ['exec', containerName, 'test', '-e', target])).code === 0) return { changed: false };
+    const source = path.join(this.config.dataDir, 'instances', podId, 'profiles', seatId);
+    const copy = await this.runner('docker', ['cp', source, `${containerName}:${target}`]);
+    if (copy.code !== 0) throw lifecycleError('new seat profile could not be copied into the pod', { containerName, seatId, code: copy.code });
+    const chown = await this.runner('docker', ['exec', '--user', 'root', containerName, 'chown', '-R', 'hermes:hermes', target]);
+    if (chown.code !== 0) throw lifecycleError('new seat profile ownership could not be assigned to the Hermes user', { containerName, seatId, code: chown.code });
+    return { changed: true };
   }
   async inspectOwnedContainer(containerName, podId, { allowMissing = false } = {}) {
     const podIdLabel = `${this.config.docker.labelNamespace}.pod_id`;
