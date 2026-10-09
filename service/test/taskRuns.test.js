@@ -113,7 +113,7 @@ test('abort before any model turn returns the task to delegated and allows a new
   assert.equal(aborted.activeRunId, undefined);
   assert.equal(aborted.runs[0].state, 'aborted');
   assert.equal(aborted.runs[0].reason, 'lifecycle_error');
-  assert.deepEqual(aborted.evidence[0], task.evidence[0]);
+  assert.deepEqual(task.evidence, [], 'a new task starts with no evidence');
   assert.equal(aborted.lastRunId, runId);
   assert.ok(!aborted.runs.some((run) => run.state === 'running'));
   assert.equal(aborted.evidence.at(-1).type, 'run_aborted');
@@ -164,7 +164,6 @@ test('completion persists a sanitized, capped reply and allowlisted evidence', a
   assert.ok(typeof run.finishedAt === 'string');
 
   const runEntries = finished.evidence.filter((entry) => entry.runId === runId);
-  assert.deepEqual(finished.evidence[0], task.evidence[0]);
   assert.equal(runEntries.length, 8);
   assert.deepEqual(runEntries[1], { type: 'hermes_turn', message: 'Hermes turn completed with a final assistant response.', at: '2026-10-06T10:00:01.000Z', runId, exitCode: 0, toolCalls: 2, timedOut: false, tokens: { input: 10, output: 5, total: 15 } });
   const dropped = runEntries[2];
@@ -203,7 +202,6 @@ test('run history and run evidence stay bounded across manual retries', async ()
   const stored = await store.getTask(task.id);
   assert.equal(stored.runs.length, 10);
   assert.equal(stored.evidence.filter((entry) => entry.runId).length, 32);
-  assert.deepEqual(stored.evidence[0], task.evidence[0]);
 });
 
 test('missions linked to a task still report the task state', async () => {
@@ -249,7 +247,7 @@ test('startup reconciliation marks runs from a previous process as outcome_unkno
   assert.equal(closed.runs.length, 1);
   assert.equal(closed.runs[0].state, 'outcome_unknown');
   assert.equal(closed.runs[0].reason, 'service_restarted');
-  assert.deepEqual(closed.evidence[0], interrupted.evidence[0]);
+  assert.equal(closed.evidence.length, 1);
   const note = closed.evidence.at(-1);
   assert.equal(note.type, 'run_interrupted');
   assert.equal(note.runId, runId);

@@ -86,7 +86,7 @@ test('tasks record pod and seat ownership without claiming execution', async () 
   assert.equal(task.state, 'delegated');
   assert.equal(task.podId, instance.id);
   assert.equal(task.seatId, 'coder');
-  assert.match(task.evidence[0].message, /no Hermes execution/i);
+  assert.deepEqual(task.evidence, [], 'creating a task records no evidence');
   await assert.rejects(() => store.createTask({ podId: instance.id, seatId: 'missing', summary: 'bad' }), /seat does not belong/);
 });
 

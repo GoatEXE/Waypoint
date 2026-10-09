@@ -118,11 +118,12 @@ function StatusHistory({ task, ceoName }: { task: TaskRecord; ceoName: string })
 }
 
 function EvidenceList({ task }: { task: TaskRecord }) {
+  const evidence = (task.evidence || []).filter(item => item.type !== 'record');
   return (
     <div className="stack" style={{ gap: 10 }}>
       <div className="section-title">Evidence</div>
-      {!task.evidence?.length && <div className="empty">No evidence notes are recorded.</div>}
-      {(task.evidence || []).map((item, index) => (
+      {!evidence.length && <div className="empty">No evidence yet. Runs and reviews add it here.</div>}
+      {evidence.map((item, index) => (
         <div key={`${item.at}-${index}`} className="stack" style={{ gap: 5, padding: '12px 14px', border: '1px solid var(--border)', borderRadius: 10, background: 'var(--surface)' }}>
           <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap' }}>
             <span className="sb-label" style={{ color: 'var(--dim)' }}>{item.type || 'record'}</span>

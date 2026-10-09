@@ -4,6 +4,7 @@ import * as D from '../data';
 import { byParent, projById, st } from '../model';
 import { api, parseSeatThread, type CeoThread } from '../api';
 import { ActivityBlock, ActivityList } from './Activity';
+import { TaskRefText } from './TaskRefText';
 import { addressLabel, buildTimeline, deliveryLabel, generalThreadMessages, type TaskThreadExtras, type TimelineEntry } from '../threadTimeline';
 import { useStore, useViewport, type PaneTab } from '../store';
 import { ceoNameOf } from '../orgModel';
@@ -20,7 +21,7 @@ function messageTime(at: string) {
 function UserBubble({ text, meta, children }: { text: string; meta?: string; children?: ReactNode }) {
   return (
     <div className="stack" style={{ alignSelf: 'flex-end', maxWidth: '86%', alignItems: 'flex-end', gap: 4 }}>
-      <div className="bubble-you">{text}</div>
+      <div className="bubble-you"><TaskRefText text={text} /></div>
       {meta && <span style={{ fontSize: 11, color: 'var(--fainter)' }}>{meta}</span>}
       {children}
     </div>
@@ -33,7 +34,7 @@ function CeoBubble({ text, at, name = 'ceo' }: { text: string; at: string; name?
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11.5, color: 'var(--dim)' }}>
         <div className="ceo-mark" /><span className="mono c-text3">{name}</span><span>{messageTime(at)}</span>
       </div>
-      <div style={{ fontSize: 13, lineHeight: 1.55, color: 'var(--text-2)', textWrap: 'pretty', whiteSpace: 'pre-wrap' }}>{text}</div>
+      <div style={{ fontSize: 13, lineHeight: 1.55, color: 'var(--text-2)', textWrap: 'pretty', whiteSpace: 'pre-wrap' }}><TaskRefText text={text} /></div>
     </div>
   );
 }
@@ -124,7 +125,7 @@ function RunEntry({ entry, seatId }: { entry: Extract<TimelineEntry, { kind: 'ru
         <span className="act-time" style={{ marginLeft: 'auto' }}>{messageTime(entry.at)}</span>
       </div>
       {live ? (live.length ? <ActivityList items={live} /> : <div className="act-hint">Waiting for the seat's first step…</div>) : run.activity?.length ? <ActivityBlock items={run.activity} /> : null}
-      {run.reply && <div className="thread-run-reply">{run.reply.length > 400 ? run.reply.slice(0, 400) + '…' : run.reply}</div>}
+      {run.reply && <div className="thread-run-reply"><TaskRefText text={run.reply.length > 400 ? run.reply.slice(0, 400) + '…' : run.reply} /></div>}
     </div>
   );
 }
@@ -140,11 +141,11 @@ function PeerEntry({ entry, ceoName }: { entry: Extract<TimelineEntry, { kind: '
         <span className={'delivery-pill ' + delivery.tone}>{delivery.label}</span>
         <span className="act-time" style={{ marginLeft: 'auto' }}>{messageTime(message.createdAt)}</span>
       </div>
-      <div className="thread-peer-text">{message.text}</div>
+      <div className="thread-peer-text"><TaskRefText text={message.text} /></div>
       {message.wake?.reply && (
         <div className="thread-peer-reply">
           <span className="mono">{addressLabel(message.to, ceoName)}</span>
-          <div className="thread-peer-text">{message.wake.reply}</div>
+          <div className="thread-peer-text"><TaskRefText text={message.wake.reply} /></div>
         </div>
       )}
     </div>

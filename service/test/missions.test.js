@@ -31,7 +31,7 @@ test('missions persist with linked pod/task summaries and honest delegated state
   assert.deepEqual(mission.pod.seats.map((s) => s.id), ['lead', 'builder']);
   assert.equal(mission.task.seatId, 'lead');
   assert.equal(mission.task.state, 'delegated');
-  assert.match(mission.task.evidence[0].message, /no Hermes execution/);
+  assert.deepEqual(mission.task.evidence, [], 'delegation alone records no evidence');
   assert.deepEqual(mission.missing, []);
   assert.equal(JSON.stringify(mission).includes(dataDir), false, 'view must not leak local paths');
 
