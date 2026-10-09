@@ -560,6 +560,9 @@ export class PodStore {
     }
     return { name, missionId, workspace, localPath, repo, githubSeats };
   }
+  async projectGithubRepos() {
+    return [...new Set((await this.readProjects()).filter((project) => project.repo).map((project) => project.repo))];
+  }
   async seatGithubRepos(address) {
     return [...new Set((await this.readProjects()).filter((project) => project.repo && (project.githubSeats || []).includes(address)).map((project) => project.repo))];
   }

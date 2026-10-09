@@ -628,6 +628,8 @@ test('CEO bridge skill seed documents run_task and task_status truthfully', asyn
   assert.match(skill, /explicit seat and template models take priority/);
   assert.match(skill, /## Work requests become tasks\n\nWhen the user asks for work to be done .* create a task for it instead of messaging a seat/);
   assert.match(skill, /Use send_message only for coordination and questions .* never to hand off work/);
+  assert.doesNotMatch(script, /waypoint-github|gh (pr|issue|auth)|GitHub CLI|file a GitHub issue/, 'GitHub usage is left to the model');
+  assert.match(script, /name = ceo \(Waypoint\)/);
   assert.match(skill, /move its status back to todo \(or backlog\) only after the user approves another run/);
   assert.match(script, /## outbox\nPayload: .*\nReturns messages you sent, newest first, each with delivery/);
   assert.match(skill, /run_task never starts the pod or provisions seats/);

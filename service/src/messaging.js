@@ -3,7 +3,6 @@ import path from 'node:path';
 import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { badRequest, conflict, forbidden, notFound } from './errors.js';
 import { lifecycleError } from './errors.js';
-import { SEAT_GITHUB_CLIENT, seatGithubSkill } from './github.js';
 import { redactActivityText } from './activity.js';
 
 const POD_ID_RE = /^pod_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -369,8 +368,6 @@ export class MessagingService {
         baseUrl: this.config.bridge.baseUrl,
         client: SEAT_MESSAGE_CLIENT,
         skill: seatMessageSkill(seat.id),
-        githubClient: SEAT_GITHUB_CLIENT,
-        githubSkill: seatGithubSkill(seat.id),
       });
       const result = await podSeats.runner('docker', ['exec', '-i', '--user', 'hermes', target.containerName, 'python3', '-c', INSTALL_SEAT_MESSAGE_SCRIPT], { input, timeoutMs: 30000, outputLimitBytes: 2048 });
       if (result.code !== 0 || result.timedOut || !String(result.stdout).includes('"installed": true')) throw lifecycleError('pod seat messaging setup failed', { podId: target.podId, seatId: seat.id });
@@ -479,8 +476,13 @@ skill_dir=directory(skills,'waypoint-messaging')
 write(waypoint,'messaging.json',json.dumps({'baseUrl':p['baseUrl'],'token':p['token']}))
 write(bin_dir,'waypoint-message.py',p['client'])
 write(skill_dir,'SKILL.md',p['skill'])
-if p.get('githubClient'):
-    write(bin_dir,'waypoint-github.py',p['githubClient'])
-    write(directory(skills,'waypoint-github'),'SKILL.md',p['githubSkill'])
+for stale in (bin_dir/'waypoint-github.py', skills/'waypoint-github'/'SKILL.md'):
+    if stale.is_file() and not stale.is_symlink(): stale.unlink()
+stale_dir=skills/'waypoint-github'
+if stale_dir.is_dir() and not stale_dir.is_symlink() and not any(stale_dir.iterdir()): stale_dir.rmdir()
+home=directory(profile,'home')
+gitconfig=home/'.gitconfig'
+if not gitconfig.exists() and not gitconfig.is_symlink():
+    write(home,'.gitconfig','[user]\n\tname = '+seat+' (Waypoint)\n\temail = '+seat+'@waypoint.local\n')
 print(json.dumps({'installed':True}))
 `;

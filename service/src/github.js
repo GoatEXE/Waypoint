@@ -9,9 +9,6 @@ const REPO_RE = /^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/;
 const CODE_RE = /^[A-Za-z0-9_-]{8,200}$/;
 const STATE_TTL_MS = 30 * 60 * 1000;
 const TOKEN_MARGIN_MS = 5 * 60 * 1000;
-const API_BODY_MAX = 200000;
-const API_METHODS = new Set(['GET', 'POST', 'PATCH', 'PUT', 'DELETE']);
-const BLOCKED_API_PATHS = [/^\/(hooks|keys|collaborators|invitations|actions\/secrets|actions\/variables|environments|rulesets|branches\/[^/]+\/protection|transfer|dependabot\/secrets|codespaces\/secrets)(\/|$)/];
 export const GITHUB_PERMISSIONS = { contents: 'write', pull_requests: 'write', issues: 'write', metadata: 'read', checks: 'read', actions: 'read' };
 
 export function normalizeRepo(value) {
@@ -188,79 +185,4 @@ export class GitHubConnector {
     this.tokens.set(repo, issued);
     return { repo, ...issued };
   }
-
-  async api(repoInput, { method = 'GET', path: apiPath = '', body } = {}) {
-    const repo = normalizeRepo(repoInput);
-    const verb = String(method).toUpperCase();
-    if (!API_METHODS.has(verb)) throw badRequest('method must be GET, POST, PATCH, PUT, or DELETE');
-    const sub = String(apiPath || '');
-    if (sub && !sub.startsWith('/')) throw badRequest('path must start with / and is relative to the repository');
-    if (sub.includes('..') || /[\s?#]/.test(sub.split('?')[0]) || sub.length > 300) throw badRequest('invalid GitHub API path');
-    const bare = sub.split('?')[0];
-    if (BLOCKED_API_PATHS.some((re) => re.test(bare))) throw forbidden('That GitHub API area is reserved for the repository owner');
-    if (!bare && verb !== 'GET') throw forbidden('Repository settings cannot be changed through Waypoint');
-    const { token } = await this.repoToken(repo);
-    const result = await this.request(`/repos/${repo}${sub}`, { method: verb, token, body });
-    const serialized = JSON.stringify(result.body ?? null);
-    return { status: result.status, body: serialized.length > API_BODY_MAX ? { truncated: true, preview: serialized.slice(0, API_BODY_MAX) } : result.body };
-  }
-}
-
-export const SEAT_GITHUB_CLIENT = String.raw`#!/usr/bin/env python3
-import json, pathlib, subprocess, sys, urllib.request, urllib.error
-
-me = pathlib.Path(__file__).resolve()
-home = me.parents[1]
-seat = home.name
-config = json.loads((home / 'waypoint' / 'messaging.json').read_text(encoding='utf-8'))
-usage = 'usage: waypoint-github.py clone OWNER/REPO [DIR] | api OWNER/REPO METHOD PATH [--data JSON] | credential get'
-
-def call(tool, args):
-    request = urllib.request.Request(config['baseUrl'], data=json.dumps({'tool': tool, 'args': args}).encode('utf-8'), headers={'Authorization': 'Bearer ' + config['token'], 'Content-Type': 'application/json'}, method='POST')
-    try:
-        with urllib.request.urlopen(request, timeout=30) as response:
-            return json.load(response)
-    except urllib.error.HTTPError as error:
-        print(json.dumps(json.load(error), ensure_ascii=False), file=sys.stderr)
-        raise SystemExit(1)
-
-helper = '!python3 ' + str(me) + ' credential'
-if len(sys.argv) < 2:
-    raise SystemExit(usage)
-action = sys.argv[1]
-if action == 'credential':
-    if len(sys.argv) < 3 or sys.argv[2] != 'get':
-        raise SystemExit(0)
-    fields = dict(line.split('=', 1) for line in sys.stdin.read().splitlines() if '=' in line)
-    if fields.get('host') != 'github.com' or not fields.get('path'):
-        raise SystemExit(0)
-    repo = fields['path'].strip('/').removesuffix('.git')
-    result = call('github_token', {'repo': repo})
-    print('username=x-access-token')
-    print('password=' + result['token'])
-elif action == 'clone' and len(sys.argv) in (3, 4):
-    repo = sys.argv[2].strip('/').removesuffix('.git')
-    target = sys.argv[3] if len(sys.argv) == 4 else repo.split('/')[-1]
-    settings = ['-c', 'credential.helper=', '-c', 'credential.helper=' + helper, '-c', 'credential.useHttpPath=true']
-    code = subprocess.call(['git'] + settings + ['clone', 'https://github.com/' + repo + '.git', target])
-    if code:
-        raise SystemExit(code)
-    for key, value in (('credential.helper', helper), ('credential.useHttpPath', 'true'), ('user.name', seat + ' (Waypoint)'), ('user.email', seat + '@waypoint.local')):
-        subprocess.check_call(['git', '-C', target, 'config', key, value])
-    print(json.dumps({'cloned': repo, 'path': str(pathlib.Path(target).resolve())}))
-elif action == 'api' and len(sys.argv) in (5, 7):
-    args = {'repo': sys.argv[2], 'method': sys.argv[3], 'path': sys.argv[4]}
-    if len(sys.argv) == 7:
-        if sys.argv[5] != '--data':
-            raise SystemExit(usage)
-        args['body'] = json.loads(sys.argv[6])
-    print(json.dumps(call('github_api', args), ensure_ascii=False))
-else:
-    raise SystemExit(usage)
-`;
-
-export function seatGithubSkill(seatId) {
-  const client = `/opt/data/profiles/${seatId}/bin/waypoint-github.py`;
-  return `---\nname: waypoint-github\ndescription: Clone, commit, push, and open or merge pull requests on GitHub repositories this seat is designated for in Waypoint.\n---\n\n# Waypoint GitHub\n\nYou can use GitHub only for repositories whose Waypoint project designates this seat. Waypoint issues short-lived tokens through the Waypoint GitHub App; never print, store, or paste a token.\n\n- If your working folder is already a git repository, it is the project's own folder: work and commit there directly and do not clone.
-- Otherwise clone into your task workspace: \`python3 ${client} clone OWNER/REPO\`. The clone is set up so \`git pull\` and \`git push\` authenticate automatically and commits use your seat name.\n- Work on a branch: \`git checkout -b seat/short-topic\`, commit, then \`git push -u origin HEAD\`. Do not push to the default branch unless the user asked.\n- GitHub API, relative to the repository: \`python3 ${client} api OWNER/REPO METHOD PATH [--data JSON]\`.\n  - Open a pull request: \`api OWNER/REPO POST /pulls --data '{"title":"...","head":"seat/short-topic","base":"main","body":"..."}'\`\n  - List pull requests: \`api OWNER/REPO GET /pulls\`; comment on an issue or PR: \`POST /issues/NUMBER/comments\`.\n  - Merge only when the user asked: \`api OWNER/REPO PUT /pulls/NUMBER/merge --data '{"merge_method":"squash"}'\`.\n\nRepository settings, webhooks, collaborators, secrets, and branch protection are reserved for the owner. If access is refused, report it rather than working around it.\n`;
 }

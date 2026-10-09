@@ -72,7 +72,7 @@ test('manifest flow stores the app privately and lists installations', async () 
   assert.ok(calls.find((c) => c.path === '/app/installations').auth.startsWith('Bearer '));
 });
 
-test('repo tokens are scoped, cached, and the API refuses owner-only areas', async () => {
+test('repo tokens are scoped to one repository and cached', async () => {
   const { github, calls } = await connector();
   const { state } = github.manifest({ origin: 'http://127.0.0.1:5173' });
   await github.completeManifest({ code: 'goodcode123', state });
@@ -82,14 +82,6 @@ test('repo tokens are scoped, cached, and the API refuses owner-only areas', asy
   assert.equal(first.token, second.token);
   assert.deepEqual(calls.filter((c) => c.path.endsWith('/access_tokens')).map((c) => c.body), [{ repositories: ['site'] }]);
   await assert.rejects(github.repoToken('acme/other'), /not installed on acme\/other/);
-  const pr = await github.api('acme/site', { method: 'POST', path: '/pulls', body: { title: 'Fix', head: 'seat/fix', base: 'main' } });
-  assert.deepEqual(pr, { status: 201, body: { number: 3, title: 'Fix' } });
-  assert.equal(calls.at(-1).auth, `token ${first.token}`);
-  await assert.rejects(github.api('acme/site', { method: 'POST', path: '/hooks' }), /reserved/);
-  await assert.rejects(github.api('acme/site', { method: 'PUT', path: '/branches/main/protection' }), /reserved/);
-  await assert.rejects(github.api('acme/site', { method: 'DELETE', path: '' }), /settings cannot be changed/);
-  await assert.rejects(github.api('acme/site', { method: 'GET', path: '/../../user' }), /invalid GitHub API path/);
-  await assert.rejects(github.api('acme/site', { method: 'TRACE', path: '/pulls' }), /method must be/);
 });
 
 test('local paths detect git repositories and their GitHub remote', async () => {
@@ -103,7 +95,7 @@ test('local paths detect git repositories and their GitHub remote', async () => 
   await assert.rejects(inspectLocalPath('relative/path'), /absolute/);
 });
 
-test('only seats designated on a project can get tokens or call the API for its repo', async () => {
+test('designated seats and the CEO get tokens only for project repositories', async () => {
   const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'waypoint-github-http-'));
   const app = await createApp({ DATA_DIR: dataDir, HERMES_AUTO_START: 'false', LOG_LEVEL: 'error' });
   const calls = [];
@@ -125,9 +117,16 @@ test('only seats designated on a project can get tokens or call the API for its 
     assert.equal(granted.body.repo, 'acme/site');
     assert.equal((await tool(app.messaging.seatToken(pod.id, 'qa'), 'github_token', { repo: 'acme/site' })).status, 403);
     assert.equal((await tool(builder, 'github_token', { repo: 'acme/other' })).status, 403);
-    assert.equal((await tool(app.config.bridge.token, 'github_token', { repo: 'acme/site' })).status, 403);
-    const pr = await tool(builder, 'github_api', { repo: 'acme/site', method: 'POST', path: '/pulls', body: { title: 'Fix' } });
-    assert.deepEqual(pr.body, { status: 201, body: { number: 3, title: 'Fix' } });
+    assert.equal((await tool(builder, 'github_token', {})).body.repo, 'acme/site', 'one repository needs no name');
+    assert.match((await tool(app.messaging.seatToken(pod.id, 'qa'), 'github_token', {})).body.error.message, /GitHub seats/);
+    assert.equal((await tool(builder, 'github_api', { repo: 'acme/site', method: 'GET', path: '/pulls' })).status, 403);
+    const ceo = app.config.bridge.token;
+    assert.equal((await tool(ceo, 'github_token', { repo: 'acme/site' })).body.repo, 'acme/site');
+    await app.store.createProject({ name: 'Docs', repo: 'acme/docs' });
+    const ambiguous = await tool(ceo, 'github_token', {});
+    assert.equal(ambiguous.status, 400);
+    assert.match(ambiguous.body.error.message, /Available: acme\/site, acme\/docs/);
+    assert.equal((await tool(ceo, 'github_token', { repo: 'acme/elsewhere' })).status, 403);
   } finally { await new Promise((resolve) => app.bridgeServer.close(resolve)); }
 });
 

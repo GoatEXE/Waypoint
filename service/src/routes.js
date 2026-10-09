@@ -214,7 +214,7 @@ async function bridgeTool(request, { config, store, docker, hermes, podSeats, ta
   const body = await readBody(request);
   const tool = String(body.tool || '');
   const args = body.args || {};
-  if (['github_token', 'github_api'].includes(tool)) return seatGithubTool(request, tool, args, { store, messaging, github });
+  if (tool === 'github_token') return githubToken(request, args, { store, messaging, github });
   if (['org_chart', 'inbox', 'outbox', 'send_message', 'ack_message'].includes(tool)) {
     if (!messaging) throw forbidden('Waypoint messaging is unavailable');
     const actor = await messaging.actorFromAuthorization(request.headers.authorization);
@@ -364,21 +364,19 @@ async function withDetectedRepo(body) {
   const found = await inspectLocalPath(body.localPath).catch(() => null);
   return found?.repo ? { ...body, repo: found.repo } : body;
 }
-async function seatGithubTool(request, tool, args, { store, messaging, github }) {
+async function githubToken(request, args, { store, messaging, github }) {
   if (!messaging || !github) throw forbidden('GitHub access is unavailable');
   const actor = await messaging.actorFromAuthorization(request.headers.authorization);
-  if (actor === 'ceo') throw forbidden('GitHub access is for designated seats; ask a seat on the project to do it');
   if (!args || typeof args !== 'object' || Array.isArray(args)) throw badRequest('args must be an object');
-  const allowed = await store.seatGithubRepos(actor);
-  const repo = allowed.find((item) => item.toLowerCase() === String(args.repo || '').trim().replace(/\.git$/i, '').toLowerCase());
-  if (!repo) throw forbidden('This seat is not designated for GitHub on that repository', { allowed });
-  if (tool === 'github_token') {
-    assertBridgeFields(args, ['repo']);
-    const { token, expiresAt } = await github.repoToken(repo);
-    return { repo, token, expiresAt };
-  }
-  assertBridgeFields(args, ['repo', 'method', 'path', 'body']);
-  return github.api(repo, { method: args.method, path: args.path, body: args.body });
+  assertBridgeFields(args, ['repo']);
+  const allowed = actor === 'ceo' ? await store.projectGithubRepos() : await store.seatGithubRepos(actor);
+  if (!allowed.length) throw forbidden(actor === 'ceo' ? 'No Waypoint project has a GitHub repository yet.' : 'This seat has no GitHub access. Add it to a project\'s GitHub seats in Waypoint.');
+  const wanted = String(args.repo || '').trim().replace(/\.git$/i, '').toLowerCase();
+  if (!wanted && allowed.length > 1) throw badRequest(`Name the repository (for example gh -R ${allowed[0]} ...). Available: ${allowed.join(', ')}`, { allowed });
+  const repo = wanted ? allowed.find((item) => item.toLowerCase() === wanted) : allowed[0];
+  if (!repo) throw forbidden(`No GitHub access to ${wanted.slice(0, 100)}. Available: ${allowed.join(', ')}`, { allowed });
+  const { token, expiresAt } = await github.repoToken(repo);
+  return { repo, token, expiresAt };
 }
 function assertBridgeFields(args, allowed) {
   const extra = Object.keys(args).filter((key) => !allowed.includes(key));
