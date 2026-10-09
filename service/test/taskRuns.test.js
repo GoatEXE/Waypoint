@@ -4,6 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { PodStore } from '../src/store.js';
+import { taskPrompt } from '../src/taskQueue.js';
 
 async function tmp() { return fs.mkdtemp(path.join(os.tmpdir(), 'waypoint-runs-')); }
 function planFactory({ podId }) { return { command: 'docker', args: [], labels: {}, volumeName: `vol-${podId}`, containerName: `ctr-${podId}` }; }
@@ -311,4 +312,19 @@ test('a run released before any model turn restores the prior status', async () 
   const released = await store.abortTaskRun(task.id, runId, { reason: 'pod_not_running' });
   assert.equal(released.status, 'todo');
   assert.deepEqual(released.statusHistory.slice(-2).map(({ to, reason }) => [to, reason]), [['in_progress', 'run_started'], ['todo', 'run_aborted']]);
+});
+
+test('requesting changes reopens a reviewed task and gives the seat the feedback on its next run', async () => {
+  const { store, task } = await setup();
+  const { runId } = await store.claimTaskRun(task.id);
+  await store.finishTaskRun(task.id, runId, completed(), { reviewer: 'me' });
+  await assert.rejects(store.requestChanges(task.id, { text: '' }), /feedback must be/);
+  const reopened = await store.requestChanges(task.id, { text: 'Install deps with npm install in app/ and service/, then open the PR.' });
+  assert.deepEqual([reopened.status, reopened.state, reopened.review.state], ['todo', 'delegated', 'resolved']);
+  assert.equal(reopened.statusHistory.at(-1).reason, 'changes_requested');
+  assert.equal(reopened.evidence.at(-1).type, 'feedback');
+  const prompt = taskPrompt(await store.getTask(task.id));
+  assert.match(prompt, /^write the report\n\nThe user reviewed your previous run and asked for these changes\. Address them, continuing from the work already in this workspace:\n- Install deps with npm install/);
+  await store.claimTaskRun(task.id);
+  await assert.rejects(store.requestChanges(task.id, { text: 'more' }), /running/);
 });

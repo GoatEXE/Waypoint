@@ -20,6 +20,8 @@ const LABELS_MAX = 10;
 const LABEL_MAX = 32;
 const BLOCKERS_MAX = 20;
 const PROJECT_NAME_MAX = 80;
+const FEEDBACK_IN_PROMPT = 5;
+export const FEEDBACK_MAX = 2000;
 
 export function taskTitle(value) {
   if (typeof value !== 'string') throw badRequest('summary must be text');
@@ -95,7 +97,10 @@ export function statusAfterRun(status, state) {
 
 export function taskPrompt(task) {
   const description = typeof task.description === 'string' ? task.description.trim() : '';
-  return description ? `${task.summary}\n\n${description}` : String(task.summary ?? '');
+  const base = description ? `${task.summary}\n\n${description}` : String(task.summary ?? '');
+  const feedback = Array.isArray(task.feedback) ? task.feedback.slice(-FEEDBACK_IN_PROMPT) : [];
+  if (!feedback.length) return base;
+  return `${base}\n\nThe user reviewed your previous run and asked for these changes. Address them, continuing from the work already in this workspace:\n${feedback.map((item) => `- ${item.text}`).join('\n')}`;
 }
 
 export function taskRef(prefix, number) {

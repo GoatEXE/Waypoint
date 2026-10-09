@@ -207,6 +207,12 @@ async function route(request, url, { config, store, organization, docker, hermes
     const taskId = await store.resolveTaskId(decodeRouteParam(match[1]));
     return { body: { messages: messaging ? await messaging.listTaskMessages(taskId) : [] } };
   }
+  match = url.pathname.match(/^\/tasks\/([^/]+)\/changes$/);
+  if (request.method === 'POST' && match) {
+    const updated = await store.requestChanges(decodeRouteParam(match[1]), await readBody(request));
+    void taskRuns.pickUp('changes_requested');
+    return { body: updated };
+  }
   match = url.pathname.match(/^\/tasks\/([^/]+)\/manual-retry$/);
   if (request.method === 'POST' && match) {
     const body = await readBody(request);

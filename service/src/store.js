@@ -6,7 +6,7 @@ import { sanitizeResponse } from './podTaskExecutor.js';
 import { normalizeActivity } from './activity.js';
 import { normalizeRepo } from './github.js';
 import { assertProjectFolder } from './projectMounts.js';
-import { TASK_EDIT_FIELDS, TASK_REF_RE, assertStatusTransition, projectName, publicTask, stateAfterStatus, statusAfterRun, taskBlockers, taskDescription, taskLabels, taskStatus, taskTitle, withStatusChange } from './taskQueue.js';
+import { FEEDBACK_MAX, TASK_EDIT_FIELDS, TASK_REF_RE, assertStatusTransition, projectName, publicTask, stateAfterStatus, statusAfterRun, taskBlockers, taskDescription, taskLabels, taskStatus, taskTitle, withStatusChange } from './taskQueue.js';
 
 export const ALLOWED_BASELINE_FILES = ['SOUL.md', 'memories/MEMORY.md', 'memories/USER.md'];
 const NAME_RE = /^[a-z][a-z0-9_-]{1,62}$/;
@@ -399,6 +399,26 @@ export class PodStore {
     const task = withoutEmptyLinks(withStatusChange({ id: safeId('task'), number, ...fields, state: 'delegated', evidence: [], createdAt: now, updatedAt: now }, null, fields.status, actor, now, 'created'));
     await writeJson(this.taskPath(task.id), task);
     return this.#taskView(task);
+  }
+  async requestChanges(ref, input, { actor = 'user' } = {}) {
+    assertPlainObject(input, 'body');
+    if (Object.keys(input).some((key) => key !== 'text')) throw badRequest('body must be { text }');
+    const text = typeof input.text === 'string' ? input.text.trim() : '';
+    if (!text || text.length > FEEDBACK_MAX || text.includes('\0')) throw badRequest(`feedback must be 1-${FEEDBACK_MAX} characters`);
+    return this.#withTaskRunLock(await this.resolveTaskId(ref), async (id) => {
+      const task = await this.getTask(id);
+      if (task.state === 'running') throw conflict('this task is running; wait for the run to finish', { taskId: id });
+      const fromStatus = publicTask(task, '').status;
+      assertStatusTransition(fromStatus, 'todo', task.state);
+      const now = new Date().toISOString();
+      const state = stateAfterStatus(task.state, 'todo');
+      const feedback = [...(Array.isArray(task.feedback) ? task.feedback : []), { text, by: actor, at: now }].slice(-20);
+      const review = task.review ? { ...task.review, state: 'resolved', by: actor, at: now } : undefined;
+      const evidence = withRunEvidence(task.evidence, [{ type: 'feedback', message: `Changes requested: ${text.slice(0, 300)}`, at: now }]);
+      const updated = withStatusChange({ ...task, status: 'todo', state, feedback, evidence, ...(review ? { review } : {}), updatedAt: now }, fromStatus, 'todo', actor, now, 'changes_requested');
+      await writeJson(this.taskPath(id), updated);
+      return this.#taskView(updated);
+    });
   }
   async updateTask(ref, input, { actor = 'user' } = {}) {
     assertTaskFields(input);
