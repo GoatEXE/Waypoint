@@ -112,7 +112,7 @@ async function route(request, url, { config, store, organization, docker, hermes
   match = url.pathname.match(/^\/pod-instances\/([^/]+)\/lifecycle$/);
   if (request.method === 'POST' && match) {
     const body = await readBody(request);
-    return { body: await podLifecycle(config, store, docker, hermes, podSeats, messaging, match[1], body.action) };
+    return { body: await podLifecycle(config, store, docker, hermes, podSeats, messaging, match[1], body.action, taskRuns) };
   }
   match = url.pathname.match(/^\/pod-instances\/([^/]+)\/seats$/);
   if (request.method === 'POST' && match) return { status: 201, body: await hireSeat({ config, store, docker, podSeats, messaging }, decodeRouteParam(match[1]), await readBody(request)) };
@@ -166,7 +166,11 @@ async function route(request, url, { config, store, organization, docker, hermes
   if (request.method === 'DELETE' && match) return { body: await store.deleteMission(match[1]) };
   match = url.pathname.match(/^\/missions\/([^/]+)\/links$/);
   if (request.method === 'POST' && match) return { body: await store.linkMission(match[1], await readBody(request)) };
-  if (request.method === 'POST' && url.pathname === '/tasks') return { status: 201, body: await store.createTask(await readBody(request)) };
+  if (request.method === 'POST' && url.pathname === '/tasks') {
+    const created = await store.createTask(await readBody(request));
+    void taskRuns.pickUp('task_created');
+    return { status: 201, body: created };
+  }
   if (request.method === 'GET' && url.pathname === '/tasks') return { body: { tasks: await store.listTasks() } };
   if (request.method === 'GET' && url.pathname === '/projects') return { body: { projects: await store.listProjects() } };
   if (request.method === 'POST' && url.pathname === '/projects') {
@@ -188,7 +192,11 @@ async function route(request, url, { config, store, organization, docker, hermes
     const task = await store.getTaskView(decodeRouteParam(match[1]));
     return { body: { ...task, liveActivity: taskRuns.liveActivity(task.id) } };
   }
-  if (request.method === 'PATCH' && match) return { body: await store.updateTask(decodeRouteParam(match[1]), await readBody(request)) };
+  if (request.method === 'PATCH' && match) {
+    const updated = await store.updateTask(decodeRouteParam(match[1]), await readBody(request));
+    void taskRuns.pickUp('task_updated');
+    return { body: updated };
+  }
   match = url.pathname.match(/^\/tasks\/([^/]+)\/run$/);
   if (request.method === 'POST' && match) {
     const result = await taskRuns.start(await store.resolveTaskId(decodeRouteParam(match[1])), await readBody(request));
@@ -229,6 +237,7 @@ async function bridgeTool(request, { config, store, docker, hermes, podSeats, ta
       assertBridgeFields(args, ['taskId', 'decision', 'reason']);
       if (!reviews) throw forbidden('Task review is unavailable');
       const reviewed = await reviews.decide(actor, args);
+      void taskRuns?.pickUp('task_reviewed');
       if (actor === 'ceo') hermes.recordCeoAction?.('review_task', `${reviewed.ref || reviewed.id} ${reviewed.review?.state}`);
       return { taskId: reviewed.id, ref: reviewed.ref, status: reviewed.status, review: reviewed.review };
     }
@@ -268,14 +277,20 @@ async function ceoControlTool(tool, args, { config, store, docker, hermes, podSe
     return hireSeat({ config, store, docker, podSeats, messaging }, String(podId || ''), { id: seatId, ...rest });
   }
   if (tool === 'clone_template') return store.cloneTemplate(String(args.templateId || ''), args, ({ podId, podName }) => docker.startPlan({ podId, podName }));
-  if (tool === 'pod_status') return podLifecycle(config, store, docker, hermes, podSeats, messaging, String(args.podId || ''), 'status');
-  if (tool === 'pod_start') return podLifecycle(config, store, docker, hermes, podSeats, messaging, String(args.podId || ''), 'start');
-  if (tool === 'pod_stop') return podLifecycle(config, store, docker, hermes, podSeats, messaging, String(args.podId || ''), 'stop');
-  if (tool === 'create_task') return store.createTask(args, { actor: 'ceo' });
+  if (tool === 'pod_status') return podLifecycle(config, store, docker, hermes, podSeats, messaging, String(args.podId || ''), 'status', taskRuns);
+  if (tool === 'pod_start') return podLifecycle(config, store, docker, hermes, podSeats, messaging, String(args.podId || ''), 'start', taskRuns);
+  if (tool === 'pod_stop') return podLifecycle(config, store, docker, hermes, podSeats, messaging, String(args.podId || ''), 'stop', taskRuns);
+  if (tool === 'create_task') {
+    const created = await store.createTask(args, { actor: 'ceo' });
+    void taskRuns.pickUp('task_created');
+    return created;
+  }
   if (tool === 'update_task') {
     if (!args || typeof args !== 'object' || Array.isArray(args)) throw badRequest('args must be an object');
     const { taskId, ...fields } = args;
-    return store.updateTask(String(taskId || ''), fields, { actor: 'ceo' });
+    const updated = await store.updateTask(String(taskId || ''), fields, { actor: 'ceo' });
+    void taskRuns.pickUp('task_updated');
+    return updated;
   }
   if (tool === 'list_tasks') return { tasks: await store.listTasks() };
   if (tool === 'list_projects') return { projects: await store.listProjects() };
@@ -415,7 +430,7 @@ async function hireSeat({ config, store, docker, podSeats, messaging }, podId, i
   if (messaging && result.seats.seats.some((item) => item.seatId === seat.id && item.profile?.state === 'ready')) await messaging.installSeatTools(instance, [seat.id], podSeats);
   return result;
 }
-async function podLifecycle(config, store, docker, hermes, podSeats, messaging, podId, action) {
+async function podLifecycle(config, store, docker, hermes, podSeats, messaging, podId, action, taskRuns = undefined) {
   let instance = await store.getInstance(podId, { dockerPlanFactory: ({ podId: id, podName }) => docker.startPlan({ podId: id, podName }) });
   if (action === 'start' && !config.dryRun) instance = await defaultPodModelFromCeo(store, hermes, instance);
   const result = await docker.lifecycle(instance, action, { projectMounts: podProjectMounts(await store.listProjects(), instance.id) });
@@ -425,6 +440,7 @@ async function podLifecycle(config, store, docker, hermes, podSeats, messaging, 
   const seats = publicSeatsResult(await podSeats.provision(await store.getInstance(instance.id), { template }));
   const readyProfiles = seats.seats.filter((seat) => seat.profile?.state === 'ready').map((seat) => seat.seatId);
   if (readyProfiles.length && messaging) await messaging.installSeatTools(instance, readyProfiles, podSeats);
+  void taskRuns?.pickUp('pod_started');
   return { ...result, seats };
 }
 

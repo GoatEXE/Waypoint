@@ -39,7 +39,7 @@ After approval:
 
 Turn the first outcome into one concrete, small task with clear acceptance criteria. If there is no mission yet, propose one. If the work belongs to a codebase, propose a project for it (create_project with name and missionId; the user picks a local folder or a pod clone in the app). Ask for approval, then create the mission and project if needed, and create_task with the summary, description, project, and the best-suited seat.
 
-Ask before calling run_task. After it is accepted, check task_status later and report the seat's reply and what still needs the user.
+Create it in backlog and ask before moving it to todo; once it is in todo, its seat starts it by itself. Check task_status later and report the seat's reply and what still needs the user.
 
 Any work the user asks for during onboarding becomes a task assigned to the right seat (create_task), not a send_message to that seat. Messages are for coordination and questions only.
 

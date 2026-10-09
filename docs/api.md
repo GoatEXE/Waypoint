@@ -157,7 +157,7 @@ Creates a task in the organization queue. Only `summary` (the title, 1–200 cha
 - `parentId`: a task id or ref; cycles are rejected
 - `blockedBy`: up to 20 task ids or refs
 
-Unknown fields are rejected. Each task gets a sequential `number` and a `ref` such as `ORT-12` built from the organization task prefix; tasks created before numbering existed are numbered by creation time at service start. Response `state` begins as `delegated`. This endpoint records ownership only; it does not execute Hermes work. Use `POST /tasks/:taskId/run` to run it.
+Unknown fields are rejected. Each task gets a sequential `number` and a `ref` such as `ORT-12` built from the organization task prefix; tasks created before numbering existed are numbered by creation time at service start. Response `state` begins as `delegated`. A task whose status is `todo` or `in_progress` and that is assigned to a seat starts by itself when that seat is free and its pod is running (one task per seat, in task number order). `backlog` tasks and tasks with unfinished blockers (`blockedBy` not done or canceled) wait. `POST /tasks/:taskId/run` still starts a task immediately.
 
 Workflow `status` is separate from run `state`. Starting a run moves `backlog`/`todo` to `in_progress`; a completed run moves it to `in_review`; a run released before any model turn restores the prior status. Older tasks without a status report one derived from their run state.
 

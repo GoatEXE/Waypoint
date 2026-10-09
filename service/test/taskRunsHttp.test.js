@@ -334,3 +334,55 @@ test('PUT /pod-instances/:podId/seats/:seatId/model persists only the seat model
     assert.deepEqual(h.calls, { readiness: 0, workspace: 0, chat: 0 });
   } finally { await h.stop(); }
 });
+
+test('tasks assigned to a seat start on their own, one at a time per seat, and backlog or blocked tasks wait', async () => {
+  const hold = gate();
+  const h = await start({ chat: async () => { await hold.promise; return { code: 0, stdout: stream() }; } });
+  try {
+    const { app, podId } = h;
+    await app.store.recordLifecycle(podId, { executed: true, dryRun: false, status: { state: 'running', running: true } }, ({ podId: id, podName }) => app.docker.startPlan({ podId: id, podName }));
+    const base = `http://127.0.0.1:${app.server.address().port}`;
+    const create = (body) => fetch(`${base}/tasks`, { method: 'POST', headers: json, body: JSON.stringify({ podId, seatId: 'coder', ...body }) }).then((r) => r.json());
+    const waitFor = async (check) => { for (let i = 0; i < 1000 && !(await check()); i += 1) await new Promise((r) => setTimeout(r, 10)); assert.ok(await check()); };
+
+    const first = await create({ summary: 'First' });
+    await waitFor(async () => (await h.getTask(first.id)).state === 'running');
+    assert.equal((await h.getTask(first.id)).status, 'in_progress');
+
+    const second = await create({ summary: 'Second' });
+    const parked = await create({ summary: 'Parked', status: 'backlog' });
+    const blocked = await create({ summary: 'Blocked', seatId: 'reviewer', blockedBy: [first.id] });
+    await app.taskRuns.pickUp('test');
+    assert.equal((await h.getTask(second.id)).state, 'delegated', 'the seat is busy with the first task');
+    assert.equal((await h.getTask(parked.id)).state, 'delegated', 'backlog is parked');
+    assert.equal((await h.getTask(blocked.id)).state, 'delegated', 'blocked until the first task is done');
+
+    hold.release();
+    await waitFor(async () => (await h.getTask(second.id)).state === 'completed');
+    assert.equal((await h.getTask(first.id)).state, 'completed');
+    assert.equal((await h.getTask(parked.id)).state, 'delegated');
+    assert.equal((await h.getTask(blocked.id)).state, 'delegated', 'first is in review, not done');
+
+    await fetch(`${base}/tasks/${first.id}`, { method: 'PATCH', headers: json, body: JSON.stringify({ status: 'done' }) });
+    await waitFor(async () => (await h.getTask(blocked.id)).state === 'completed');
+    await fetch(`${base}/tasks/${parked.id}`, { method: 'PATCH', headers: json, body: JSON.stringify({ status: 'todo' }) });
+    await waitFor(async () => (await h.getTask(parked.id)).state === 'completed');
+    assert.equal(h.calls.chat, 4);
+  } finally { await h.stop(); }
+});
+
+test('nothing starts on its own while the pod is stopped or in dry-run mode', async () => {
+  const h = await start();
+  try {
+    const task = await h.newTask();
+    assert.deepEqual(await h.app.taskRuns.pickUp('test').then(() => h.getTask(task.id)).then((t) => t.state), 'delegated');
+    assert.equal(h.calls.chat, 0);
+  } finally { await h.stop(); }
+  const dry = await start({ dryRun: true });
+  try {
+    await dry.app.store.recordLifecycle(dry.podId, { executed: true, dryRun: false, status: { state: 'running', running: true } }, ({ podId, podName }) => dry.app.docker.startPlan({ podId, podName }));
+    const task = await dry.newTask();
+    await dry.app.taskRuns.pickUp('test');
+    assert.equal((await dry.getTask(task.id)).state, 'delegated');
+  } finally { await dry.stop(); }
+});
