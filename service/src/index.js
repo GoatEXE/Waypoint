@@ -57,7 +57,7 @@ export async function createApp(env = process.env) {
   return { config, logger, store, organization, seatChat, github, docker, hermes, podSeats, podSeatAuth, taskExecutor, taskRuns, messaging, messageWakes, portal, reviews, server, bridgeServer };
 }
 export async function main() {
-  const { server, bridgeServer, config, logger, messageWakes, portal } = await createApp();
+  const { server, bridgeServer, config, logger, messageWakes, portal, taskRuns } = await createApp();
 
   await new Promise((resolve, reject) => {
     bridgeServer.once('error', reject);
@@ -65,6 +65,7 @@ export async function main() {
   });
   await listenControl(server, config.control);
   await messageWakes.start();
+  void taskRuns.pickUp('service_started');
   logger.info('service_started', { bridge: { host: config.host, port: config.port }, control: { transport: config.control.transport, path: config.control.socketPath }, dryRun: config.dryRun });
   const shutdown = (signal) => {
     logger.info('shutdown_started', { signal });

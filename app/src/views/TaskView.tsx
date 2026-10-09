@@ -33,7 +33,12 @@ function taskStatusOn(state: string): boolean {
 }
 
 function taskStatusSentence(task: TaskRecord): string {
-  if (task.state === 'delegated') return task.seatId ? `Not started. Assigned to the ${task.seatId} seat.` : task.podId ? 'Not started. Assigned to a pod; choose a seat to run it.' : 'Not started. No pod is assigned.';
+  if (task.state === 'delegated') {
+    if (!task.seatId) return task.podId ? 'Not started. Assigned to a pod; choose a seat to run it.' : 'Not started. No pod is assigned.';
+    if (task.status === 'backlog') return `Parked in backlog. Move it to Todo and the ${task.seatId} seat starts it.`;
+    if (task.status === 'todo' || task.status === 'in_progress') return `Not started yet. The ${task.seatId} seat starts it as soon as it is free and its pod is running.`;
+    return `Not started. Assigned to the ${task.seatId} seat.`;
+  }
   if (task.state === 'running') return 'Running. Checking for updates.';
   if (task.state === 'completed') return 'Completed.';
   if (task.state === 'failed') return 'Run failed. Manual review required before another run.';

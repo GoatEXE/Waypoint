@@ -619,7 +619,7 @@ test('CEO bridge skill seed documents run_task and task_status truthfully', asyn
   const literal = script.split('\n').find((line) => line.startsWith('skill="')).slice('skill='.length);
   const skill = JSON.parse(literal);
   assert.match(skill, /^---\nname: waypoint-ceo-bridge\ndescription: .*task runs, and task status\.\n---\n/);
-  assert.match(skill, /## run_task\nPayload: \{ "taskId": "task_uuid\.\.\." \}\nOnly taskId is accepted/);
+  assert.match(skill, /## run_task\nPayload: \{ "taskId": "task_uuid\.\.\." \}\nUsually not needed: todo tasks start by themselves\..*\nOnly taskId is accepted/);
   assert.match(skill, /## task_status\nPayload: \{ "taskId": "task_uuid\.\.\." \}\nOnly taskId is accepted/);
   assert.match(skill, /pod must be running .* seat provisioned with a model, and that seat's provider auth ready/);
   assert.match(skill, /With shared auth enabled, pods use the CEO provider connection/);
@@ -636,10 +636,11 @@ test('CEO bridge skill seed documents run_task and task_status truthfully', asyn
   assert.match(skill, /Returns promptly .*"state": "running" \} \(accepted for background execution, like HTTP 202\)\. It does not wait for the result/);
   assert.match(skill, /Never retry automatically\. Do not call run_task again for a task that failed or has an unknown outcome/);
   assert.match(skill, /"delegated": not run\./);
-  assert.ok(skill.includes('\n6. Recording or delegating a mission does not by itself authorize running a model on a pod. Call run_task only when the user asks to start or execute that task (or the current instruction clearly includes executing it) and its prerequisites are ready (see run_task). After a run is accepted, check task_status later.\n'));
+  assert.ok(skill.includes('\n6. Tasks in todo on a ready seat start by themselves; record work the user has not asked for yet in backlog. After a run starts, check task_status later.'));
   assert.doesNotMatch(skill, /To start the work, call run_task|means done/);
   assert.ok(skill.includes('"completed" means the seat finished its run and stored a reply. Report that reply and its evidence as the seat\'s result; do not present it as verified mission success unless the user confirms.\n'));
-  assert.match(skill, /Records delegation only\. The task starts in state "delegated" and nothing runs until run_task is called\./);
+  assert.match(skill, /If its status is todo or in_progress and its seat's pod is running, Waypoint starts it as soon as the seat is free; backlog tasks wait/);
+  assert.match(skill, /Use status backlog for work you are only proposing/);
   for (const tool of ['health', 'list_missions', 'create_mission', 'link_mission', 'create_template', 'clone_template', 'pod_status / pod_start / pod_stop', 'create_task', 'run_task', 'task_status']) {
     assert.ok(skill.includes(`\n## ${tool}\n`), `skill documents ${tool}`);
   }

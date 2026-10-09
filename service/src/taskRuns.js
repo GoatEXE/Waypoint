@@ -18,6 +18,8 @@ const ABORT_REASONS = [
   [/ownership|refusing|unexpected image|different container/i, 'pod_safety_refused'],
 ];
 
+const PICKUP_STATUSES = new Set(['todo', 'in_progress']);
+
 export class TaskRunService {
   constructor({ config, store, executor, reviews = undefined, logger = undefined }) {
     this.reviews = reviews;
@@ -28,6 +30,41 @@ export class TaskRunService {
     this.jobs = new Map();
     this.seats = new Set();
     this.live = new Map();
+    this.pickQueue = Promise.resolve();
+  }
+
+  pickUp(reason = 'event') {
+    const run = this.pickQueue.then(() => this.#pickUp(reason));
+    this.pickQueue = run.catch((error) => this.logger?.warn?.('task_pickup_failed', { reason, message: String(error?.message || error).slice(0, 160) }));
+    return this.pickQueue;
+  }
+
+  async #pickUp(reason) {
+    if (this.config.dryRun) return [];
+    const tasks = await this.store.listTasks();
+    const statusOf = new Map(tasks.map((task) => [task.id, task.status]));
+    const ready = tasks
+      .filter((task) => task.state === 'delegated' && PICKUP_STATUSES.has(task.status) && task.podId && task.seatId)
+      .filter((task) => task.blockedBy.every((id) => ['done', 'canceled'].includes(statusOf.get(id))))
+      .sort((a, b) => (a.number ?? Infinity) - (b.number ?? Infinity));
+    const started = [];
+    const claimedSeats = new Set();
+    const podRunning = new Map();
+    for (const task of ready) {
+      const seatKey = `${task.podId}/${task.seatId}`;
+      if (claimedSeats.has(seatKey) || this.seats.has(seatKey)) continue;
+      if (!podRunning.has(task.podId)) podRunning.set(task.podId, (await this.store.getInstance(task.podId).catch(() => null))?.state === 'running');
+      if (!podRunning.get(task.podId)) continue;
+      claimedSeats.add(seatKey);
+      try {
+        await this.start(task.id);
+        started.push(task.id);
+        this.logger?.info?.('task_picked_up', { taskId: task.id, seatId: task.seatId, reason });
+      } catch (error) {
+        this.logger?.info?.('task_pickup_skipped', { taskId: task.id, reason, message: String(error?.message || error).slice(0, 160) });
+      }
+    }
+    return started;
   }
 
   liveActivity(taskId) {
@@ -116,6 +153,7 @@ export class TaskRunService {
         await this.store.recordReview(task.id, { decision: 'needs_human', reason: 'The review request could not be sent.', by: 'system' }).catch(() => undefined);
       });
     }
+    void this.pickUp('run_finished');
     return finished;
   }
 
