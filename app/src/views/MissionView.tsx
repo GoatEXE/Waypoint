@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import * as D from '../data';
-import { api, type Mission, type TaskSummary } from '../api';
+import { api, type Mission, type MissionStatus, type TaskSummary } from '../api';
 import { currentMission, missionStatus, podStateLabel, shortDate, taskStateLabel } from '../missionsModel';
 import { useStore } from '../store';
 import { OnDot } from '../components/ui';
@@ -92,6 +92,7 @@ export function MissionView() {
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState('');
   const [deletedLinks, setDeletedLinks] = useState<{ podId: string | null; taskId: string | null } | null>(null);
+  const [statusError, setStatusError] = useState('');
   const needs = pending.slice(0, 3);
   const { missions } = state;
   const mission = currentMission(missions);
@@ -187,11 +188,12 @@ export function MissionView() {
         {deletionControls}
         {mission.outcome && <p className="mission-lede">{mission.outcome}</p>}
         <div className="meta-row" style={{ gap: '8px 22px', marginTop: 4 }}>
-          <span>Status <span className="v">{status.label}</span></span>
+          <label>Status <select aria-label="Mission status" value={mission.status} onChange={async (event) => { try { await api.updateMission(mission.id, event.target.value as MissionStatus); await loadMissions(); setStatusError(''); } catch (error) { setStatusError(error instanceof Error ? error.message : String(error)); } }}>{['backlog', 'todo', 'in_progress', 'in_review', 'done', 'canceled'].map(value => <option key={value} value={value}>{value.replace(/_/g, ' ')}</option>)}</select></label>
           {mission.target && <span>Target <span className="v">{shortDate(mission.target)}</span></span>}
           <span>Recorded <span className="v">{shortDate(mission.createdAt)}</span></span>
         </div>
         <div style={{ fontSize: 13, color: 'var(--muted)' }}>{status.detail}</div>
+        {statusError && <div role="alert">{statusError}</div>}
       </div>
 
       {needs.length > 0 && (

@@ -25,7 +25,7 @@ test('missions persist with linked pod/task summaries and honest delegated state
   assert.equal(created, true);
   assert.match(mission.id, /^mission_/);
   assert.equal(mission.podId, pod.id, 'task implies its pod');
-  assert.equal(mission.state, 'delegated');
+  assert.equal(mission.status, 'todo');
   assert.equal(mission.source, 'ceo');
   assert.equal(mission.pod.podName, 'finish-waypoint-01');
   assert.deepEqual(mission.pod.seats.map((s) => s.id), ['lead', 'builder']);
@@ -70,12 +70,12 @@ test('mission links are validated against stored records', async () => {
 test('planned missions can be linked later without replacing existing links', async () => {
   const { store, pod, task } = await seededStore();
   const { mission } = await store.createMission({ title: 'Later link', target: '2026-12-01' });
-  assert.equal(mission.state, 'planned');
+  assert.equal(mission.status, 'backlog');
   assert.equal(mission.pod, null);
   const withPod = await store.linkMission(mission.id, { podId: pod.id });
-  assert.equal(withPod.state, 'planned');
+  assert.equal(withPod.status, 'backlog');
   const linked = await store.linkMission(mission.id, { taskId: task.id });
-  assert.equal(linked.state, 'delegated');
+  assert.equal(linked.status, 'backlog', 'linking preserves mission status');
   assert.equal(linked.task.id, task.id);
   const other = await store.cloneTemplate(pod.templateId, { podName: 'other-pod' }, planFactory);
   await assert.rejects(store.linkMission(mission.id, { podId: other.id }), (error) => error.status === 409);
@@ -120,6 +120,7 @@ test('HTTP and bridge mission endpoints create, list, and stay token-protected',
     const bridged = await post('/bridge/tools', { tool: 'create_mission', args: { title: 'Finish Waypoint', podId: pod.id, taskId: task.id } }, auth).then((r) => r.json());
     assert.equal(bridged.created, true);
     assert.equal(bridged.mission.source, 'ceo');
+    assert.equal(bridged.mission.status, 'todo');
     const repeat = await post('/missions', { title: 'Finish Waypoint', podId: pod.id, taskId: task.id });
     assert.equal(repeat.status, 200);
     assert.equal((await repeat.json()).id, bridged.mission.id);
@@ -127,9 +128,13 @@ test('HTTP and bridge mission endpoints create, list, and stay token-protected',
     assert.equal(fresh.status, 201);
     const second = await fresh.json();
     assert.equal(second.source, 'app');
-    assert.equal(second.state, 'planned');
+    assert.equal(second.status, 'backlog');
     const linked = await post('/bridge/tools', { tool: 'link_mission', args: { missionId: second.id, podId: pod.id } }, auth).then((r) => r.json());
     assert.equal(linked.pod.id, pod.id);
+    const changed = await post('/bridge/tools', { tool: 'update_mission', args: { missionId: second.id, status: 'todo' } }, auth).then((r) => r.json());
+    assert.equal(changed.status, 'todo');
+    const invalid = await post('/bridge/tools', { tool: 'update_mission', args: { missionId: second.id, status: 'completed' } }, auth);
+    assert.equal(invalid.status, 400);
     const listed = await post('/bridge/tools', { tool: 'list_missions', args: {} }, auth).then((r) => r.json());
     assert.deepEqual(listed.missions.map((m) => m.title).sort(), ['Finish Waypoint', 'Second mission']);
     const one = await fetch(`${base}/missions/${bridged.mission.id}`).then((r) => r.json());
@@ -159,5 +164,6 @@ test('CEO bridge skill tells the CEO to record and link missions without claimin
   for (const tool of ['list_missions', 'create_mission', 'link_mission']) assert.match(skill, new RegExp(`## ${tool}`));
   assert.match(skill, /When the user asks for a mission/);
   assert.match(skill, /do not create a duplicate/);
-  assert.match(skill, /does not mean anything has run/);
+  assert.match(skill, /## update_mission/);
+  assert.match(skill, /completed task run does not automatically mark the mission done/);
 });

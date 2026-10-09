@@ -36,16 +36,9 @@ export function taskStateLabel(state: string): string {
 }
 
 export function missionStatus(m: Mission): { label: string; detail: string } {
-  if (m.missing.length) {
-    return { label: 'Needs attention', detail: `The linked ${m.missing.join(' and ')} record could not be found.` };
-  }
-  if (m.task) {
-    const where = m.pod ? ` in ${m.pod.podName}` : '';
-    if (m.task.state === 'delegated') return { label: 'Delegated', detail: `Handed to the ${m.task.seatId} seat${where}. No work has run yet.` };
-    return { label: cap(m.task.state), detail: `The ${m.task.seatId} seat${where} reports: ${m.task.state}.` };
-  }
-  if (m.pod) return { label: 'Planned', detail: `Pod ${m.pod.podName} is assigned. No task has been handed off yet.` };
-  return { label: 'Planned', detail: 'No pod or task is assigned yet. Ask the CEO to staff it.' };
+  const detail = m.task ? `Linked task run: ${m.task.state}.` : m.pod ? `Pod ${m.pod.podName} is assigned.` : 'No pod or task is assigned yet.';
+  const title = (m.status || 'backlog').replace(/_/g, ' ');
+  return { label: title.charAt(0).toUpperCase() + title.slice(1), detail };
 }
 
 export function shortDate(iso: string): string {

@@ -163,6 +163,11 @@ async function route(request, url, { config, store, organization, docker, hermes
   }
   match = url.pathname.match(/^\/missions\/([^/]+)$/);
   if (request.method === 'GET' && match) return { body: await store.getMission(match[1]) };
+  if (request.method === 'PATCH' && match) {
+    const body = await readBody(request);
+    assertBridgeFields(body, ['status']);
+    return { body: await store.updateMissionStatus(match[1], body.status) };
+  }
   if (request.method === 'DELETE' && match) return { body: await store.deleteMission(match[1]) };
   match = url.pathname.match(/^\/missions\/([^/]+)\/links$/);
   if (request.method === 'POST' && match) return { body: await store.linkMission(match[1], await readBody(request)) };
@@ -303,6 +308,10 @@ async function ceoControlTool(tool, args, { config, store, docker, hermes, podSe
   if (tool === 'create_project') return store.createProject(args);
   if (tool === 'create_mission') return store.createMission(args, { source: 'ceo' });
   if (tool === 'link_mission') return store.linkMission(String(args.missionId || ''), args);
+  if (tool === 'update_mission') {
+    assertBridgeFields(args, ['missionId', 'status']);
+    return store.updateMissionStatus(String(args.missionId || ''), args.status);
+  }
   if (tool === 'list_missions') return { missions: await store.listMissions() };
   if (tool === 'run_task') {
 
