@@ -49,7 +49,7 @@ export async function localProjectGitEnv(project, seatId) {
     ['safe.directory', workdir],
     ['core.autocrlf', ['true', 'input', 'false'].includes(autocrlf) ? autocrlf : 'false'],
     ['credential.helper', ''],
-    ['credential.helper', `!python3 /opt/data/profiles/${seatId}/bin/waypoint-github.py credential`],
+    ['credential.helper', '!/usr/local/bin/waypoint-git-credential'],
     ['credential.useHttpPath', 'true'],
     ['user.name', `${seatId} (Waypoint)`],
     ['user.email', `${seatId}@waypoint.local`],

@@ -135,5 +135,10 @@ test('seat tool installation sends the scoped credential through stdin and never
     assert.equal(calls[0].args[calls[0].args.indexOf('--user') + 1], 'hermes');
     assert.equal(calls[0].args.join(' ').includes(calls[0].input.token), false);
     assert.equal(calls[0].input.skill.includes('org builder'), true);
+    assert.deepEqual(Object.keys(calls[0].input).sort(), ['baseUrl', 'client', 'seatId', 'skill', 'token']);
+    const script = calls[0].args.at(-1);
+    assert.match(script, /waypoint-github\.py/, 'old GitHub wrapper is removed from existing seats');
+    assert.match(script, /\.gitconfig/);
+    assert.match(script, /name = '\+seat\+' \(Waypoint\)/);
   } finally { await f.close(); }
 });
