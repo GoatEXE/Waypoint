@@ -362,9 +362,18 @@ textarea.input { resize: vertical; line-height: 1.5; }
 .task-column[data-status="done"] .task-card .task-title, .task-column[data-status="canceled"] .task-card .task-title { color: var(--muted); }
 .task-column[data-status="canceled"] .task-card .task-title { text-decoration: line-through; }
 .task-pill.status { border-color: color-mix(in oklch, var(--st) 55%, transparent); color: var(--st); }
-.thread-bar { display: flex; align-items: center; gap: 8px; padding: 8px 14px; border-bottom: 1px solid var(--line); background: var(--bg-pane); }
-.thread-label { font: 500 10px/1 var(--mono); letter-spacing: .08em; color: var(--fainter); flex: none; }
-.thread-select { flex: 1; min-width: 0; background: var(--well); border: 1px solid var(--border-3); border-radius: 7px; color: var(--text); padding: 5px 8px; font-size: 12.5px; }
+.thread-head { display: flex; align-items: center; gap: 8px; padding: 8px 14px; border-bottom: 1px solid var(--line); background: var(--bg-pane); flex: none; }
+.thread-back { flex: none; border: none; background: transparent; padding: 4px 6px; margin-left: -6px; border-radius: 6px; font-size: 12.5px; color: var(--dim); cursor: pointer; }
+.thread-back:hover { background: var(--raised); color: var(--text); }
+.thread-head-title { flex: 1; font: 400 12.5px var(--mono); color: var(--text-3); }
+.thread-list { padding: 12px 10px; gap: 2px; }
+.thread-more { align-self: flex-start; margin: 6px 8px 0; padding: 2px 0; border: none; background: transparent; font-size: 11.5px; color: var(--faint); cursor: pointer; }
+.thread-more:hover { color: var(--muted); }
+.thread-row { display: flex; flex-direction: column; gap: 3px; width: 100%; padding: 7px 8px; border: none; border-radius: 7px; background: transparent; color: var(--text-3); cursor: pointer; text-align: left; }
+.thread-row:hover { background: var(--raised); color: var(--text); }
+.thread-row-title { display: flex; align-items: center; gap: 6px; min-width: 0; font: 400 12.5px/1.3 var(--mono); }
+.thread-row-meta { font-size: 11px; color: var(--faint); }
+.thread-row-busy { width: 6px; height: 6px; flex: none; border-radius: 50%; background: var(--acc); animation: wp-pulse 1s infinite; }
 .act-block { align-self: stretch; }
 .act-toggle { border: none; background: transparent; padding: 2px 0; font: 400 11.5px var(--mono); color: var(--faint); cursor: pointer; }
 .act-toggle:hover { color: var(--muted); }

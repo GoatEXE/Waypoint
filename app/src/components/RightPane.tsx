@@ -7,6 +7,7 @@ import { ActivityBlock, ActivityList } from './Activity';
 import { addressLabel, buildTimeline, deliveryLabel, generalThreadMessages, type TaskThreadExtras, type TimelineEntry } from '../threadTimeline';
 import { useStore, useViewport, type PaneTab } from '../store';
 import { ceoNameOf } from '../orgModel';
+import { threadMeta, visibleTaskThreads } from '../ceoThreads';
 import { Dot, PaneGroupHead } from './ui';
 import { PANE_DOCK_MIN } from './layout';
 
@@ -55,26 +56,51 @@ function threadName(thread: CeoThread | undefined, id: string) {
   return `${thread.ref ? `${thread.ref} · ` : ''}${thread.title}`;
 }
 
-function ThreadBar({ threads, current, busy, disabled, onPick }: { threads: CeoThread[]; current: string; busy: string | null; disabled: boolean; onPick: (id: string) => void }) {
-  const nav = useNavigate();
-  const known = threads.some(t => t.threadId === current) ? threads : [...threads, { threadId: current, title: current === 'general' ? 'General' : parseSeatThread(current)?.seatId || 'Task thread', ref: null, status: null, messageCount: 0, updatedAt: null, lastText: '' }];
-  const groups: [string, CeoThread[]][] = [
-    ['Tasks', known.filter(t => t.threadId.startsWith('task_'))],
-    ['Seats', known.filter(t => t.threadId.startsWith('seat:'))],
-  ];
-  const option = (t: CeoThread) => <option key={t.threadId} value={t.threadId}>{threadName(t, t.threadId)}{busy === t.threadId ? ' (working)' : ''}</option>;
-  const seat = parseSeatThread(current);
-  const thread = known.find(t => t.threadId === current);
+function useCeoThreads(refreshKey: unknown) {
+  const [data, setData] = useState<{ threads: CeoThread[]; busyThreadId: string | null }>({ threads: [], busyThreadId: null });
+  useEffect(() => {
+    let active = true;
+    const load = () => api.ceoThreads().then(result => { if (active) setData(result); }).catch(() => undefined);
+    void load();
+    const timer = window.setInterval(() => void load(), 15000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [refreshKey]);
+  return data;
+}
+
+function TaskThreadList({ threads, busy, onPick }: { threads: CeoThread[]; busy: string | null; onPick: (id: string) => void }) {
+  const [showAll, setShowAll] = useState(false);
+  const { shown, hidden } = visibleTaskThreads(threads.filter(t => t.threadId.startsWith('task_')), showAll);
   return (
-    <div className="thread-bar">
-      <span className="thread-label">THREAD</span>
-      <select className="thread-select" value={current} disabled={disabled} onChange={e => onPick(e.target.value)} aria-label="Conversation thread">
-        {known.filter(t => t.threadId === 'general').map(option)}
-        {groups.map(([label, list]) => list.length ? <optgroup key={label} label={label}>{list.map(option)}</optgroup> : null)}
-      </select>
-      {seat && <button type="button" className="icon-btn" title="Open pod" onClick={() => nav('/pods/' + seat.podId)}>↗</button>}
-      {current.startsWith('task_') && <button type="button" className="icon-btn" title="Open task" onClick={() => nav('/tasks/' + encodeURIComponent(thread?.ref || current))}>↗</button>}
+    <div className="pane-body thread-list">
+      {!shown.length && !hidden && <div className="empty">No tasks yet. Each new task gets its own thread with the CEO.</div>}
+      {shown.map(t => (
+        <button key={t.threadId} type="button" className="thread-row" onClick={() => onPick(t.threadId)}>
+          <span className="thread-row-title">{busy === t.threadId && <span className="thread-row-busy" title="Working" />}<span className="ellipsis">{threadName(t, t.threadId)}</span></span>
+          <span className="thread-row-meta ellipsis">{threadMeta(t)}</span>
+        </button>
+      ))}
+      {(hidden > 0 || showAll) && <button type="button" className="thread-more" onClick={() => setShowAll(v => !v)}>{showAll ? 'Show recent only' : `Show all (${hidden} more, incl. done)`}</button>}
     </div>
+  );
+}
+
+function TasksTab() {
+  const { state, setCeoThread } = useStore();
+  const nav = useNavigate();
+  const { threads, busyThreadId } = useCeoThreads(state.ceo.sending);
+  const current = state.ceoThread;
+  if (!current.startsWith('task_')) return <TaskThreadList threads={threads} busy={busyThreadId} onPick={id => setCeoThread(id)} />;
+  const thread = threads.find(t => t.threadId === current);
+  return (
+    <>
+      <div className="thread-head">
+        <button type="button" className="thread-back" onClick={() => setCeoThread('general')}>← Tasks</button>
+        <span className="thread-head-title ellipsis">{threadName(thread, current)}</span>
+        <button type="button" className="icon-btn" title="Open task" onClick={() => nav('/tasks/' + encodeURIComponent(thread?.ref || current))}>↗</button>
+      </div>
+      <CeoChat />
+    </>
   );
 }
 
@@ -150,9 +176,8 @@ function useTaskThreadExtras(threadId: string, refreshKey: unknown) {
 }
 
 function CeoChat() {
-  const { state, loadCeoConversation, sendCeoMessage, setCeoThread } = useStore();
+  const { state, loadCeoConversation, sendCeoMessage } = useStore();
   const [draft, setDraft] = useState('');
-  const [threads, setThreads] = useState<CeoThread[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const loadedRef = useRef(false);
   const ceo = state.ceo;
@@ -168,21 +193,6 @@ function CeoChat() {
     void loadCeoConversation();
   }, [loadCeoConversation, ceo.messages.length, ceo.sending, ceo.pendingMessage, ceo.failedMessage]);
 
-  useEffect(() => {
-    let active = true;
-    const thread = state.ceoThread;
-    void (async () => {
-      const [{ threads: list }, chart] = await Promise.all([api.ceoThreads(), api.orgChart().catch(() => ({ pods: [] }))]);
-      for (const pod of chart.pods) for (const seat of pod.seats) list.push({ threadId: `seat:${pod.podId}/${seat.seatId}`, title: `${pod.name} / ${seat.seatId}`, ref: null, status: null, messageCount: 0, updatedAt: null, lastText: seat.role });
-      if (thread.startsWith('task_') && !list.some(t => t.threadId === thread)) {
-        const task = await api.task(thread).catch(() => null);
-        if (task) list.push({ threadId: thread, title: task.summary, ref: task.ref, status: task.status, messageCount: 0, updatedAt: null, lastText: '' });
-      }
-      if (active) setThreads(list);
-    })().catch(() => undefined);
-    return () => { active = false; };
-  }, [state.ceoThread, ceo.sending]);
-
   const resuming = !ceo.sending && Boolean(ceo.live);
   useEffect(() => {
     if (!resuming) return;
@@ -195,22 +205,21 @@ function CeoChat() {
     if (el) el.scrollTop = el.scrollHeight;
   }, [ceo.messages.length, ceo.loading, ceo.sending, ceo.pendingMessage, ceo.failedMessage, ceo.sendError, ceo.live?.items.length]);
 
+  const otherBusy = !working && ceo.busyThreadId && ceo.busyThreadId !== state.ceoThread;
+  const blocked = working || Boolean(otherBusy);
   const send = () => {
     const text = draft.trim();
-    if (!text || working) return;
+    if (!text || blocked) return;
     setDraft('');
     void sendCeoMessage(text);
   };
   const refreshConversation = () => { if (!ceo.loading) void loadCeoConversation(); };
   const hasVisibleMessages = ceo.messages.length > 0 || ceo.pendingMessage || ceo.failedMessage;
-  const otherBusy = !working && ceo.busyThreadId && ceo.busyThreadId !== state.ceoThread;
-  const currentThread = threads.find(t => t.threadId === state.ceoThread);
   const extras = useTaskThreadExtras(state.ceoThread, ceo.messages.length);
   const timeline = buildTimeline(ceo.messages, extras);
 
   return (
     <>
-      <ThreadBar threads={threads} current={state.ceoThread} busy={working ? state.ceoThread : ceo.busyThreadId} disabled={ceo.sending} onPick={id => setCeoThread(id)} />
       <div ref={scrollRef} className="pane-body" style={{ padding: '20px 18px', gap: 16 }} aria-live="polite">
         {ceo.loading && !ceo.messages.length && <div className="empty">Loading conversation…</div>}
         {ceo.loadError && (
@@ -262,39 +271,11 @@ function CeoChat() {
             onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
           />
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11.5, color: 'var(--fainter)' }}>
-            <span className="ellipsis">Thread: <span style={{ color: 'var(--muted)' }}>{threadName(currentThread, state.ceoThread)}</span></span>
-            <button className="btn btn-primary" style={{ marginLeft: 'auto', padding: '5px 11px', borderRadius: 6, fontSize: 12, opacity: draft.trim() && !working ? 1 : 0.45 }} disabled={!draft.trim() || working} onClick={send}>{working ? 'Working…' : 'Send'}</button>
+            <button className="btn btn-primary" style={{ marginLeft: 'auto', padding: '5px 11px', borderRadius: 6, fontSize: 12, opacity: draft.trim() && !blocked ? 1 : 0.45 }} disabled={!draft.trim() || blocked} onClick={send}>{working ? 'Working…' : 'Send'}</button>
           </div>
         </div>
       </div>
     </>
-  );
-}
-
-const SORD: Record<D.TaskStatus, number> = { decision: 0, blocked: 1, review: 2, running: 3, queued: 4, done: 5 };
-
-function TasksTab() {
-  const { tasks } = useStore();
-  const nav = useNavigate();
-  const open = tasks.filter(t => t.st !== 'done').sort((a, b) => SORD[a.st] - SORD[b.st]);
-  return (
-    <div className="pane-body" style={{ padding: '16px 12px', gap: 18 }}>
-      {!open.length && <div className="empty">No tasks yet.</div>}
-      {byParent(open, t => t.p).map(g => (
-        <div key={g.key} className="stack" style={{ gap: 2 }}>
-          <div style={{ padding: '4px 8px 6px' }}><PaneGroupHead g={g} /></div>
-          {g.items.map(t => (
-            <div key={t.id} className="sb-item" style={{ gap: 10, padding: 8, borderRadius: 7, color: 'var(--text)' }} onClick={() => nav('/tasks/' + t.id)}>
-              <Dot status={t.st} />
-              <div className="stack" style={{ flex: 1, minWidth: 0 }}>
-                <span className="ellipsis" style={{ fontSize: 13 }}>{t.title}</span>
-                <span style={{ font: '400 11.5px var(--mono)', color: 'var(--faint)' }}>{t.id} · {t.owner}</span>
-              </div>
-            </div>
-          ))}
-        </div>
-      ))}
-    </div>
   );
 }
 
@@ -375,9 +356,15 @@ function PinnedTask({ id }: { id: string }) {
 }
 
 export function RightPane() {
-  const { state, setPane } = useStore();
+  const { state, setPane, setCeoThread } = useStore();
   const vw = useViewport();
   const { tab, item } = state.pane;
+  const taskThreadOpen = state.ceoThread.startsWith('task_');
+  useEffect(() => { if (tab === 'ceo' && taskThreadOpen) setPane({ tab: 'tasks' }); }, [tab, taskThreadOpen, setPane]);
+  const pick = (k: PaneTab) => {
+    if (k === 'ceo') setCeoThread('general');
+    setPane({ tab: k });
+  };
   const tabs: [PaneTab, string][] = [['ceo', ceoNameOf(state.org.organization)], ['tasks', 'Tasks'], ['artifacts', 'Artifacts'], ['inbox', 'Inbox']];
   if (item) tabs.push(['item', item]);
 
@@ -385,7 +372,7 @@ export function RightPane() {
     <aside className={'pane' + (vw < PANE_DOCK_MIN ? ' overlay' : '')}>
       <div className="pane-tabs">
         {tabs.map(([k, label]) => (
-          <button key={k} className={'pane-tab' + (tab === k ? ' on' : '') + (k === 'item' ? ' mono' : '')} onClick={() => setPane({ tab: k })}>{label}</button>
+          <button key={k} className={'pane-tab' + (tab === k ? ' on' : '') + (k === 'item' ? ' mono' : '')} onClick={() => pick(k)}>{label}</button>
         ))}
         <button className="icon-btn" style={{ marginLeft: 'auto' }} title="Close" onClick={() => setPane({ open: false })}>×</button>
       </div>

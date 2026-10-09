@@ -128,7 +128,7 @@ function useAppStore() {
       }
     },
     setCeoThread: (thread: string) => {
-      if (ceoSendingRef.current || thread === ceoThreadRef.current) return false;
+      if (thread === ceoThreadRef.current) return false;
       ceoThreadRef.current = thread;
       ceoSendVersionRef.current += 1;
       set({ ceoThread: thread, ceo: { ...emptyCeoState, loading: true } });
@@ -162,11 +162,11 @@ function useAppStore() {
       try {
         const response = await api.sendThreadMessage(text, thread);
         follow(response.messages.filter(m => m.role === 'activity').at(-1)?.items);
-        set(s => ({ ceo: ceoSendSucceeded(s.ceo, response), ...(openPane ? { pane: { ...s.pane, open: true, tab: 'ceo' as const } } : {}) }));
+        set(s => ({ ceo: s.ceoThread === thread ? ceoSendSucceeded(s.ceo, response) : { ...s.ceo, busyThreadId: null }, ...(openPane ? { pane: { ...s.pane, open: true, tab: 'ceo' as const } } : {}) }));
         return { ok: true };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        set(s => ({ ceo: ceoSendFailed(s.ceo, message) }));
+        set(s => ({ ceo: s.ceoThread === thread ? ceoSendFailed(s.ceo, message) : { ...s.ceo, busyThreadId: null } }));
         return { ok: false, error: message };
       } finally {
         window.clearInterval(poll);

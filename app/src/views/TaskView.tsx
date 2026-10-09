@@ -376,7 +376,7 @@ export function TaskView({ id }: { id: string }) {
         </div>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 10, flexWrap: 'wrap' }}>
           {task.state === 'delegated' && task.seatId && <button className="btn lg btn-primary" onClick={() => void startRun()} disabled={!canStartRun(task, startingRun, pod)}>{runButtonLabel(task, startingRun)}</button>}
-          <button className="btn lg btn-ghost" onClick={() => { setCeoThread(task.id); setPane({ open: true, tab: 'ceo' }); }}>Discuss with {ceoNameOf(appState.org.organization)}</button>
+          <button className="btn lg btn-ghost" onClick={() => { setCeoThread(task.id); setPane({ open: true, tab: 'tasks' }); }}>Discuss with {ceoNameOf(appState.org.organization)}</button>
           <RefreshButton loading={refreshing} onClick={() => void loadTask('refresh')} />
         </div>
       </div>
