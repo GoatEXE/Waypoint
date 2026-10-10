@@ -18,7 +18,7 @@ export function threadEntries(task: Pick<BoardTaskDetail, 'comments' | 'events' 
     ...runs.map((run, index) => ({ run, index })).filter(({ run }) => run.status !== 'running' && (run.endedAt || run.startedAt))
       .map(({ run, index }) => ({ kind: 'run' as const, at: run.endedAt || run.startedAt || '', run, index })),
     ...task.comments.map(c => ({ kind: 'comment' as const, at: c.at || '', author: c.author, body: c.body })),
-    ...task.events.filter(e => e.kind !== 'commented' && !(e.detail && summaries.has(e.detail.trim()))).map(e => e.kind === 'heartbeat'
+    ...task.events.filter(e => e.kind !== 'commented' && !(runs.length && e.kind === 'review_requested') && !(e.detail && summaries.has(e.detail.trim()))).map(e => e.kind === 'heartbeat'
       ? { kind: 'heartbeats' as const, at: e.at || '', count: 1 }
       : { kind: 'event' as const, at: e.at || '', text: eventText(e.kind, e.detail) }),
   ];
