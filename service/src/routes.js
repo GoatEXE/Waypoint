@@ -130,14 +130,14 @@ async function route(request, url, { config, store, organization, hermes, board,
   return NOT_FOUND;
 }
 
-async function bridgeTool(request, { config, store, hermes, github }) {
+async function bridgeTool(request, { config, store, hermes, github, board }) {
   const body = await readBody(request);
   const tool = String(body.tool || '');
   const args = body.args || {};
   if (!bearerMatches(request.headers.authorization, config.bridge.token)) throw forbidden('Waypoint bridge token is required');
   if (!args || typeof args !== 'object' || Array.isArray(args)) throw badRequest('args must be an object');
   let result;
-  try { result = await ceoControlTool(tool, args, { config, store, github }); }
+  try { result = await ceoControlTool(tool, args, { config, store, github, board }); }
   catch (error) {
     if (tool !== 'health') hermes.recordCeoAction?.(tool, String(error.message || 'failed'), 'error');
     throw error;
@@ -146,8 +146,13 @@ async function bridgeTool(request, { config, store, hermes, github }) {
   return result;
 }
 
-async function ceoControlTool(tool, args, { config, store, github }) {
+async function ceoControlTool(tool, args, { config, store, github, board }) {
   if (tool === 'health') return { ok: true, service: config.serviceName };
+  if (tool === 'list_tasks') {
+    assertFields(args, []);
+    const { tasks } = await board.list();
+    return { tasks: tasks.map(({ id, ref, title, status, assignee }) => ({ id, ref, title, status, assignee })) };
+  }
   if (tool === 'github_token') return githubToken(args, { store, github });
   if (tool === 'list_projects') return { projects: await store.listProjects() };
   if (tool === 'create_project') return store.createProject(args);
@@ -207,6 +212,7 @@ function actionSummary(tool, args = {}, result = {}) {
   if (tool === 'update_mission') return `${value(args.missionId)} ${value(args.status)}`;
   if (tool === 'list_projects') return `${result.projects?.length ?? 0} projects`;
   if (tool === 'list_missions') return `${result.missions?.length ?? 0} missions`;
+  if (tool === 'list_tasks') return `${result.tasks?.length ?? 0} tasks`;
   return '';
 }
 

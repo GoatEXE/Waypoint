@@ -578,6 +578,7 @@ test('CEO skill seed describes native seats, the board, and the bridge tools', a
   assert.match(skill, /Seats are Hermes profiles in your own install/);
   assert.match(skill, /Delegate work as kanban tasks assigned to the best seat/);
   assert.match(skill, /queue the next step as a child task that starts once the user approves/);
+  assert.match(skill, /list_tasks \{\} maps refs to board ids/);
   assert.match(skill, /update_mission \{ missionId, status \}/);
   assert.doesNotMatch(skill, /pod_start|run_task|send_message|create_task/, 'no legacy pod or task tools');
   assert.doesNotMatch(script, /waypoint-github|gh (pr|issue|auth)|GitHub CLI/, 'GitHub usage is left to the model');

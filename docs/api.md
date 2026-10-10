@@ -16,6 +16,7 @@ The only route on the TCP listener, for the CEO. Body: `{ "tool": "...", "args":
 - `github_token { repo? }`: see GitHub below.
 - `list_missions {}`, `create_mission { title, outcome?, target?, taskId? }`, `link_mission { missionId, taskId }`, `update_mission { missionId, status }`. Missions created here are recorded with `source: "ceo"`.
 - `list_projects {}`, `create_project { name, missionId?, repo? }`.
+- `list_tasks {}`: the board as `{ id, ref, title, status, assignee }`, so the CEO can map the refs the user sees to board ids.
 
 Seats, tasks, and coordination are native Hermes: the CEO hires seats with `hermes profile create` and delegates with `hermes kanban create --assignee <seat>`.
 
