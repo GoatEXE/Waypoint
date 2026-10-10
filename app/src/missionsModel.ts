@@ -1,4 +1,4 @@
-import type { Mission, MissionPod } from './api';
+import type { Mission } from './api';
 
 export interface MissionsState { status: 'loading' | 'ready' | 'error'; missions: Mission[]; error: string | null }
 
@@ -16,33 +16,12 @@ export function sidebarMissionLabel(s: MissionsState): string {
   return s.missions[0]?.title || 'No mission yet';
 }
 
-export function missionPods(missions: Mission[]): MissionPod[] {
-  const seen = new Map<string, MissionPod>();
-  for (const m of missions) if (m.pod && !seen.has(m.pod.id)) seen.set(m.pod.id, m.pod);
-  return [...seen.values()];
-}
-
-const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
-
-export function podStateLabel(state: string): string {
-  if (state === 'planned') return 'Set up, not running';
-  if (state === 'running') return 'Running';
-  return cap(state || 'unknown');
-}
-
-export function taskStateLabel(state: string): string {
-  if (state === 'delegated') return 'Handed off, not started';
-  return cap(state || 'unknown');
-}
-
-export function missionStatus(m: Mission): { label: string; detail: string } {
-  const detail = m.task ? `Linked task run: ${m.task.state}.` : m.pod ? `Pod ${m.pod.podName} is assigned.` : 'No pod or task is assigned yet.';
+export function missionStatusLabel(m: Mission): string {
   const title = (m.status || 'backlog').replace(/_/g, ' ');
-  return { label: title.charAt(0).toUpperCase() + title.slice(1), detail };
+  return title.charAt(0).toUpperCase() + title.slice(1);
 }
 
 export function shortDate(iso: string): string {
-
   const d = new Date(/^\d{4}-\d{2}-\d{2}$/.test(iso) ? `${iso}T00:00:00` : iso);
   if (Number.isNaN(d.getTime())) return '';
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });

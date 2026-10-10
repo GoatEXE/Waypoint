@@ -2,13 +2,12 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import * as D from '../data';
 import { byParent, projById, st } from '../model';
-import { api, parseSeatThread, type CeoThread } from '../api';
+import { api, type CeoThread } from '../api';
 import { ActivityBlock, ActivityList } from './Activity';
 import { TaskRefText } from './TaskRefText';
-import { addressLabel, buildTimeline, deliveryLabel, generalThreadMessages, type TaskThreadExtras, type TimelineEntry } from '../threadTimeline';
 import { useStore, useViewport, type PaneTab } from '../store';
 import { ceoNameOf } from '../orgModel';
-import { threadMeta, visibleTaskThreads } from '../ceoThreads';
+import { isTaskThread, threadMeta, visibleTaskThreads } from '../ceoThreads';
 import { Dot, PaneGroupHead } from './ui';
 import { PANE_DOCK_MIN } from './layout';
 
@@ -71,7 +70,7 @@ function useCeoThreads(refreshKey: unknown) {
 
 function TaskThreadList({ threads, busy, onPick }: { threads: CeoThread[]; busy: string | null; onPick: (id: string) => void }) {
   const [showAll, setShowAll] = useState(false);
-  const { shown, hidden } = visibleTaskThreads(threads.filter(t => t.threadId.startsWith('task_')), showAll);
+  const { shown, hidden } = visibleTaskThreads(threads.filter(t => isTaskThread(t.threadId)), showAll);
   return (
     <div className="pane-body thread-list">
       {!shown.length && !hidden && <div className="empty">No tasks yet. Each new task gets its own thread with the CEO.</div>}
@@ -91,7 +90,7 @@ function TasksTab() {
   const nav = useNavigate();
   const { threads, busyThreadId } = useCeoThreads(state.ceo.sending);
   const current = state.ceoThread;
-  if (!current.startsWith('task_')) return <TaskThreadList threads={threads} busy={busyThreadId} onPick={id => setCeoThread(id)} />;
+  if (!isTaskThread(current)) return <TaskThreadList threads={threads} busy={busyThreadId} onPick={id => setCeoThread(id)} />;
   const thread = threads.find(t => t.threadId === current);
   return (
     <>
@@ -105,77 +104,6 @@ function TasksTab() {
   );
 }
 
-function runLabel(state: string) {
-  if (state === 'running') return 'running';
-  if (state === 'completed') return 'completed';
-  if (state === 'failed') return 'failed';
-  if (state === 'outcome_unknown') return 'outcome unknown';
-  return state.replaceAll('_', ' ');
-}
-
-function RunEntry({ entry, seatId }: { entry: Extract<TimelineEntry, { kind: 'run' }>; seatId: string | null }) {
-  const { run, live } = entry;
-  const seconds = run.durationMs != null ? Math.round(run.durationMs / 1000) : null;
-  return (
-    <div className="thread-run">
-      <div className="thread-run-head">
-        <span className={'act-glyph' + (run.state === 'running' ? ' running' : run.state === 'completed' ? ' ok' : run.state === 'failed' ? ' err' : '')}>{run.state === 'running' ? '' : run.state === 'completed' ? '✓' : run.state === 'failed' ? '✕' : '?'}</span>
-        <span className="mono">{seatId || 'seat'}</span><span>run {runLabel(run.state)}</span>
-        {seconds != null && <span className="act-time">{seconds}s</span>}
-        <span className="act-time" style={{ marginLeft: 'auto' }}>{messageTime(entry.at)}</span>
-      </div>
-      {live ? (live.length ? <ActivityList items={live} /> : <div className="act-hint">Waiting for the seat's first step…</div>) : run.activity?.length ? <ActivityBlock items={run.activity} /> : null}
-      {run.reply && <div className="thread-run-reply"><TaskRefText text={run.reply.length > 400 ? run.reply.slice(0, 400) + '…' : run.reply} /></div>}
-    </div>
-  );
-}
-
-function PeerEntry({ entry, ceoName }: { entry: Extract<TimelineEntry, { kind: 'peer' }>; ceoName: string }) {
-  const { message } = entry;
-  const delivery = deliveryLabel(message);
-  return (
-    <div className="thread-peer">
-      <div className="thread-run-head">
-        <span className="mono">{addressLabel(message.from, ceoName)} → {addressLabel(message.to, ceoName)}</span>
-        {message.replyTo && <span>reply</span>}
-        <span className={'delivery-pill ' + delivery.tone}>{delivery.label}</span>
-        <span className="act-time" style={{ marginLeft: 'auto' }}>{messageTime(message.createdAt)}</span>
-      </div>
-      <div className="thread-peer-text"><TaskRefText text={message.text} /></div>
-      {message.wake?.reply && (
-        <div className="thread-peer-reply">
-          <span className="mono">{addressLabel(message.to, ceoName)}</span>
-          <div className="thread-peer-text"><TaskRefText text={message.wake.reply} /></div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function useTaskThreadExtras(threadId: string, refreshKey: unknown) {
-  const [extras, setExtras] = useState<TaskThreadExtras | null>(null);
-  useEffect(() => {
-    const general = threadId === 'general';
-    if (!general && !threadId.startsWith('task_')) { setExtras(null); return; }
-    let active = true;
-    const load = async () => {
-      try {
-        if (general) {
-          const { messages } = await api.messageDeliveries();
-          if (active) setExtras({ seatId: null, runs: [], live: null, messages: generalThreadMessages(messages) });
-          return;
-        }
-        const [task, messages] = await Promise.all([api.task(threadId), api.taskMessages(threadId)]);
-        if (active) setExtras({ seatId: task.seatId, runs: task.runs || [], live: task.liveActivity || null, messages: messages.messages });
-      } catch {   }
-    };
-    void load();
-    const timer = window.setInterval(() => void load(), 4000);
-    return () => { active = false; window.clearInterval(timer); };
-  }, [threadId, refreshKey]);
-  return extras;
-}
-
 function CeoChat() {
   const { state, loadCeoConversation, sendCeoMessage } = useStore();
   const [draft, setDraft] = useState('');
@@ -183,8 +111,7 @@ function CeoChat() {
   const loadedRef = useRef(false);
   const ceo = state.ceo;
   const ceoName = ceoNameOf(state.org.organization);
-  const seatThread = parseSeatThread(state.ceoThread);
-  const agentName = seatThread ? seatThread.seatId : ceoName;
+  const agentName = ceoName;
   const working = ceo.sending || Boolean(ceo.live);
   const elapsed = useElapsed(working ? ceo.live?.startedAt || null : null);
 
@@ -216,8 +143,6 @@ function CeoChat() {
   };
   const refreshConversation = () => { if (!ceo.loading) void loadCeoConversation(); };
   const hasVisibleMessages = ceo.messages.length > 0 || ceo.pendingMessage || ceo.failedMessage;
-  const extras = useTaskThreadExtras(state.ceoThread, ceo.messages.length);
-  const timeline = buildTimeline(ceo.messages, extras);
 
   return (
     <>
@@ -229,16 +154,13 @@ function CeoChat() {
             <button className="btn sm btn-ghost" style={{ marginTop: 10 }} onClick={loadCeoConversation}>Retry</button>
           </div>
         )}
-        {!ceo.loading && !ceo.loadError && !hasVisibleMessages && !timeline.length && (
+        {!ceo.loading && !ceo.loadError && !hasVisibleMessages && (
           <div className="empty">No messages yet.</div>
         )}
-        {timeline.map((entry, i) => {
-          if (entry.kind === 'run') return <RunEntry key={`run-${entry.run.id}`} entry={entry} seatId={extras?.seatId || null} />;
-          if (entry.kind === 'peer') return <PeerEntry key={`peer-${entry.message.id}`} entry={entry} ceoName={ceoName} />;
-          const m = entry.message;
+        {ceo.messages.map((m, i) => {
           if (m.role === 'activity') return <ActivityBlock key={`${m.at}-${i}`} items={m.items || []} />;
           if (m.role === 'user') return <UserBubble key={`${m.at}-${i}`} text={m.text || ''} meta={messageTime(m.at)} />;
-          return <CeoBubble key={`${m.at}-${i}`} text={m.text || ''} at={m.at} name={m.role === 'seat' ? agentName : 'ceo'} />;
+          return <CeoBubble key={`${m.at}-${i}`} text={m.text || ''} at={m.at} name="ceo" />;
         })}
         {ceo.pendingMessage && <UserBubble text={ceo.pendingMessage} meta="Sent" />}
         {ceo.failedMessage && (
@@ -307,8 +229,8 @@ function InboxTab() {
   const nav = useNavigate();
   return (
     <div className="pane-body" style={{ padding: 14, gap: 10 }}>
-      <div className="empty">CEO and pod message delivery is available in the workspace inbox.</div>
-      <button className="btn btn-primary" onClick={() => nav('/inbox')}>Open message delivery</button>
+      <div className="empty">Tasks waiting on you are in the workspace inbox.</div>
+      <button className="btn btn-primary" onClick={() => nav('/inbox')}>Open inbox</button>
     </div>
   );
 }
@@ -360,7 +282,7 @@ export function RightPane() {
   const { state, setPane, setCeoThread } = useStore();
   const vw = useViewport();
   const { tab, item } = state.pane;
-  const taskThreadOpen = state.ceoThread.startsWith('task_');
+  const taskThreadOpen = isTaskThread(state.ceoThread);
   useEffect(() => { if (tab === 'ceo' && taskThreadOpen) setPane({ tab: 'tasks' }); }, [tab, taskThreadOpen, setPane]);
   const pick = (k: PaneTab) => {
     if (k === 'ceo') setCeoThread('general');

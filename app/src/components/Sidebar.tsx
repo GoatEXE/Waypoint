@@ -4,7 +4,8 @@ import { ACC } from '../model';
 import { activeProject, useRoute, type View } from '../routes';
 import { useStore } from '../store';
 import { NavIcon, type NavIconName } from './NavIcon';
-import { api, type HermesStatus, type OrgSeat, type TaskSummary } from '../api';
+import { api, type HermesStatus, type OrgSeat } from '../api';
+import { needsYou } from '../taskQueueModel';
 import { sidebarHermesSummary } from '../hermesSidebarStatus';
 import { sidebarMissionLabel } from '../missionsModel';
 import { ceoNameOf } from '../orgModel';
@@ -31,8 +32,7 @@ export function Sidebar() {
   const [hermes, setHermes] = useState<HermesStatus | null>(null);
   const [hermesChecked, setHermesChecked] = useState(false);
   const [seats, setSeats] = useState<OrgSeat[]>([]);
-  const [storedTasks, setStoredTasks] = useState<TaskSummary[]>([]);
-  const [deliveryAttention, setDeliveryAttention] = useState(0);
+  const [attention, setAttention] = useState(0);
   useEffect(() => {
     api.hermesStatus({ freshAuth: true }).then(s => { setHermes(s); setHermesChecked(true); }).catch(() => { setHermes(null); setHermesChecked(true); });
   }, []);
@@ -40,11 +40,10 @@ export function Sidebar() {
     let active = true;
     const refresh = async () => {
       try {
-        const [orgSeats, taskList, deliveries] = await Promise.all([api.orgSeats().catch(() => ({ seats: [] as OrgSeat[] })), api.tasks(), api.messageDeliveries().catch(() => null)]);
+        const [orgSeats, taskList] = await Promise.all([api.orgSeats().catch(() => ({ seats: [] as OrgSeat[] })), api.tasks()]);
         if (!active) return;
         setSeats(orgSeats.seats);
-        setStoredTasks(taskList.tasks);
-        setDeliveryAttention((deliveries ? deliveries.messages.filter(message => !message.readAt && ['failed', 'outcome_unknown'].includes(message.wake?.state || '')).length : 0) + taskList.tasks.filter(task => task.status === 'in_review').length);
+        setAttention(needsYou(taskList.tasks).length);
       } catch {   }
     };
     void refresh();
@@ -56,7 +55,6 @@ export function Sidebar() {
   const currentMissionId = state.missions.missions[0]?.id;
   const missionProjects = state.projects.filter(p => currentMissionId && p.missionId === currentMissionId);
   const unfiledProjects = state.projects.filter(p => !p.missionId || !state.missions.missions.some(m => m.id === p.missionId));
-  const openCount = (projectId: string) => storedTasks.filter(t => t.projectId === projectId && t.status !== 'done' && t.status !== 'canceled').length;
 
   return (
     <aside className="sidebar">
@@ -78,7 +76,7 @@ export function Sidebar() {
             <div key={v} className={'sb-item' + (route.v === v ? ' active' : '')} onClick={() => nav('/' + v)}>
               <div className="sb-icon"><NavIcon name={v} /></div>
               <span>{label}</span>
-              {v === 'inbox' && deliveryAttention > 0 && <span className="sb-count">{deliveryAttention}</span>}
+              {v === 'inbox' && attention > 0 && <span className="sb-count">{attention}</span>}
             </div>
           ))}
         </div>
@@ -100,23 +98,16 @@ export function Sidebar() {
               {missionProjects.map(p => (
                 <div key={p.id} className={'sb-item' + (activeProj === p.id ? ' active' : '')} onClick={() => nav('/projects/' + p.id)}>
                   <span className="sb-name">{p.name}</span>
-                  <span className="sb-meta">{openCount(p.id) || ''}</span>
                 </div>
               ))}
               {unfiledProjects.length > 0 && <div className="sb-item" style={{ color: 'var(--faint)', cursor: 'default', fontSize: 11 }}>Not in a mission</div>}
               {unfiledProjects.map(p => (
                 <div key={p.id} className={'sb-item' + (activeProj === p.id ? ' active' : '')} style={{ color: 'var(--muted)' }} onClick={() => nav('/projects/' + p.id)}>
                   <span className="sb-name">{p.name}</span>
-                  <span className="sb-meta">{openCount(p.id) || ''}</span>
                 </div>
               ))}
             </div>
           )}
-        </div>
-
-        <div className="sb-section">
-          <div className="sb-label-row"><span className="sb-label">PODS</span></div>
-          <div className="sb-item" style={{ color: 'var(--faint)', cursor: 'default' }}>No pods</div>
         </div>
 
         <div className="sb-section">

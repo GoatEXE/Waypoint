@@ -2,8 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { badRequest } from './errors.js';
 
-const FIELDS = ['name', 'key', 'ceoName', 'logo', 'reviewer'];
-const REVIEWER_RE = /^(ceo|me|pod_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/[a-z][a-z0-9_-]{1,62})$/;
+const FIELDS = ['name', 'key', 'ceoName', 'logo'];
 const NAME_MAX = 80;
 const CEO_NAME_MAX = 40;
 const KEY_RE = /^[A-Z][A-Z0-9]{1,5}$/;
@@ -34,12 +33,6 @@ function normalizeLogo(value) {
   if (!match) throw badRequest('logo must be a base64 PNG, JPEG, WebP, or GIF data URL');
   if (Buffer.from(match[2], 'base64').length > LOGO_MAX_BYTES) throw badRequest(`logo must be at most ${LOGO_MAX_BYTES / 1024} KB`);
   return value;
-}
-
-function normalizeReviewer(value) {
-  const reviewer = String(value || '');
-  if (!REVIEWER_RE.test(reviewer)) throw badRequest('reviewer must be ceo, me, or a pod seat address');
-  return reviewer;
 }
 
 export class OrganizationStore {
@@ -77,7 +70,6 @@ export class OrganizationStore {
       key: input.key !== undefined ? normalizeKey(input.key) : current?.key || deriveOrgKey(name),
       ceoName: input.ceoName !== undefined ? visibleText(input.ceoName, 'ceoName', CEO_NAME_MAX) : current?.ceoName || 'CEO',
       logo: input.logo !== undefined ? normalizeLogo(input.logo) : current?.logo ?? null,
-      reviewer: input.reviewer !== undefined ? normalizeReviewer(input.reviewer) : current?.reviewer || 'ceo',
       createdAt: current?.createdAt || now,
       updatedAt: now,
     };

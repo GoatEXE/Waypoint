@@ -1,5 +1,4 @@
 import { createSign, randomBytes } from 'node:crypto';
-import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { AppError, badRequest, conflict, forbidden } from './errors.js';
@@ -17,11 +16,6 @@ export function normalizeRepo(value) {
   return repo;
 }
 
-export function repoFromRemote(remote) {
-  const match = String(remote || '').trim().match(/^(?:https:\/\/(?:[^@/]+@)?github\.com\/|git@github\.com:|ssh:\/\/git@github\.com\/)([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+?)(?:\.git)?\/?$/i);
-  return match ? match[1] : null;
-}
-
 function base64url(value) {
   return Buffer.from(value).toString('base64').replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_');
 }
@@ -33,25 +27,6 @@ export function appJwt(appId, privateKey, nowMs = Date.now()) {
   const signer = createSign('RSA-SHA256');
   signer.update(`${head}.${body}`);
   return `${head}.${body}.${base64url(signer.sign(privateKey))}`;
-}
-
-function runGit(args) {
-  return new Promise((resolve) => {
-    execFile('git', args, { timeout: 5000, windowsHide: true }, (error, stdout) => resolve(error ? null : String(stdout).trim()));
-  });
-}
-
-export async function inspectLocalPath(input) {
-  const dir = String(input || '').trim();
-  if (!dir || dir.length > 1000 || !path.isAbsolute(dir)) throw badRequest('localPath must be an absolute folder path');
-  const stat = await fs.stat(dir).catch(() => null);
-  if (!stat?.isDirectory()) return { localPath: dir, exists: false, isGit: false, root: null, remote: null, repo: null, branch: null };
-  const root = await runGit(['-C', dir, 'rev-parse', '--show-toplevel']);
-  if (!root) return { localPath: dir, exists: true, isGit: false, root: null, remote: null, repo: null, branch: null };
-  const remote = await runGit(['-C', dir, 'remote', 'get-url', 'origin']);
-  const branch = await runGit(['-C', dir, 'rev-parse', '--abbrev-ref', 'HEAD']);
-  const safeRemote = remote ? remote.replace(/\/\/[^@/]+@/, '//') : null;
-  return { localPath: dir, exists: true, isGit: true, root: path.normalize(root), remote: safeRemote, repo: repoFromRemote(remote), branch };
 }
 
 function githubError(status, body, fallback) {

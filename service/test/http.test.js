@@ -24,9 +24,8 @@ test('healthz, config, and model catalog return sanitized JSON', async () => {
     assert.equal(health.ok, true);
     assert.equal(health.dryRun, true);
     const config = await fetch(`${app.base}/config`).then((r) => r.json());
-    assert.equal(config.docker.imageConfigured, true);
-    assert.equal(config.docker.imagePinned, true);
-    assert.equal(Object.keys(config).includes('POD_DOCKER_IMAGE'), false);
+    assert.equal(config.hermes.imagePinned, true);
+    assert.equal(Object.keys(config).includes('HERMES_DOCKER_IMAGE'), false);
     const catalog = await fetch(`${app.base}/hermes/model-catalog?provider=openai-codex`).then((r) => r.json());
     assert.equal(catalog.providers.length, 1);
     assert.equal(catalog.providers[0].id, 'openai-codex');
@@ -37,7 +36,7 @@ test('healthz, config, and model catalog return sanitized JSON', async () => {
   } finally { await stop(app.server, app.bridgeServer); }
 });
 
-test('bridge requires token before exposing CEO pod tools', async () => {
+test('bridge requires the CEO token', async () => {
   const app = await start();
   try {
     const denied = await fetch(`${app.bridgeBase}/bridge/tools`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ tool: 'health', args: {} }) });
@@ -45,95 +44,6 @@ test('bridge requires token before exposing CEO pod tools', async () => {
     const ok = await fetch(`${app.bridgeBase}/bridge/tools`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${app.config.bridge.token}` }, body: JSON.stringify({ tool: 'health', args: {} }) });
     assert.equal(ok.status, 200);
     assert.equal((await ok.json()).ok, true);
-  } finally { await stop(app.server, app.bridgeServer); }
-});
-
-test('CEO mailbox turn permits messaging while refusing control tools', async () => {
-  const app = await start();
-  try {
-    const headers = { 'content-type': 'application/json', authorization: `Bearer ${app.config.bridge.token}` };
-    app.hermes.mailboxTurnInFlight = true;
-    const control = await fetch(`${app.bridgeBase}/bridge/tools`, { method: 'POST', headers, body: JSON.stringify({ tool: 'create_mission', args: { title: 'Peer injected mission' } }) });
-    assert.equal(control.status, 403);
-    assert.deepEqual(await app.store.listMissions(), []);
-    const message = await fetch(`${app.bridgeBase}/bridge/tools`, { method: 'POST', headers, body: JSON.stringify({ tool: 'inbox', args: {} }) });
-    assert.equal(message.status, 200);
-    app.hermes.mailboxTurnInFlight = false;
-    const health = await fetch(`${app.bridgeBase}/bridge/tools`, { method: 'POST', headers, body: JSON.stringify({ tool: 'health', args: {} }) });
-    assert.equal(health.status, 200);
-  } finally { await stop(app.server, app.bridgeServer); }
-});
-
-test('starting a pod from the CEO or the app prepares its seats and reports shared-auth readiness', async () => {
-  const app = await start();
-  try {
-    const template = await app.store.createTemplate({ name: 'on demand', version: '1', seats: [{ id: 'builder', role: 'Builder' }], config: { model: { provider: 'openai-codex', default: 'gpt-6-luna' } } });
-    const pod = await app.store.cloneTemplate(template.id, { podName: 'on-demand-test' }, ({ podId, podName }) => app.docker.startPlan({ podId, podName }));
-    let provisionCalls = 0;
-    let toolsInstalled = 0;
-    app.docker.lifecycle = async (_instance, action) => ({ action, executed: true, dryRun: false, status: { state: 'running', running: true } });
-    app.podSeats.provision = async (instance, options) => {
-      provisionCalls += 1;
-      assert.equal(instance.id, pod.id);
-      assert.equal(options.template.id, template.id);
-      return { podId: pod.id, action: 'provision', dryRun: false, executed: true, changed: true, ready: true, seats: [{
-        seatId: 'builder', ready: true, blockers: [],
-        profile: { state: 'ready', identity: true, writable: true, envPrivate: true, missingSubdirs: [], changed: ['.env'], path: '/opt/data/profiles/builder' },
-        model: { state: 'configured', source: 'template', requested: { provider: 'openai-codex', default: 'gpt-6-luna' }, current: { provider: 'openai-codex', default: 'gpt-6-luna' } },
-        auth: { providers: { 'openai-codex': { checked: true, authenticated: true, state: 'authenticated', message: 'Ready.' } }, stores: { seatAuthFile: false, podRootAuthFile: false } },
-      }], notes: [] };
-    };
-    app.messaging.installSeatTools = async (_instance, seatIds) => { toolsInstalled += 1; assert.deepEqual(seatIds, ['builder']); };
-    const headers = { 'content-type': 'application/json', authorization: `Bearer ${app.config.bridge.token}` };
-    const response = await fetch(`${app.bridgeBase}/bridge/tools`, { method: 'POST', headers, body: JSON.stringify({ tool: 'pod_start', args: { podId: pod.id } }) });
-    assert.equal(response.status, 200);
-    const result = await response.json();
-    assert.equal(result.status.running, true);
-    assert.equal(result.seats.ready, true);
-    assert.equal(result.seats.seats[0].auth.providers['openai-codex'].authenticated, true);
-    assert.equal(JSON.stringify(result).includes('/opt/data/profiles/builder'), false);
-    assert.equal(provisionCalls, 1);
-    assert.equal(toolsInstalled, 1);
-
-    const fromApp = await fetch(`${app.base}/pod-instances/${pod.id}/lifecycle`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'start' }) });
-    assert.equal(fromApp.status, 200);
-    assert.equal((await fromApp.json()).seats.ready, true, 'starting from the app prepares seats like pod_start');
-    assert.equal(provisionCalls, 2);
-    assert.equal(toolsInstalled, 2);
-
-    app.docker.lifecycle = async () => ({ action: 'start', executed: false, dryRun: true, plan: app.docker.startPlan({ podId: pod.id, podName: pod.podName }) });
-    const preview = await fetch(`${app.bridgeBase}/bridge/tools`, { method: 'POST', headers, body: JSON.stringify({ tool: 'pod_start', args: { podId: pod.id } }) }).then((r) => r.json());
-    assert.equal(preview.dryRun, true);
-    assert.equal(provisionCalls, 2);
-    assert.equal(toolsInstalled, 2);
-  } finally { await stop(app.server, app.bridgeServer); }
-});
-
-test('CEO pod_start snapshots the CEO model when a pod has no model of its own', async () => {
-  const app = await start();
-  try {
-    const template = await app.store.createTemplate({ name: 'inherit model', version: '1', seats: [{ id: 'lead', role: 'Lead' }, { id: 'builder', role: 'Builder' }] });
-    const pod = await app.store.cloneTemplate(template.id, { podName: 'inherit-model-test' }, ({ podId, podName }) => app.docker.startPlan({ podId, podName }));
-    await app.store.setSeatModel(pod.id, 'builder', { provider: 'anthropic', default: 'claude-opus-5-5' });
-    app.config.dryRun = false;
-    let ceoReads = 0;
-    app.hermes.status = async () => { ceoReads += 1; return { model: { configured: true, provider: 'openai-codex', default: 'gpt-6-luna', api_mode: '', base_url: '' } }; };
-    app.docker.lifecycle = async (_instance, action) => ({ action, executed: true, dryRun: false, status: { state: 'running', running: true } });
-    app.podSeats.provision = async (instance, { template: storedTemplate }) => {
-      assert.equal(storedTemplate.id, template.id);
-      assert.equal(instance.model.provider, 'openai-codex');
-      assert.equal(instance.model.default, 'gpt-6-luna');
-      assert.equal(instance.seats.find((seat) => seat.id === 'builder').model.provider, 'anthropic');
-      return { podId: pod.id, action: 'provision', dryRun: false, executed: true, changed: true, ready: true, seats: [], notes: [] };
-    };
-    const headers = { 'content-type': 'application/json', authorization: `Bearer ${app.config.bridge.token}` };
-    const callStart = () => fetch(`${app.bridgeBase}/bridge/tools`, { method: 'POST', headers, body: JSON.stringify({ tool: 'pod_start', args: { podId: pod.id } }) });
-    assert.equal((await callStart()).status, 200);
-    assert.equal((await callStart()).status, 200);
-    assert.equal(ceoReads, 1, 'restarting a pod keeps its captured default model');
-    const saved = await app.store.getInstance(pod.id);
-    assert.equal(saved.model.provider, 'openai-codex');
-    assert.equal(saved.seats.find((seat) => seat.id === 'builder').model.provider, 'anthropic');
   } finally { await stop(app.server, app.bridgeServer); }
 });
 
@@ -157,24 +67,23 @@ test('CEO conversation HTTP endpoints expose only the agreed contract', async ()
   } finally { await stop(app.server, app.bridgeServer); }
 });
 
-test('CEO threads list General first, then every task as a thread by latest activity', async () => {
+test('CEO threads list General first, then every board task as a thread by latest activity', async () => {
   const app = await start();
   try {
-    const older = await app.store.createTask({ summary: 'Older task' });
-    const newer = await app.store.createTask({ summary: 'Newer task' });
-    app.hermes.listCeoThreads = async () => ({ busyThreadId: older.id, threads: [
+    app.board.list = async () => ({ tasks: [
+      { id: 't_aaaaaaaa', ref: 'SUN-1', title: 'Older task', status: 'running', createdAt: '2026-10-06T00:00:00.000Z' },
+      { id: 't_bbbbbbbb', ref: 'SUN-2', title: 'Newer task', status: 'todo', createdAt: '2026-10-07T00:00:00.000Z' },
+      { id: 't_cccccccc', ref: 'SUN-3', title: 'Archived', status: 'archived', createdAt: '2026-10-08T00:00:00.000Z' },
+    ] });
+    app.hermes.listCeoThreads = async () => ({ busyThreadId: 't_aaaaaaaa', threads: [
       { threadId: 'general', messageCount: 4, updatedAt: '2026-10-06T00:00:00.000Z', lastText: 'hi' },
-      { threadId: older.id, messageCount: 2, updatedAt: '2999-01-01T00:00:00.000Z', lastText: 'talked' },
-      { threadId: 'task_00000000-0000-4000-8000-000000000000', messageCount: 1, updatedAt: '2026-10-06T00:00:00.000Z', lastText: 'gone' },
+      { threadId: 't_aaaaaaaa', messageCount: 2, updatedAt: '2999-01-01T00:00:00.000Z', lastText: 'talked' },
     ] });
     const body = await fetch(`${app.base}/hermes/ceo/threads`).then((r) => r.json());
-    assert.equal(body.busyThreadId, older.id);
-    assert.deepEqual(body.threads.map((t) => [t.threadId, t.title, t.messageCount]), [['general', 'General', 4], [older.id, 'Older task', 2], [newer.id, 'Newer task', 0]]);
-    assert.equal(body.threads[2].ref, newer.ref);
-    assert.equal(body.threads[2].updatedAt, newer.updatedAt);
+    assert.equal(body.busyThreadId, 't_aaaaaaaa');
+    assert.deepEqual(body.threads.map((t) => [t.threadId, t.title, t.ref, t.messageCount]), [['general', 'General', null, 4], ['t_aaaaaaaa', 'Older task', 'SUN-1', 2], ['t_bbbbbbbb', 'Newer task', 'SUN-2', 0]]);
   } finally { await stop(app.server, app.bridgeServer); }
 });
-
 test('Hermes skill HTTP routes expose all skills, safe detail, and toggle errors', async () => {
   const app = await start();
   try {
@@ -209,93 +118,3 @@ test('Hermes skill HTTP routes expose all skills, safe detail, and toggle errors
   } finally { await stop(app.server, app.bridgeServer); }
 });
 
-test('HTTP API creates templates, clones pods, delegates tasks, and structures errors', async () => {
-  const app = await start();
-  try {
-    const templateRes = await fetch(`${app.base}/pod-templates`, {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ name: 'ops', version: '1', seats: [{ id: 'coder', role: 'code' }], baselineFiles: { 'SOUL.md': 'guide' } }),
-    });
-    assert.equal(templateRes.status, 201);
-    const template = await templateRes.json();
-    const cloneRes = await fetch(`${app.base}/pod-templates/${template.id}/clone`, {
-      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ podName: 'delta' }),
-    });
-    assert.equal(cloneRes.status, 201);
-    const pod = await cloneRes.json();
-    assert.equal(pod.state, 'planned');
-    assert.match(pod.dockerPlan.notes.join(' '), /no per-seat Hermes gateway launch/i);
-    assert.ok(pod.dockerPlan.args.includes('--mount'));
-    assert.ok(pod.dockerPlan.args.some((arg) => arg === `type=volume,source=${pod.dockerPlan.volumeName},target=/opt/data`));
-    assert.equal(JSON.stringify(pod.dockerPlan).includes('type=bind'), false);
-    assert.equal(pod.planSource, 'derived-from-service-config');
-    const taskRes = await fetch(`${app.base}/tasks`, {
-      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ podId: pod.id, seatId: 'coder', summary: 'work' }),
-    });
-    assert.equal(taskRes.status, 201);
-    assert.equal((await taskRes.json()).state, 'delegated');
-    const media = await fetch(`${app.base}/pod-templates`, { method: 'POST', body: '{}' });
-    assert.equal(media.status, 415);
-    const foreign = await fetch(`${app.base}/pod-templates`, { method: 'POST', headers: { 'content-type': 'application/json', origin: 'http://evil.example' }, body: '{}' });
-    assert.equal(foreign.status, 403);
-    const bad = await fetch(`${app.base}/pod-templates`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{bad' });
-    assert.equal(bad.status, 400);
-    const error = await bad.json();
-    assert.equal(error.error.code, 'bad_request');
-    assert.equal(JSON.stringify(error).includes('stack'), false);
-  } finally { await stop(app.server, app.bridgeServer); }
-});
-
-test('the CEO and the app can hire a seat into an existing pod', async () => {
-  const app = await start();
-  try {
-    const template = await app.store.createTemplate({ name: 'team', version: '1', seats: [{ id: 'reviewer', role: 'Reviewer' }], baselineFiles: { 'SOUL.md': 'Team baseline' } });
-    const pod = await app.store.cloneTemplate(template.id, { podName: 'hire-test' }, ({ podId, podName }) => app.docker.startPlan({ podId, podName }));
-    const headers = { 'content-type': 'application/json', authorization: `Bearer ${app.config.bridge.token}` };
-    const bridge = (tool, args) => fetch(`${app.bridgeBase}/bridge/tools`, { method: 'POST', headers, body: JSON.stringify({ tool, args }) }).then(async (r) => ({ status: r.status, body: await r.json() }));
-
-    const listed = await bridge('list_templates', {});
-    assert.deepEqual(listed.body.templates.map((t) => [t.name, t.seats.map((s) => s.id)]), [['team', ['reviewer']]]);
-
-    const stopped = await bridge('add_seat', { podId: pod.id, seatId: 'builder', role: 'Builder', instructions: 'Implement changes' });
-    assert.equal(stopped.status, 200);
-    assert.deepEqual([stopped.body.seat, stopped.body.seats], [{ id: 'builder', role: 'Builder' }, null]);
-    const saved = await app.store.getInstance(pod.id);
-    assert.deepEqual(saved.seats.map((s) => s.id), ['reviewer', 'builder']);
-    assert.equal(await fs.readFile(path.join(saved.profilesDir, 'builder', 'SOUL.md'), 'utf8'), 'Team baseline');
-    assert.equal((await bridge('add_seat', { podId: pod.id, seatId: 'builder', role: 'Builder' })).status, 409);
-    assert.equal((await bridge('add_seat', { podId: pod.id, seatId: 'Bad Id', role: 'X' })).status, 400);
-
-    app.config.dryRun = false;
-    await app.store.recordLifecycle(pod.id, { executed: true, dryRun: false, status: { state: 'running', running: true } }, ({ podId, podName }) => app.docker.startPlan({ podId, podName }));
-    const steps = [];
-    app.docker.inspectOwnedContainer = async () => ({ exists: true, state: { running: true } });
-    app.docker.seedSeatProfile = async (_podId, _container, seatId) => { steps.push(`seed ${seatId}`); return { changed: true }; };
-    app.podSeats.provision = async (_instance, { seatIds }) => { steps.push(`provision ${seatIds}`); return { podId: pod.id, action: 'provision', dryRun: false, executed: true, changed: true, ready: true, seats: [{ seatId: 'qa', ready: true, blockers: [], profile: { state: 'ready', identity: true, writable: true, envPrivate: true, missingSubdirs: [], changed: [] }, model: { state: 'configured' }, auth: { providers: {}, stores: {} } }], notes: [] }; };
-    app.messaging.installSeatTools = async (_instance, seatIds) => { steps.push(`tools ${seatIds}`); };
-    const fromApp = await fetch(`${app.base}/pod-instances/${pod.id}/seats`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: 'qa', role: 'QA' }) });
-    assert.equal(fromApp.status, 201);
-    assert.equal((await fromApp.json()).seats.ready, true);
-    assert.deepEqual(steps, ['seed qa', 'provision qa', 'tools qa']);
-  } finally { await stop(app.server, app.bridgeServer); }
-});
-
-test('the reviewer records a decision through the bridge, even during a CEO mailbox turn', async () => {
-  const app = await start();
-  try {
-    await app.organization.update({ name: 'Sunchip' });
-    const template = await app.store.createTemplate({ name: 'team', version: '1', seats: [{ id: 'builder', role: 'Builder' }] });
-    const pod = await app.store.cloneTemplate(template.id, { podName: 'review-test' }, ({ podId, podName }) => app.docker.startPlan({ podId, podName }));
-    const task = await app.store.createTask({ summary: 'Ship it', podId: pod.id, seatId: 'builder' });
-    const { runId } = await app.store.claimTaskRun(task.id);
-    await app.store.finishTaskRun(task.id, runId, { outcome: 'completed', text: 'Done.', evidence: [] }, { reviewer: 'ceo' });
-    app.hermes.mailboxTurnInFlight = true;
-    const call = (token, args) => fetch(`${app.bridgeBase}/bridge/tools`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` }, body: JSON.stringify({ tool: 'review_task', args }) }).then(async (r) => ({ status: r.status, body: await r.json() }));
-    assert.equal((await call(app.messaging.seatToken(pod.id, 'builder'), { taskId: task.id, decision: 'done', reason: 'mine' })).status, 403);
-    const decided = await call(app.config.bridge.token, { taskId: task.id, decision: 'needs_human', reason: 'No PR link in the reply.' });
-    assert.equal(decided.status, 200);
-    assert.deepEqual([decided.body.status, decided.body.review.state], ['in_review', 'needs_human']);
-    const listed = await fetch(`${app.base}/tasks`).then((r) => r.json());
-    assert.equal(listed.tasks.find((t) => t.id === task.id).review.reason, 'No PR link in the reply.');
-  } finally { app.hermes.mailboxTurnInFlight = false; await stop(app.server, app.bridgeServer); }
-});

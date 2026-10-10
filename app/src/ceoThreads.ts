@@ -18,7 +18,9 @@ export function threadMeta(thread: CeoThread, now = Date.now()) {
 }
 
 export const THREAD_LIST_LIMIT = 10;
-const CLOSED = new Set(['done', 'canceled']);
+const CLOSED = new Set(['done', 'archived']);
+
+export const isTaskThread = (threadId: string) => /^t_[0-9a-f]{6,32}$/.test(threadId);
 
 export function visibleTaskThreads(tasks: CeoThread[], showAll: boolean) {
   const shown = showAll ? tasks : tasks.filter(t => !CLOSED.has(t.status || '')).slice(0, THREAD_LIST_LIMIT);

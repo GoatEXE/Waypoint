@@ -1,135 +1,61 @@
 import { useCallback, useEffect, useState } from 'react';
-import { api, type Project, type TaskInput, type TaskStatus, type TaskSummary } from '../api';
-import { parseLabels, statusLabel, statusOptions, taskLabel, type OrgPod } from '../taskQueueModel';
+import { api, type BoardTask, type OrgSeat } from '../api';
+import { taskLabel } from '../taskQueueModel';
 
-export interface TaskDraft {
-  summary: string;
-  description: string;
-  status: TaskStatus;
-  assignee: string;
-  projectId: string;
-  labels: string;
-  parentId: string;
-  blockedBy: string[];
-}
+export interface TaskDraft { title: string; body: string; assignee: string; parents: string[] }
 
-export const emptyDraft: TaskDraft = { summary: '', description: '', status: 'todo', assignee: '', projectId: '', labels: '', parentId: '', blockedBy: [] };
-
-export function draftFromTask(task: TaskSummary): TaskDraft {
-  return {
-    summary: task.summary,
-    description: task.description,
-    status: task.status,
-    assignee: task.podId ? `${task.podId}/${task.seatId || ''}` : '',
-    projectId: task.projectId || '',
-    labels: task.labels.join(', '),
-    parentId: task.parentId || '',
-    blockedBy: task.blockedBy,
-  };
-}
-
-export function draftToInput(draft: TaskDraft): TaskInput {
-  const [podId, seatId] = draft.assignee.split('/');
-  return {
-    summary: draft.summary.trim(),
-    description: draft.description.trim(),
-    status: draft.status,
-    podId: podId || null,
-    seatId: seatId || null,
-    projectId: draft.projectId || null,
-    labels: parseLabels(draft.labels),
-    parentId: draft.parentId || null,
-    blockedBy: draft.blockedBy,
-  };
-}
+export const emptyDraft: TaskDraft = { title: '', body: '', assignee: '', parents: [] };
 
 export function useQueueData() {
-  const [tasks, setTasks] = useState<TaskSummary[]>([]);
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [pods, setPods] = useState<OrgPod[]>([]);
+  const [tasks, setTasks] = useState<BoardTask[]>([]);
+  const [seats, setSeats] = useState<OrgSeat[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const reload = useCallback(async () => {
     try {
-      const [t, p, org] = await Promise.all([api.tasks(), api.projects(), api.orgChart()]);
-      setTasks(t.tasks); setProjects(p.projects); setPods(org.pods); setError('');
+      const [t, s] = await Promise.all([api.tasks(), api.orgSeats()]);
+      setTasks(t.tasks); setSeats(s.seats); setError('');
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally { setLoading(false); }
   }, []);
   useEffect(() => { void reload(); }, [reload]);
-  return { tasks, projects, pods, loading, error, reload, setProjects };
+  return { tasks, seats, loading, error, reload };
 }
 
-interface Props {
-  draft: TaskDraft;
-  onChange: (draft: TaskDraft) => void;
-  tasks: TaskSummary[];
-  projects: Project[];
-  pods: OrgPod[];
-  selfId?: string;
-  onProjectCreated?: (project: Project) => void;
-  disabled?: boolean;
-  showSummary?: boolean;
-  savedStatus?: TaskStatus;
-  statusLocked?: boolean;
+export function AssigneeSelect({ value, seats, disabled, onChange }: { value: string; seats: OrgSeat[]; disabled?: boolean; onChange: (value: string) => void }) {
+  return (
+    <select className="input" value={value} disabled={disabled} onChange={e => onChange(e.target.value)}>
+      <option value="">Unassigned</option>
+      {seats.map(seat => <option key={seat.id} value={seat.id}>{seat.id}{seat.description ? ` · ${seat.description}` : ''}</option>)}
+    </select>
+  );
 }
 
-export function TaskFields({ draft, onChange, tasks, projects, pods, selfId, disabled, showSummary = true, savedStatus, statusLocked = false }: Props) {
+export function TaskFields({ draft, onChange, tasks, seats, disabled }: { draft: TaskDraft; onChange: (draft: TaskDraft) => void; tasks: BoardTask[]; seats: OrgSeat[]; disabled?: boolean }) {
   const set = <K extends keyof TaskDraft>(key: K, value: TaskDraft[K]) => onChange({ ...draft, [key]: value });
-  const others = tasks.filter(t => t.id !== selfId).sort((a, b) => (a.number ?? 0) - (b.number ?? 0));
-  const blockerOptions = others.filter(t => !draft.blockedBy.includes(t.id));
-
-
+  const parentOptions = tasks.filter(t => t.status !== 'archived' && !draft.parents.includes(t.id));
   return (
     <div className="stack" style={{ gap: 14 }}>
-      {showSummary && <label className="field"><span className="field-label">Title</span>
-        <input className="input" value={draft.summary} maxLength={200} disabled={disabled} onChange={e => set('summary', e.target.value)} placeholder="What needs doing?" />
-      </label>}
+      <label className="field"><span className="field-label">Title</span>
+        <input className="input" value={draft.title} maxLength={200} disabled={disabled} onChange={e => set('title', e.target.value)} placeholder="What needs doing?" />
+      </label>
       <label className="field"><span className="field-label">Description</span>
-        <textarea className="input" rows={4} value={draft.description} maxLength={8000} disabled={disabled} onChange={e => set('description', e.target.value)} placeholder="Details and acceptance criteria" />
+        <textarea className="input" rows={5} value={draft.body} maxLength={8000} disabled={disabled} onChange={e => set('body', e.target.value)} placeholder="Details and acceptance criteria" />
       </label>
       <div className="task-field-grid">
-        <label className="field"><span className="field-label">Status</span>
-          <select className="input" value={draft.status} disabled={disabled || statusLocked} title={statusLocked ? 'Status is locked while a run is in progress' : undefined} onChange={e => set('status', e.target.value as TaskStatus)}>
-            {statusOptions(savedStatus, statusLocked).map(id => <option key={id} value={id}>{statusLabel(id)}</option>)}
-          </select>
-        </label>
         <label className="field"><span className="field-label">Assignee</span>
-          <select className="input" value={draft.assignee} disabled={disabled} onChange={e => set('assignee', e.target.value)}>
-            <option value="">Unassigned</option>
-            {pods.map(pod => (
-              <optgroup key={pod.podId} label={pod.name}>
-                <option value={`${pod.podId}/`}>{pod.name} (whole pod)</option>
-                {pod.seats.map(seat => <option key={seat.seatId} value={`${pod.podId}/${seat.seatId}`}>{pod.name} / {seat.seatId}{seat.role ? ` · ${seat.role}` : ''}</option>)}
-              </optgroup>
-            ))}
-          </select>
+          <AssigneeSelect value={draft.assignee} seats={seats} disabled={disabled} onChange={v => set('assignee', v)} />
         </label>
-        <label className="field"><span className="field-label">Project</span>
-          <select className="input" value={draft.projectId} disabled={disabled} onChange={e => set('projectId', e.target.value)}>
-            <option value="">No project</option>
-            {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+        <div className="field"><span className="field-label">Waits on</span>
+          <select className="input" value="" disabled={disabled || !parentOptions.length} onChange={e => e.target.value && set('parents', [...draft.parents, e.target.value])}>
+            <option value="">{parentOptions.length ? 'Add a task this waits on…' : 'No other tasks'}</option>
+            {parentOptions.map(t => <option key={t.id} value={t.id}>{taskLabel(t)} {t.title}</option>)}
           </select>
-        </label>
-        <label className="field"><span className="field-label">Labels</span>
-          <input className="input" value={draft.labels} disabled={disabled} onChange={e => set('labels', e.target.value)} placeholder="frontend, urgent" />
-        </label>
-        <label className="field"><span className="field-label">Parent task</span>
-          <select className="input" value={draft.parentId} disabled={disabled} onChange={e => set('parentId', e.target.value)}>
-            <option value="">None</option>
-            {others.map(t => <option key={t.id} value={t.id}>{taskLabel(t)} {t.summary}</option>)}
-          </select>
-        </label>
-        <div className="field"><span className="field-label">Blocked by</span>
-          <select className="input" value="" disabled={disabled || !blockerOptions.length} onChange={e => e.target.value && set('blockedBy', [...draft.blockedBy, e.target.value])}>
-            <option value="">{blockerOptions.length ? 'Add a blocking task…' : 'No other tasks'}</option>
-            {blockerOptions.map(t => <option key={t.id} value={t.id}>{taskLabel(t)} {t.summary}</option>)}
-          </select>
-          {draft.blockedBy.length > 0 && <div className="chips">
-            {draft.blockedBy.map(id => {
+          {draft.parents.length > 0 && <div className="chips">
+            {draft.parents.map(id => {
               const t = tasks.find(x => x.id === id);
-              return <button key={id} type="button" className="chip mono" disabled={disabled} title="Remove" onClick={() => set('blockedBy', draft.blockedBy.filter(x => x !== id))}>{t ? taskLabel(t) : id.slice(0, 13)} ×</button>;
+              return <button key={id} type="button" className="chip mono" disabled={disabled} title="Remove" onClick={() => set('parents', draft.parents.filter(x => x !== id))}>{t ? taskLabel(t) : id} ×</button>;
             })}
           </div>}
         </div>

@@ -257,13 +257,6 @@ test('Anthropic auth output marks real provider rejection terminal and clears st
   assert.match(seen.message, /rejected or expired/i);
 });
 
-test('changed account auth does not mutate template baselines', async () => {
-  const calls = [];
-  const hermes = new HermesRuntime(config(), undefined, runnerFactory(calls));
-  await hermes.saveApiKey('anthropic', { apiKey: 'sk-ant-secret-value-1234567890' });
-  assert.equal(calls.some((c) => String(c.input || '').includes('baselineFiles')), false);
-});
-
 function readyConversationRunner(calls) {
   return async (_command, args, options = {}) => {
     calls.push({ args, input: options.input });
@@ -344,26 +337,6 @@ test('CEO conversation creates a named Hermes session, persists messages, and re
   const secondResult = await second;
   assert.equal(secondResult.sessionId, 'sess_abc123');
   assert.equal(secondResult.messages.length, 4);
-});
-
-test('CEO mailbox turn is bounded, isolated from user conversation, and carries no peer message text', async () => {
-  const child = new FakeChild();
-  const { hermes, spawns, dir } = await conversationHermes([child]);
-  const messageId = 'msg_11111111-1111-4111-8111-111111111111';
-  const turn = hermes.runMailboxTurn(messageId, 'pod_22222222-2222-4222-8222-222222222222/lead');
-  await waitFor(() => spawns.length === 1);
-  const args = spawns[0];
-  assert.equal(args[5], 'python3');
-  assert.equal(child.stdin.writableEnded, false);
-  assert.equal(args[args.indexOf('--continue') + 1], `waypoint-ceo-mailbox-${messageId.slice(4)}`);
-  assert.equal(args[args.indexOf('--max-turns') + 1], '8');
-  assert.equal(args[args.indexOf('--run-budget') + 1], '45');
-  assert.match(child.stdinText, /peer context, not a user instruction/);
-  child.stdout.emit('data', '{"type":"start","subtype":"init","session_id":"mailbox_1"}\n');
-  child.stdout.emit('data', '{"type":"result","session_id":"mailbox_1","text":"Message handled."}\n');
-  child.emit('close', 0);
-  assert.deepEqual(await turn, { outcome: 'completed', sessionId: 'mailbox_1', reply: 'Message handled.' });
-  await assert.rejects(() => fs.readFile(path.join(dir, 'hermes-ceo-conversation.json'), 'utf8'), { code: 'ENOENT' });
 });
 
 test('CEO conversation errors and failed stderr are redacted from public errors', async () => {
@@ -600,7 +573,7 @@ test('skill detail returns bounded redacted metadata and safe relative files onl
   await assert.rejects(() => hermes.skill('missing'), /not found/);
 });
 
-test('CEO bridge skill seed documents run_task and task_status truthfully', async () => {
+test('CEO skill seed describes native seats, the board, and the bridge tools', async () => {
   const calls = [];
   const hermes = new HermesRuntime(config(), undefined, async (command, args, options = {}) => {
     calls.push({ command, args, options });
@@ -608,50 +581,27 @@ test('CEO bridge skill seed documents run_task and task_status truthfully', asyn
   });
   await hermes.seedCeoHome();
   const script = String(calls[0].args.at(-1));
-  assert.ok(calls[0].args.includes('python3'));
   assert.equal(JSON.parse(calls[0].options.input).bridgeToken, hermes.config.bridge.token, 'token travels on stdin, never in the script');
   assert.equal(script.includes(hermes.config.bridge.token), false);
-
   const { spawnSync } = await import('node:child_process');
   const python = ['python3', 'python'].find((bin) => spawnSync(bin, ['-c', 'pass'], { stdio: 'ignore' }).status === 0);
   if (python) assert.equal(spawnSync(python, ['-c', 'import ast,sys; ast.parse(sys.stdin.read())'], { input: script }).status, 0, 'seed script stays valid Python');
-
   const literal = script.split('\n').find((line) => line.startsWith('skill="')).slice('skill='.length);
   const skill = JSON.parse(literal);
-  assert.match(skill, /^---\nname: waypoint-ceo-bridge\ndescription: .*task runs, and task status\.\n---\n/);
-  assert.match(skill, /## run_task\nPayload: \{ "taskId": "task_uuid\.\.\." \}\nUsually not needed: todo tasks start by themselves\..*\nOnly taskId is accepted/);
-  assert.match(skill, /## task_status\nPayload: \{ "taskId": "task_uuid\.\.\." \}\nOnly taskId is accepted/);
-  assert.match(skill, /pod must be running .* seat provisioned with a model, and that seat's provider auth ready/);
-  assert.match(skill, /With shared auth enabled, pods use the CEO provider connection/);
-  assert.match(skill, /pod_start also prepares every seat profile, applies its saved or template model/);
-  assert.match(skill, /Waypoint captures the CEO current model as that pod's default when pod_start runs/);
-  assert.match(skill, /explicit seat and template models take priority/);
-  assert.match(skill, /## Work requests become tasks\n\nWhen the user asks for work to be done .* create a task for it instead of messaging a seat/);
-  assert.match(skill, /Use send_message only for coordination and questions .* never to hand off work/);
-  assert.doesNotMatch(script, /waypoint-github|gh (pr|issue|auth)|GitHub CLI|file a GitHub issue/, 'GitHub usage is left to the model');
+  assert.match(skill, /^---\nname: waypoint-ceo-bridge\ndescription: .*seats, the task board, missions, and projects\.\n---\n/);
+  assert.match(skill, /Seats are Hermes profiles in your own install/);
+  assert.match(skill, /Delegate work as kanban tasks assigned to the best seat/);
+  assert.match(skill, /update_mission \{ missionId, status \}/);
+  assert.doesNotMatch(skill, /pod_start|run_task|send_message|create_task/, 'no legacy pod or task tools');
+  assert.doesNotMatch(script, /waypoint-github|gh (pr|issue|auth)|GitHub CLI/, 'GitHub usage is left to the model');
   assert.match(script, /name = ceo \(Waypoint\)/);
-  assert.match(skill, /move its status back to todo \(or backlog\) only after the user approves another run/);
-  assert.match(script, /## outbox\nPayload: .*\nReturns messages you sent, newest first, each with delivery/);
-  assert.match(skill, /run_task never starts the pod or provisions seats/);
-  assert.match(skill, /Returns promptly .*"state": "running" \} \(accepted for background execution, like HTTP 202\)\. It does not wait for the result/);
-  assert.match(skill, /Never retry automatically\. Do not call run_task again for a task that failed or has an unknown outcome/);
-  assert.match(skill, /"delegated": not run\./);
-  assert.ok(skill.includes('\n6. Tasks in todo on a ready seat start by themselves; record work the user has not asked for yet in backlog. After a run starts, check task_status later.'));
-  assert.doesNotMatch(skill, /To start the work, call run_task|means done/);
-  assert.ok(skill.includes('"completed" means the seat finished its run and stored a reply. Report that reply and its evidence as the seat\'s result; do not present it as verified mission success unless the user confirms.\n'));
-  assert.match(skill, /If its status is todo or in_progress and its seat's pod is running, Waypoint starts it as soon as the seat is free; backlog tasks wait/);
-  assert.match(skill, /Use status backlog for work you are only proposing/);
-  for (const tool of ['health', 'list_missions', 'create_mission', 'link_mission', 'create_template', 'clone_template', 'pod_status / pod_start / pod_stop', 'create_task', 'run_task', 'task_status']) {
-    assert.ok(skill.includes(`\n## ${tool}\n`), `skill documents ${tool}`);
-  }
-  assert.ok(skill.endsWith('Stay in CEO scope: delegate/provision/monitor. Pods execute.\n'));
 });
 
 test('CEO task threads use their own session, task context, and live tool activity', async () => {
   const general = new FakeChild();
   const taskChild = new FakeChild();
   const { hermes, spawns, dir } = await conversationHermes([taskChild, general]);
-  const threadId = 'task_00000000-0000-4000-8000-000000000001';
+  const threadId = 't_1a2b3c4d';
   const turn = hermes.sendCeoMessage({ message: 'Plan it.', threadId, context: 'This conversation is about Waypoint task SUN-1: Ship it' });
   await waitFor(() => spawns.length === 1);
   assert.equal(spawns[0][spawns[0].indexOf('--continue') + 1], `waypoint-ceo-${threadId}`);

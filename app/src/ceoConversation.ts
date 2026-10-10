@@ -28,13 +28,8 @@ export const emptyCeoState: CeoState = {
 
 export const cleanCeoMessage = (text: string) => text.trim();
 
-export function createdTaskRef(items: ActivityItem[] | undefined): string | null {
-  for (const item of items || []) {
-    if (item.kind !== 'action' || item.name !== 'create_task' || item.status !== 'ok') continue;
-    const ref = item.detail.trim().split(/\s+/)[0] || '';
-    if (/^[A-Z][A-Z0-9]{1,5}-[1-9][0-9]*$/.test(ref)) return ref;
-  }
-  return null;
+export function createdBoardTask(items: ActivityItem[] | undefined): boolean {
+  return (items || []).some(item => item.status === 'ok' && (item.name === 'kanban_create' || /\bkanban\s+create\b/.test(item.detail)));
 }
 
 export function ceoLoadStarted(state: CeoState): CeoState {

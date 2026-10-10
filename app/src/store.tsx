@@ -1,12 +1,12 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { api, type MissionInput, type OrganizationInput, type OrganizationState, type Project } from './api';
-import { createdTaskRef, ceoLiveUpdated, ceoLoadFailed, ceoLoadStarted, ceoLoadSucceeded, ceoSendFailed, ceoSendStarted, ceoSendSucceeded, cleanCeoMessage, emptyCeoState, type CeoState } from './ceoConversation';
+import { createdBoardTask, ceoLiveUpdated, ceoLoadFailed, ceoLoadStarted, ceoLoadSucceeded, ceoSendFailed, ceoSendStarted, ceoSendSucceeded, cleanCeoMessage, emptyCeoState, type CeoState } from './ceoConversation';
 import type { LessonPick } from './data';
 import { liveTasks, pendingInbox, type Resolved } from './model';
 import { initialMissionsState, missionsLoadFailed, missionsLoadStarted, missionsLoadSucceeded, type MissionsState } from './missionsModel';
 
 export type PaneTab = 'ceo' | 'tasks' | 'artifacts' | 'inbox' | 'item';
-export type ModalKind = 'assignment' | 'mission' | 'pod' | 'seat' | 'project';
+export type ModalKind = 'assignment' | 'mission' | 'seat' | 'project';
 
 export interface AppState {
   pane: { open: boolean; tab: PaneTab; item: string | null };
@@ -121,7 +121,7 @@ function useAppStore() {
       const thread = ceoThreadRef.current;
       set(s => ({ ceo: ceoLoadStarted(s.ceo) }));
       try {
-        const conversation = await api.threadConversation(thread);
+        const conversation = await api.ceoConversation(thread);
         set(s => ceoSendVersionRef.current === sendVersion && s.ceoThread === thread ? { ceo: ceoLoadSucceeded(s.ceo, conversation) } : {});
       } catch (err) {
         set(s => ceoSendVersionRef.current === sendVersion && s.ceoThread === thread ? { ceo: ceoLoadFailed(s.ceo, err instanceof Error ? err.message : String(err)) } : {});
@@ -132,7 +132,7 @@ function useAppStore() {
       ceoThreadRef.current = thread;
       ceoSendVersionRef.current += 1;
       set({ ceoThread: thread, ceo: { ...emptyCeoState, loading: true } });
-      void api.threadConversation(thread)
+      void api.ceoConversation(thread)
         .then(conversation => set(s => s.ceoThread === thread ? { ceo: ceoLoadSucceeded(s.ceo, conversation) } : {}))
         .catch(err => set(s => s.ceoThread === thread ? { ceo: ceoLoadFailed(s.ceo, err instanceof Error ? err.message : String(err)) } : {}));
       return true;
@@ -145,12 +145,18 @@ function useAppStore() {
       ceoSendVersionRef.current += 1;
       const thread = ceoThreadRef.current;
       let followed = false;
-      const follow = (items: Parameters<typeof createdTaskRef>[0]) => {
-        const ref = !followed && onTaskCreated ? createdTaskRef(items) : null;
-        if (ref) { followed = true; onTaskCreated?.(ref); }
+      const known = onTaskCreated ? api.tasks().then(r => new Set(r.tasks.map(t => t.id))).catch(() => null) : null;
+      const follow = (items: Parameters<typeof createdBoardTask>[0]) => {
+        if (followed || !known || !createdBoardTask(items)) return;
+        followed = true;
+        void Promise.all([known, api.tasks()]).then(([before, after]) => {
+          const created = before && after.tasks.find(t => !before.has(t.id));
+          if (created) onTaskCreated?.(created.ref || created.id);
+          else followed = false;
+        }).catch(() => { followed = false; });
       };
       const poll = window.setInterval(() => {
-        void api.threadConversation(thread).then(conversation => {
+        void api.ceoConversation(thread).then(conversation => {
           follow(conversation.live?.items);
           set(s => s.ceoThread === thread && s.ceo.sending ? { ceo: ceoLiveUpdated(s.ceo, conversation) } : {});
         }).catch(() => undefined);
@@ -160,7 +166,7 @@ function useAppStore() {
         ...(openPane ? { pane: { ...s.pane, open: true, tab: 'ceo' as const } } : {}),
       }));
       try {
-        const response = await api.sendThreadMessage(text, thread);
+        const response = await api.sendCeoMessage(text, thread);
         follow(response.messages.filter(m => m.role === 'activity').at(-1)?.items);
         set(s => ({ ceo: s.ceoThread === thread ? ceoSendSucceeded(s.ceo, response) : { ...s.ceo, busyThreadId: null }, ...(openPane ? { pane: { ...s.pane, open: true, tab: 'ceo' as const } } : {}) }));
         return { ok: true };

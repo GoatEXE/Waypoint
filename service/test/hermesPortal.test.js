@@ -5,7 +5,6 @@ import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { HermesPortal } from '../src/hermesPortal.js';
 
-const POD = 'pod_11111111-1111-4111-8111-111111111111';
 
 function echoChild() {
   const child = new EventEmitter();
@@ -24,23 +23,21 @@ async function freePort() {
   return port;
 }
 
-async function fixture({ dryRun = false, podRunning = true, readyAfter = 0, idleMs = 60000 } = {}) {
+async function fixture({ dryRun = false, ceoRunning = true, readyAfter = 0, idleMs = 60000 } = {}) {
   const calls = [];
   const spawned = [];
   let probes = 0;
-  const docker = {
-    makeContainerName: (podId) => `waypoint-pod-${podId}`,
-    inspectOwnedContainer: async () => ({ exists: true, state: { running: podRunning } }),
+  const hermes = {
+    containerName: 'waypoint-hermes-ceo',
+    inspect: async () => ({ exists: true, state: { running: ceoRunning } }),
     runner: async (command, args) => {
       calls.push(args);
       if (args.includes('python3')) return { code: probes++ >= readyAfter ? 0 : 1, stdout: '', stderr: '' };
       return { code: 0, stdout: '', stderr: '' };
     },
   };
-  const hermes = { containerName: 'waypoint-hermes-ceo', inspect: async () => ({ exists: true, state: { running: true } }) };
-  const store = { getInstance: async (id) => { if (id !== POD) throw Object.assign(new Error('pod not found'), { status: 404 }); return { id, seats: [{ id: 'lead' }] }; } };
   const config = { dryRun, hermes: { portalPort: await freePort(), portalIdleMs: idleMs } };
-  const portal = new HermesPortal({ config, store, docker, hermes, readyDelayMs: 1, spawner: (command, args) => { spawned.push(args); return echoChild(); } });
+  const portal = new HermesPortal({ config, hermes, readyDelayMs: 1, spawner: (command, args) => { spawned.push(args); return echoChild(); } });
   return { portal, calls, spawned, config };
 }
 
@@ -71,27 +68,26 @@ test('opening another agent closes the previous dashboard and keeps the same por
   try {
     await portal.open('ceo');
     calls.length = 0;
-    const second = await portal.open(`${POD}/lead`);
-    assert.equal(second.target, `${POD}/lead`);
+    const second = await portal.open('builder');
+    assert.equal(second.target, 'builder');
     assert.equal(second.url, `http://127.0.0.1:${config.hermes.portalPort}/`);
     assert.deepEqual(calls[0], ['exec', '--user', 'hermes', 'waypoint-hermes-ceo', 'hermes', 'dashboard', '--stop']);
     const start = calls.find((args) => args.includes('-d'));
-    assert.deepEqual(start.slice(4, 8), [`waypoint-pod-${POD}`, 'hermes', '-p', 'lead']);
+    assert.deepEqual(start.slice(4, 8), ['waypoint-hermes-ceo', 'hermes', '-p', 'builder']);
     await roundTrip(config.hermes.portalPort, 'x');
-    assert.equal(spawned.at(-1)[4], `waypoint-pod-${POD}`);
-    assert.equal((await portal.open(`${POD}/lead`)).target, `${POD}/lead`);
+    assert.equal(spawned.at(-1)[4], 'waypoint-hermes-ceo');
+    assert.equal((await portal.open('builder')).target, 'builder');
     assert.equal(calls.filter((args) => args.includes('-d')).length, 1, 'reopening the same target reuses the dashboard');
   } finally { await portal.close(); }
   assert.deepEqual(portal.status(), { open: false, target: null, url: null, openedAt: null });
   await assert.rejects(roundTrip(portal.config.hermes.portalPort, 'x'), /ECONNREFUSED/);
 });
 
-test('portal refuses dry-run, bad targets, and stopped pods', async () => {
+test('portal refuses dry-run, bad targets, and a stopped CEO container', async () => {
   await assert.rejects((await fixture({ dryRun: true })).portal.open('ceo'), /dry-run/);
-  const { portal } = await fixture({ podRunning: false });
-  await assert.rejects(portal.open('pod_x/lead'), /target must be/);
-  await assert.rejects(portal.open(`${POD}/nobody`), /seat not found/);
-  await assert.rejects(portal.open(`${POD}/lead`), /Start the pod/);
+  const { portal } = await fixture({ ceoRunning: false });
+  await assert.rejects(portal.open('Bad Seat'), /target must be/);
+  await assert.rejects(portal.open('builder'), /must be running/);
 });
 
 test('an idle portal closes itself and stops the dashboard', async () => {

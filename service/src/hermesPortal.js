@@ -1,10 +1,9 @@
 import net from 'node:net';
 import { spawn } from 'node:child_process';
-import { badRequest, conflict, lifecycleError, notFound } from './errors.js';
+import { badRequest, conflict, lifecycleError } from './errors.js';
 
 const DASHBOARD_PORT = 9119;
-const POD_ID_RE = /^pod_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-const SEAT_ID_RE = /^[a-z][a-z0-9_-]{1,62}$/;
+const SEAT_ID_RE = /^[a-z][a-z0-9-]{1,30}$/;
 const READY_ATTEMPTS = 60;
 const READY_DELAY_MS = 500;
 
@@ -35,10 +34,8 @@ except Exception: sys.exit(1)`;
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export class HermesPortal {
-  constructor({ config, store, docker, hermes, logger = undefined, spawner = spawn, readyDelayMs = READY_DELAY_MS }) {
+  constructor({ config, hermes, logger = undefined, spawner = spawn, readyDelayMs = READY_DELAY_MS }) {
     this.config = config;
-    this.store = store;
-    this.docker = docker;
     this.hermes = hermes;
     this.logger = logger;
     this.spawner = spawner;
@@ -68,7 +65,7 @@ export class HermesPortal {
     }
     await this.#close('switched');
     await this.#exec(target, ['hermes', 'dashboard', '--stop'], 20000);
-    const start = await this.docker.runner('docker', ['exec', '-d', '--user', 'hermes', target.containerName, 'hermes', ...(target.profile ? ['-p', target.profile] : []), 'dashboard', '--no-open', '--skip-build', '--port', String(DASHBOARD_PORT), '--host', '127.0.0.1'], { timeoutMs: 20000, outputLimitBytes: 4096 });
+    const start = await this.hermes.runner('docker', ['exec', '-d', '--user', 'hermes', target.containerName, 'hermes', ...(target.profile ? ['-p', target.profile] : []), 'dashboard', '--no-open', '--skip-build', '--port', String(DASHBOARD_PORT), '--host', '127.0.0.1'], { timeoutMs: 20000, outputLimitBytes: 4096 });
     if (start.code !== 0) throw lifecycleError('Hermes dashboard could not be started', { target: target.target });
     await this.#waitReady(target);
     await this.#listen();
@@ -104,18 +101,14 @@ export class HermesPortal {
       if (!inspected.exists || !inspected.state.running) throw conflict('Hermes CEO container must be running to open its dashboard.');
       return { target, containerName: this.hermes.containerName, profile: null };
     }
-    const [podId, seatId, extra] = target.split('/');
-    if (extra !== undefined || !POD_ID_RE.test(podId || '') || !SEAT_ID_RE.test(seatId || '')) throw badRequest('target must be ceo or pod_<uuid>/<seat-id>');
-    const pod = await this.store.getInstance(podId);
-    if (!pod.seats.some((seat) => seat.id === seatId)) throw notFound('seat not found in pod', { podId, seatId });
-    const containerName = this.docker.makeContainerName(podId);
-    const inspected = await this.docker.inspectOwnedContainer(containerName, podId, { allowMissing: true });
-    if (!inspected.exists || !inspected.state.running) throw conflict('Start the pod before opening a seat dashboard.', { podId });
-    return { target, containerName, profile: seatId };
+    if (!SEAT_ID_RE.test(target)) throw badRequest('target must be ceo or a seat id');
+    const inspected = await this.hermes.inspect({ allowMissing: true });
+    if (!inspected.exists || !inspected.state.running) throw conflict('Hermes CEO container must be running to open a seat dashboard.');
+    return { target, containerName: this.hermes.containerName, profile: target };
   }
 
   async #exec(target, command, timeoutMs) {
-    return this.docker.runner('docker', ['exec', '--user', 'hermes', target.containerName, ...command], { timeoutMs, outputLimitBytes: 4096 });
+    return this.hermes.runner('docker', ['exec', '--user', 'hermes', target.containerName, ...command], { timeoutMs, outputLimitBytes: 4096 });
   }
 
   async #waitReady(target) {

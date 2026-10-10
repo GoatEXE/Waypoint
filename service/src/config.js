@@ -32,15 +32,9 @@ function intFromEnv(name, value, defaultValue, min, max) {
   return parsed;
 }
 const DOCKER_NAME_SEGMENT_RE = /^[a-z][a-z0-9_.-]{0,62}$/;
-const LABEL_NAMESPACE_RE = /^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/;
 function dockerNameSegmentFromEnv(name, value, defaultValue) {
   const text = String(value || defaultValue).trim();
   if (!DOCKER_NAME_SEGMENT_RE.test(text)) throw new Error(`${name} must start with a lowercase letter and contain only lowercase letters, digits, dot, dash, or underscore`);
-  return text;
-}
-function labelNamespaceFromEnv(name, value, defaultValue) {
-  const text = String(value || defaultValue).trim();
-  if (!LABEL_NAMESPACE_RE.test(text)) throw new Error(`${name} must be a lowercase Docker label namespace`);
   return text;
 }
 export function loadConfig(env = process.env, cwd = process.cwd()) {
@@ -57,13 +51,6 @@ export function loadConfig(env = process.env, cwd = process.cwd()) {
       enabled: boolFromEnv('WAYPOINT_SHARED_AUTH', env.WAYPOINT_SHARED_AUTH, false),
       volumeName: dockerNameSegmentFromEnv('WAYPOINT_AUTH_VOLUME', env.WAYPOINT_AUTH_VOLUME, 'waypoint-hermes-shared-auth'),
       mountPath: '/opt/waypoint-auth',
-    },
-    docker: {
-      image: env.POD_DOCKER_IMAGE || PINNED_HERMES_IMAGE,
-      labelNamespace: labelNamespaceFromEnv('POD_LABEL_NAMESPACE', env.POD_LABEL_NAMESPACE, 'com.waypoint.pod'),
-      namePrefix: dockerNameSegmentFromEnv('POD_NAME_PREFIX', env.POD_NAME_PREFIX, 'waypoint-pod'),
-      volumePrefix: dockerNameSegmentFromEnv('POD_VOLUME_PREFIX', env.POD_VOLUME_PREFIX, 'waypoint-pod-data'),
-      idleCommand: ['sleep', 'infinity'],
     },
     hermes: {
       image: env.HERMES_DOCKER_IMAGE || PINNED_HERMES_IMAGE,
@@ -97,7 +84,6 @@ export function publicConfig(config) {
     dataDir: config.dataDir,
     dryRun: config.dryRun,
     sharedAuth: { enabled: config.sharedAuth.enabled },
-    docker: { imageConfigured: Boolean(config.docker.image), imagePinned: Boolean(config.docker.image?.includes('@sha256:') || /^sha256:[0-9a-f]{64}$/.test(config.docker.image || '')), labelNamespace: config.docker.labelNamespace, namePrefix: config.docker.namePrefix, volumePrefix: config.docker.volumePrefix, containerDataDir: '/opt/data' },
     hermes: { imagePinned: config.hermes.image.includes('@sha256:') || /^sha256:[0-9a-f]{64}$/.test(config.hermes.image || ''), containerName: config.hermes.containerName, volumeName: config.hermes.volumeName, autoStart: config.hermes.autoStart, ceoMaxMessageChars: config.hermes.ceoMaxMessageChars, ceoMaxMessages: config.hermes.ceoMaxMessages },
   };
 }

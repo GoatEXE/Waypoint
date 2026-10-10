@@ -15,8 +15,7 @@ NO_TOKEN = {'--version', 'version', 'help', '--help', '-h', 'completion'}
 
 def bridge_config():
     home = Path(os.environ.get('HERMES_HOME') or '/opt/data')
-    for name in ('messaging.json', 'bridge.json'):
-        path = home / 'waypoint' / name
+    for path in (home / 'waypoint' / 'messaging.json', home / 'waypoint' / 'bridge.json', Path('/opt/data/waypoint/bridge.json')):
         if path.is_file():
             config = json.loads(path.read_text(encoding='utf-8'))
             if config.get('baseUrl') and config.get('token'):
