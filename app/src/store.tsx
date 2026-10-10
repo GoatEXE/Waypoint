@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { api, type BoardTask, type Pod, type MissionInput, type OrganizationInput, type OrganizationState, type Project } from './api';
 import { createdBoardTask, ceoLiveUpdated, ceoLoadFailed, ceoLoadStarted, ceoLoadSucceeded, ceoSendFailed, ceoSendStarted, ceoSendSucceeded, cleanCeoMessage, emptyCeoState, type CeoState } from './ceoConversation';
 import type { LessonPick } from './data';
-import { liveTasks, pendingInbox, type Resolved } from './model';
+import { liveTasks, type Resolved } from './model';
 import { initialMissionsState, missionsLoadFailed, missionsLoadStarted, missionsLoadSucceeded, type MissionsState } from './missionsModel';
 
 export type PaneTab = 'ceo' | 'tasks' | 'artifacts' | 'inbox' | 'item';
@@ -200,7 +200,6 @@ function useAppStore() {
 
   const derived = useMemo(() => ({
     tasks: liveTasks(state.resolved),
-    pending: pendingInbox(state.resolved),
   }), [state.resolved]);
 
   return { state, ...derived, ...actions };
