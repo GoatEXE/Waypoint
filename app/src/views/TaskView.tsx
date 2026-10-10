@@ -2,11 +2,13 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, isNotFoundError, type BoardTaskDetail, type BoardTaskLink, type OrgSeat } from '../api';
 import { useSplitCols } from '../components/layout';
+import { ConfirmPanel } from '../components/ConfirmPanel';
 import { AssigneeSelect } from '../components/TaskFields';
 import { TaskRefText } from '../components/TaskRefText';
 import { statusLabel, taskLabel } from '../taskQueueModel';
 import { useStore } from '../store';
 import { ceoNameOf } from '../orgModel';
+import { commentPlaceholder, confirmCopy, taskPrimary, type ConfirmKind } from '../taskActionsModel';
 
 type LoadState =
   | { status: 'loading' }
@@ -76,6 +78,7 @@ export function TaskView({ id }: { id: string }) {
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [confirming, setConfirming] = useState<ConfirmKind | null>(null);
 
   const loadTask = useCallback(async () => {
     try {
@@ -87,6 +90,7 @@ export function TaskView({ id }: { id: string }) {
   }, [id]);
 
   useEffect(() => { setLoad({ status: 'loading' }); void loadTask(); }, [loadTask]);
+  useEffect(() => { setConfirming(null); }, [id]);
   const boardKey = JSON.stringify(appState.board.find(t => t.ref === id || t.id === id) || null);
   const seenBoardKey = useRef(boardKey);
   useEffect(() => {
@@ -115,11 +119,20 @@ export function TaskView({ id }: { id: string }) {
   const ref = taskLabel(task);
   const closed = task.status === 'done' || task.status === 'archived';
   const inReview = task.status === 'review';
+  const blocked = taskPrimary(task.status) === 'unblock';
   const submitComment = async () => {
     const text = draft.trim();
     if (!text || busy) return;
     if (await run(() => api.commentTask(ref, text))) setDraft('');
   };
+  const confirmAction = async () => {
+    if (!confirming) return;
+    if (await run(() => api.taskAction(ref, { action: confirming }))) setConfirming(null);
+  };
+  const confirmPanel = (kind: ConfirmKind) => confirming === kind && (
+    <ConfirmPanel copy={confirmCopy(kind, { ref, status: task.status, assignee: task.assignee, children: task.children })} busy={busy}
+      onCancel={() => setConfirming(null)} onConfirm={() => void confirmAction()} />
+  );
 
   return (
     <div className="page" style={{ maxWidth: 1040, gap: 28 }}>
@@ -150,12 +163,19 @@ export function TaskView({ id }: { id: string }) {
           {!closed && (
             <form className="stack" style={{ gap: 8 }} onSubmit={e => { e.preventDefault(); void submitComment(); }}>
               <textarea className="input" rows={4} value={draft} disabled={busy} onChange={e => setDraft(e.target.value)}
-                placeholder={inReview ? 'What needs to change?' : task.assignee ? `Comment; ${task.assignee} sees it on the next pass` : 'Comment'} />
-              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-                {task.status === 'blocked' && <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => void run(() => api.taskAction(ref, { action: 'unblock' }))}>Unblock</button>}
-                <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => void run(() => api.taskAction(ref, inReview ? { action: 'complete', summary: 'Approved by the user.' } : { action: 'complete' }))}>{inReview ? 'Approve' : 'Mark done'}</button>
-                <button type="submit" className="btn btn-primary" disabled={busy || !draft.trim()}>{inReview ? 'Request changes' : 'Comment'}</button>
-              </div>
+                placeholder={commentPlaceholder(task.status, task.assignee)} />
+              {confirmPanel('complete') || (
+                <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                  {inReview
+                    ? <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => void run(() => api.taskAction(ref, { action: 'complete', summary: 'Approved by the user.' }))}>Approve</button>
+                    : <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => setConfirming('complete')}>Mark done</button>}
+                  {blocked
+                    ? draft.trim()
+                      ? <button type="submit" className="btn btn-primary" disabled={busy}>Reply and unblock</button>
+                      : <button type="button" className="btn btn-primary" disabled={busy} onClick={() => void run(() => api.taskAction(ref, { action: 'unblock' }))}>Unblock</button>
+                    : <button type="submit" className="btn btn-primary" disabled={busy || !draft.trim()}>{inReview ? 'Request changes' : 'Comment'}</button>}
+                </div>
+              )}
             </form>
           )}
         </div>
@@ -176,7 +196,7 @@ export function TaskView({ id }: { id: string }) {
           </div>
           <TaskLinks title="Waits on" links={task.parents} />
           <TaskLinks title="Starts after this" links={task.children} />
-          {task.status !== 'archived' && <button className="btn btn-ghost" style={{ alignSelf: 'flex-start' }} disabled={busy} onClick={() => void run(() => api.taskAction(ref, { action: 'archive' }))}>Archive</button>}
+          {task.status !== 'archived' && (confirmPanel('archive') || <button className="btn btn-ghost" style={{ alignSelf: 'flex-start' }} disabled={busy} onClick={() => setConfirming('archive')}>Archive</button>)}
         </div>
       </div>
     </div>
