@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, type BoardEvent, type OrgSeat } from '../api';
-import { SeatMark } from '../components/ProviderMark';
+import { SeatIcon } from '../components/SeatIcon';
+import { HermesPortalLink } from '../components/HermesPortalLink';
 import { SEAT_STATE_LABEL, seatWork } from '../seatModel';
 import { statusLabel, taskLabel } from '../taskQueueModel';
 import { useStore } from '../store';
@@ -40,9 +41,9 @@ export function SeatView({ id }: { id: string }) {
     <div className="page" style={{ maxWidth: 920, gap: 28 }}>
       <div className="page-head">
         <div className="eyebrow-row"><span>SEAT</span><span className="sep">·</span><span>{SEAT_STATE_LABEL[work.state].toUpperCase()}</span></div>
-        <h1 className="h1 mono" style={{ display: 'flex', alignItems: 'center', gap: 10 }}><SeatMark provider={seat?.provider} size={18} />{id}</h1>
+        <h1 className="h1 mono" style={{ display: 'flex', alignItems: 'center', gap: 10 }}><SeatIcon id={id} description={seat?.description} size={20} />{id}</h1>
         <p className="lede">{seat ? seat.description || 'No description' : 'Loading seat…'}</p>
-        {seat?.model && <div className="meta-row"><span>Model <span className="v">{seat.model}</span></span></div>}
+        {seat && <div className="meta-row" style={{ alignItems: 'center' }}>{seat.model && <span>Model <span className="v">{seat.model}</span></span>}<HermesPortalLink target={id} /></div>}
       </div>
 
       <div className="stack" style={{ gap: 10 }}>

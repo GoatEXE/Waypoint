@@ -3,9 +3,7 @@ import { api, type HermesStatus, type OrgSeat } from '../api';
 import { OnDot, WorkspaceHead } from '../components/ui';
 import { useStore } from '../store';
 import { ceoNameOf } from '../orgModel';
-import { ONBOARDING_KICKOFF } from './OrgSetupView';
-import { HermesPortalLink } from '../components/HermesPortalLink';
-import { SeatMark } from '../components/ProviderMark';
+import { SeatIcon } from '../components/SeatIcon';
 import { DRY_RUN_REASON } from '../dryRun';
 import { errorText } from '../runtimeHealth';
 import { useNavigate } from 'react-router-dom';
@@ -19,7 +17,7 @@ function SeatCard({ seat }: { seat: OrgSeat }) {
   return (
     <button type="button" className={'org-node org-seat' + (work.state === 'running' ? ' busy' : '')} onClick={() => nav('/seats/' + encodeURIComponent(seat.id))}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, width: '100%' }}>
-        <SeatMark provider={seat.provider} size={14} />
+        <SeatIcon id={seat.id} description={seat.description} size={15} />
         <span className="org-name mono">{seat.id}</span>
         <span className="org-sub">{seat.model}</span>
         <span className="org-state"><OnDot on={work.state === 'running'} />{SEAT_STATE_LABEL[work.state]}</span>
@@ -31,7 +29,7 @@ function SeatCard({ seat }: { seat: OrgSeat }) {
 }
 
 export function OrgChartView() {
-  const { state, setCeoThread, setPane, sendCeoMessage, openModal } = useStore();
+  const { state, setCeoThread, setPane, openModal } = useStore();
   const [seats, setSeats] = useState<OrgSeat[] | null>(null);
   const [ceo, setCeo] = useState<HermesStatus | null>(null);
   const [error, setError] = useState('');
@@ -57,7 +55,6 @@ export function OrgChartView() {
       <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12 }}>
         <WorkspaceHead title="Organization" />
         <button className="btn btn-ghost" style={{ marginLeft: 'auto' }} disabled={dryRun} title={dryRun ? DRY_RUN_REASON : undefined} onClick={() => openModal('seat')}>Hire a seat</button>
-        <button className="btn btn-primary" disabled={state.ceo.sending} onClick={() => { setCeoThread('general'); void sendCeoMessage(ONBOARDING_KICKOFF, true); }}>Onboard with {ceoName}</button>
       </div>
       {error && <div className="card" role="alert" style={{ padding: 12 }}>{error}</div>}
       {!seats && !error && <div className="empty" role="status">Loading organization…</div>}
@@ -82,7 +79,6 @@ export function OrgChartView() {
               </div>
               <span className="org-state"><OnDot on={Boolean(ceo?.runtime.running)} />{ceo ? (ceo.runtime.running ? 'running' : ceo.runtime.state) : '…'}</span>
             </button>
-            {ceo?.runtime.running && <HermesPortalLink target="ceo" />}
           </div>
           {seats.length > 0 && <div className="org-stem" />}
           {seats.length === 0 && <div className="empty">No seats yet. Hire one, or ask {ceoName} to.</div>}

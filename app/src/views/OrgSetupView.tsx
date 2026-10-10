@@ -102,7 +102,7 @@ export function OrgSetupView() {
             <div className="eyebrow">YOUR TEAM</div>
             <h1 className="h1">Build your team with {ceoName.trim() || 'the CEO'}</h1>
           </div>
-          <p className="setup-hint">{ceoName.trim() || 'The CEO'} interviews you about what you're working on, then proposes a mission and the seats to hire. Skip goes straight to the workspace; you can onboard later from Organization.</p>
+          <p className="setup-hint">{ceoName.trim() || 'The CEO'} interviews you about what you're working on, then proposes a mission and the seats to hire. Skip goes straight to the workspace; you can onboard later from Help.</p>
           {!provider && <div className="setup-hint" role="status">Onboarding needs a connected model. <button type="button" className="link-btn" onClick={() => setStep(2)}>Connect a model first →</button></div>}
         </div>}
 

@@ -8,7 +8,7 @@ import { DryRunBadge } from './DryRunBanner';
 
 interface Crumb { label: string; to: string; mono?: boolean }
 
-const WS: Partial<Record<Route['v'], string>> = { routines: 'Routines', artifacts: 'Artifacts', skills: 'Skills', connectors: 'Connectors', settings: 'Settings' };
+const WS: Partial<Record<Route['v'], string>> = { routines: 'Routines', artifacts: 'Artifacts', skills: 'Skills', connectors: 'Connectors', settings: 'Settings', help: 'Help' };
 
 export function crumbsFor(r: Route, missionTitle: string | null, projects: Project[], board: BoardTask[]): Crumb[] {
   const m: Crumb = { label: missionTitle || 'Workspace', to: '/' };

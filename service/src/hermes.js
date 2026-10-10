@@ -1006,7 +1006,7 @@ function buildCeoChatArgs(containerName, sessionId, hermesConfig, conversationNa
   args.push('--source', 'tool', '--skills', 'waypoint-ceo-bridge', '--in', '/opt/data', '--run-budget', String(hermesConfig.ceoRunBudgetSeconds), '--max-turns', String(hermesConfig.ceoMaxTurns));
   return args;
 }
-function runCeoChatChild(child, message, { timeoutMs, outputLimitBytes, guardHostDisconnect = false, onEvent = undefined }) {
+export function runCeoChatChild(child, message, { timeoutMs, outputLimitBytes, guardHostDisconnect = false, onEvent = undefined }) {
   return new Promise((resolve, reject) => {
     let stdout = '';
     const emitLines = onEvent ? streamLineReader(onEvent, outputLimitBytes) : () => {};

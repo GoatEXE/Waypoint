@@ -36,9 +36,18 @@ function createJsonHandler(logger, dispatch) {
   };
 }
 
-async function route(request, url, { config, store, organization, hermes, board, pods, github, portal, orgSeats, logger }) {
+async function route(request, url, { config, store, organization, hermes, board, pods, github, portal, orgSeats, seatFeedback, logger }) {
   const { pathname } = url;
   const method = request.method;
+  const feedbackMatch = pathname.match(/^\/seats\/([^/]+)\/feedback$/);
+  if (feedbackMatch && seatFeedback) {
+    const seat = decodeRouteParam(feedbackMatch[1]);
+    if (method === 'GET') return { body: await seatFeedback.conversation(seat, url.searchParams.get('task') || '') };
+    if (method === 'POST') {
+      const body = await readBody(request);
+      return { body: await seatFeedback.send(seat, body?.task || '', { message: body?.message }) };
+    }
+  }
   if (pathname === '/org/seats' && orgSeats) {
     if (method === 'GET') return { body: await orgSeats.list() };
     if (method === 'POST') return { status: 201, body: await orgSeats.hire(await readBody(request)) };

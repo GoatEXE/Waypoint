@@ -6,6 +6,7 @@ import { useSplitCols } from '../components/layout';
 import { ConfirmPanel } from '../components/ConfirmPanel';
 import { AssigneeSelect } from '../components/TaskFields';
 import { TaskRefText } from '../components/TaskRefText';
+import { SeatFeedback } from '../components/SeatFeedback';
 import { statusLabel, taskLabel } from '../taskQueueModel';
 import { useStore } from '../store';
 import { ceoNameOf } from '../orgModel';
@@ -99,6 +100,7 @@ export function TaskView({ id }: { id: string }) {
   const [busy, setBusy] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [confirming, setConfirming] = useState<ConfirmKind | null>(null);
+  const [feedback, setFeedback] = useState(false);
 
   const loadTask = useCallback(async () => {
     try {
@@ -110,7 +112,7 @@ export function TaskView({ id }: { id: string }) {
   }, [id]);
 
   useEffect(() => { setLoad({ status: 'loading' }); void loadTask(); }, [loadTask]);
-  useEffect(() => { setConfirming(null); }, [id]);
+  useEffect(() => { setConfirming(null); setFeedback(false); }, [id]);
   const boardKey = JSON.stringify(appState.board.find(t => t.ref === id || t.id === id) || null);
   const seenBoardKey = useRef(boardKey);
   useEffect(() => {
@@ -168,6 +170,7 @@ export function TaskView({ id }: { id: string }) {
           <h1 className="h1">{task.title}</h1>
         </div>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          {task.assignee && <button className="btn lg btn-ghost" onClick={() => setFeedback(true)}>Give {task.assignee} feedback</button>}
           <button className="btn lg btn-ghost" onClick={() => { setCeoThread(task.id); setPane({ open: true, tab: 'tasks' }); }}>Discuss with {ceoNameOf(appState.org.organization)}</button>
         </div>
       </div>
@@ -179,6 +182,7 @@ export function TaskView({ id }: { id: string }) {
             ? <Comment key={i} author={entry.author} at={entry.at} body={entry.body} />
             : <div key={i} style={{ display: 'flex', gap: 8, fontSize: 12, color: 'var(--faint)', padding: '0 14px' }}><span>{entry.kind === 'heartbeats' ? `${entry.count} heartbeat${entry.count === 1 ? '' : 's'} · latest` : entry.text}</span><span style={{ marginLeft: 'auto' }}>{formatDateTime(entry.at)}</span></div>)}
           <WorkerActivity taskRef={ref} status={task.status} assignee={task.assignee} />
+          {feedback && task.assignee && <SeatFeedback seat={task.assignee} taskRef={ref} onClose={() => setFeedback(false)} />}
           {task.latestSummary && (
             <div className="stack" style={{ gap: 6, padding: '12px 14px', border: '1px solid var(--border-3)', borderRadius: 10, background: 'var(--surface-2)' }}>
               <div style={{ fontSize: 11.5, color: 'var(--faint)' }}>Latest summary</div>

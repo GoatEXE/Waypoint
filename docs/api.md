@@ -162,3 +162,8 @@ Errors are structured and omit stack traces and secrets:
   }
 }
 ```
+
+### Seat feedback
+
+- `GET /seats/:seatId/feedback?task=<ref>` returns `{ seat, task, messages, live }` for the feedback chat between the user and the seat assigned to that task.
+- `POST /seats/:seatId/feedback` takes `{ task, message }`. It runs a Hermes chat on that seat's own profile (`hermes -p <seat> chat`, session `waypoint-feedback-<taskId>`). The first message carries the task and its handoff summary and asks the seat to save what it learns with its memory tool or a skill. Only the task's assignee can receive feedback; one reply runs at a time per seat and task.

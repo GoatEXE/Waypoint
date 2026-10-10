@@ -7,6 +7,7 @@ import { PROVIDERS, RECOMMENDED_MODELS, authForProvider } from '../providerConfi
 import { applySavedModelIfClean, DEFAULTS, defaultModelForProvider as defaultCatalogModelForProvider, type ModelState, type Provider } from '../settingsModel';
 import { errorText, runtimeHealth } from '../runtimeHealth';
 import { StartCeoButton } from '../components/RuntimeBanner';
+import { HermesPortalLink } from '../components/HermesPortalLink';
 import { useStore } from '../store';
 
 const CUSTOM = '__custom__';
@@ -148,6 +149,7 @@ export function SettingsView() {
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             {runtimeSummary.canStart && <StartCeoButton className="btn btn-primary" />}
+            {status?.runtime.running && <HermesPortalLink target="ceo" label="Open Hermes UI" />}
             <button className="btn btn-ghost" disabled={!!busy || appState.runtime.starting} onClick={() => loadStatus({ freshAuth: true })}>Refresh status</button>
           </div>
           {appState.runtime.startError && <div role="alert" className="form-error">{appState.runtime.startError}</div>}

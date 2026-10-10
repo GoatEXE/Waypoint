@@ -2,7 +2,7 @@ import { useLocation } from 'react-router-dom';
 
 export type View =
   | 'mission' | 'project' | 'task' | 'pod' | 'seat'
-  | 'tasks' | 'org' | 'github' | 'inbox' | 'routines' | 'artifacts' | 'skills' | 'connectors' | 'settings' | 'notfound';
+  | 'tasks' | 'org' | 'github' | 'inbox' | 'routines' | 'artifacts' | 'skills' | 'connectors' | 'settings' | 'help' | 'notfound';
 
 export interface Route { v: View; id?: string }
 
@@ -15,7 +15,7 @@ export function parseRoute(path: string): Route {
   if (a === 'tasks' && b && !c) return { v: 'task', id: b };
   if (a === 'pods' && b && !c) return { v: 'pod', id: b };
   if (a === 'seats' && b && !c) return { v: 'seat', id: b };
-  if (!b && ['org', 'inbox', 'routines', 'artifacts', 'skills', 'connectors', 'settings'].includes(a)) return { v: a as View };
+  if (!b && ['org', 'inbox', 'routines', 'artifacts', 'skills', 'connectors', 'settings', 'help'].includes(a)) return { v: a as View };
   return { v: 'notfound' };
 }
 

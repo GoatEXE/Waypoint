@@ -21,6 +21,7 @@ import { ProjectDialog } from './components/ProjectDialog';
 import { PodDialog } from './components/PodDialog';
 import { PodView } from './views/PodView';
 import { SeatView } from './views/SeatView';
+import { HelpView } from './views/HelpView';
 import { OrgChartView } from './views/OrgChartView';
 import { GitHubCallbackView } from './views/GitHubCallbackView';
 import { OrgSetupView } from './views/OrgSetupView';
@@ -42,6 +43,7 @@ function View() {
     case 'skills': return <SkillsView />;
     case 'connectors': return <ConnectorsView />;
     case 'settings': return <SettingsView />;
+    case 'help': return <HelpView />;
     default: return (
       <div className="page" style={{ maxWidth: 920, gap: 12 }}>
         <div className="eyebrow">NOT FOUND</div>
