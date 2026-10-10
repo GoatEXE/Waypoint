@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { api, type BoardTask } from '../api';
 import { needsYou, taskLabel } from '../taskQueueModel';
 import { WorkspaceHead } from '../components/ui';
+import { useStore } from '../store';
 
 function InboxItem({ task, onDone }: { task: BoardTask; onDone: () => Promise<void> }) {
   const nav = useNavigate();
@@ -45,14 +46,14 @@ function InboxItem({ task, onDone }: { task: BoardTask; onDone: () => Promise<vo
 }
 
 export function MessageInboxView() {
-  const [tasks, setTasks] = useState<BoardTask[]>([]);
+  const { state, loadBoard } = useStore();
+  const tasks = needsYou(state.board);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const refresh = useCallback(async () => {
-    try { setTasks(needsYou((await api.tasks()).tasks)); setError(''); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
-    finally { setLoading(false); }
-  }, []);
+    setError((await loadBoard()) ? '' : 'Could not load the task board.');
+    setLoading(false);
+  }, [loadBoard]);
   useEffect(() => { void refresh(); const timer = window.setInterval(() => void refresh(), 15000); return () => window.clearInterval(timer); }, [refresh]);
 
   return (

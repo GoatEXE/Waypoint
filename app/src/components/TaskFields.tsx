@@ -1,26 +1,25 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, type BoardTask, type OrgSeat } from '../api';
 import { taskLabel } from '../taskQueueModel';
+import { useStore } from '../store';
 
 export interface TaskDraft { title: string; body: string; assignee: string; parents: string[] }
 
 export const emptyDraft: TaskDraft = { title: '', body: '', assignee: '', parents: [] };
 
 export function useQueueData() {
-  const [tasks, setTasks] = useState<BoardTask[]>([]);
+  const { state, loadBoard } = useStore();
   const [seats, setSeats] = useState<OrgSeat[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const reload = useCallback(async () => {
-    try {
-      const [t, s] = await Promise.all([api.tasks(), api.orgSeats()]);
-      setTasks(t.tasks); setSeats(s.seats); setError('');
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally { setLoading(false); }
-  }, []);
+    const [tasks, s] = await Promise.all([loadBoard(), api.orgSeats().catch(() => null)]);
+    if (s) setSeats(s.seats);
+    setError(tasks ? '' : 'Could not load the task board.');
+    setLoading(false);
+  }, [loadBoard]);
   useEffect(() => { void reload(); }, [reload]);
-  return { tasks, seats, loading, error, reload };
+  return { tasks: state.board, seats, loading, error, reload };
 }
 
 export function AssigneeSelect({ value, seats, disabled, onChange }: { value: string; seats: OrgSeat[]; disabled?: boolean; onChange: (value: string) => void }) {

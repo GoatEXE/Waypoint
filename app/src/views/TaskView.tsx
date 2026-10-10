@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, isNotFoundError, type BoardTaskDetail, type BoardTaskLink, type OrgSeat } from '../api';
 import { useSplitCols } from '../components/layout';
@@ -67,7 +67,7 @@ function Comment({ author, at, body }: { author: string; at: string; body: strin
 
 export function TaskView({ id }: { id: string }) {
   const splitCols = useSplitCols();
-  const { state: appState, setCeoThread, setPane, flash } = useStore();
+  const { state: appState, setCeoThread, setPane, flash, loadBoard } = useStore();
   const [load, setLoad] = useState<LoadState>({ status: 'loading' });
   const [seats, setSeats] = useState<OrgSeat[]>([]);
   const [draft, setDraft] = useState('');
@@ -84,14 +84,21 @@ export function TaskView({ id }: { id: string }) {
   }, [id]);
 
   useEffect(() => { setLoad({ status: 'loading' }); void loadTask(); }, [loadTask]);
+  const boardKey = JSON.stringify(appState.board.find(t => t.ref === id || t.id === id) || null);
+  const seenBoardKey = useRef(boardKey);
+  useEffect(() => {
+    if (seenBoardKey.current === boardKey) return;
+    seenBoardKey.current = boardKey;
+    void loadTask();
+  }, [boardKey, loadTask]);
   useEffect(() => { api.orgSeats().then(r => setSeats(r.seats)).catch(() => undefined); }, []);
   const readyTaskId = load.status === 'ready' ? load.task.id : null;
   useEffect(() => { if (readyTaskId) setCeoThread(readyTaskId); }, [readyTaskId, setCeoThread]);
 
-  const refresh = async () => { setRefreshing(true); await loadTask(); setRefreshing(false); };
+  const refresh = async () => { setRefreshing(true); await Promise.all([loadTask(), loadBoard()]); setRefreshing(false); };
   const run = async (action: () => Promise<BoardTaskDetail>) => {
     setBusy(true);
-    try { setLoad({ status: 'ready', task: await action() }); return true; }
+    try { setLoad({ status: 'ready', task: await action() }); void loadBoard(); return true; }
     catch (e) { flash(e instanceof Error ? e.message : String(e)); return false; }
     finally { setBusy(false); }
   };
