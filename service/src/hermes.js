@@ -10,6 +10,7 @@ import { activityDetail, applyStreamEvent, finalActivity, normalizeActivity, pub
 
 export const HERMES_IMAGE_DIGEST = 'nousresearch/hermes-agent@sha256:d4da4a40cd7a28aba983775d9fd31d94cbf153eeb0cb9e844d6d0f612b7c24db';
 
+const CEO_SETTINGS = [['approvals.single_query_mode', 'approve'], ['kanban.review_dispatch', 'false']];
 const ALLOWED_PROVIDERS = new Set(['openai-codex', 'anthropic', 'openai-api', 'openai']);
 const CATALOG_PROVIDERS = ['openai-codex', 'anthropic', 'openai-api'];
 const PROVIDER_ALIASES = { openai: 'openai-api' };
@@ -343,7 +344,7 @@ export class HermesRuntime {
 
   async prepareCeoHome() {
     await this.seedCeoHome();
-    await this.ensureCeoSingleQueryApproval();
+    await this.ensureCeoSettings();
   }
 
   async seedCeoHome() {
@@ -359,12 +360,16 @@ export class HermesRuntime {
     return { refreshed: true };
   }
 
-  async ensureCeoSingleQueryApproval() {
-    const get = await this.runner('docker', ['exec', '--user', 'hermes', this.containerName, 'hermes', 'config', 'get', 'approvals.single_query_mode'], { timeoutMs: 30000 });
-    if (get.code === 0 && String(get.stdout || '').trim().toLowerCase() === 'approve') return { changed: false, mode: 'approve' };
-    const set = await this.runner('docker', ['exec', '--user', 'hermes', this.containerName, 'hermes', 'config', 'set', 'approvals.single_query_mode', 'approve'], { timeoutMs: 30000 });
-    if (set.code !== 0) throw lifecycleError('Hermes CEO approval policy could not be configured for unattended bridge use.', { setting: 'approvals.single_query_mode' });
-    return { changed: true, mode: 'approve' };
+  async ensureCeoSettings() {
+    const changed = [];
+    for (const [key, value] of CEO_SETTINGS) {
+      const get = await this.runner('docker', ['exec', '--user', 'hermes', this.containerName, 'hermes', 'config', 'get', key], { timeoutMs: 30000 });
+      if (get.code === 0 && String(get.stdout || '').trim().toLowerCase() === value) continue;
+      const set = await this.runner('docker', ['exec', '--user', 'hermes', this.containerName, 'hermes', 'config', 'set', key, value], { timeoutMs: 30000 });
+      if (set.code !== 0) throw lifecycleError('Hermes CEO settings could not be configured.', { setting: key });
+      changed.push(key);
+    }
+    return { changed };
   }
 
   async stop() {
@@ -1273,7 +1278,7 @@ if not os.path.exists(soul_path) or os.path.getsize(soul_path)==0:
  soul="# Waypoint CEO profile\n\nYou are the Waypoint CEO agent. The user directs strategy and approvals. Your role is to hire seats, delegate work to them on the task board, keep it moving, and report evidence. Seats execute implementation work; do not perform project tasks yourself unless the user explicitly asks.\n\nUse the Waypoint bridge only for mission and project records. Do not request or print provider credentials.\n"
  open(soul_path,'w',encoding='utf-8').write(soul)
 safe_chown(soul_path); safe_chmod(soul_path,0o600)
-skill="---\nname: waypoint-ceo-bridge\ndescription: Use for Waypoint organization work: seats, the task board, missions, and projects.\n---\n\n# Waypoint CEO\n\nYou run this organization. The user directs strategy and approvals; you delegate and keep work moving. Seats do the work.\n\n## Seats\nSeats are Hermes profiles in your own install (\"hermes profile list\"). To hire a seat, create a profile (--clone-from the most similar existing seat to copy its skills, or start fresh) and describe it with \"hermes profile describe <id> --text\". Ask the user before hiring unless their request says you may.\n\n## Work goes on the board\nDelegate work as kanban tasks assigned to the best seat (\"hermes kanban create ... --assignee <seat>\"). The gateway's dispatcher starts them; follow progress with \"hermes kanban show\". Keep discussion on the task's comments: the user follows the same thread in Waypoint. Quick questions you can answer yourself do not need a task.\n\n## Missions and projects\nThe Waypoint bridge endpoint and token are in /opt/data/waypoint/bridge.json; never print the token. POST { \"tool\": \"...\", \"args\": { ... } } with Authorization: Bearer <token>.\n- list_missions {}, create_mission { title, outcome?, target?, taskId? }, link_mission { missionId, taskId }, update_mission { missionId, status } with status backlog, todo, in_progress, in_review, done, or canceled.\n- list_projects {}, create_project { name, missionId?, repo? } where repo is owner/name on GitHub.\ntaskId is a board task id such as t_1a2b3c4d.\n"
+skill="---\nname: waypoint-ceo-bridge\ndescription: Use for Waypoint organization work: seats, the task board, missions, and projects.\n---\n\n# Waypoint CEO\n\nYou run this organization. The user directs strategy and approvals; you delegate and keep work moving. Seats do the work.\n\n## Seats\nSeats are Hermes profiles in your own install (\"hermes profile list\"). To hire a seat, create a profile (--clone-from the most similar existing seat to copy its skills, or start fresh) and describe it with \"hermes profile describe <id> --text\". Ask the user before hiring unless their request says you may.\n\n## Work goes on the board\nDelegate work as kanban tasks assigned to the best seat (\"hermes kanban create ... --assignee <seat>\"). The gateway's dispatcher starts them; follow progress with \"hermes kanban show\". Keep discussion on the task's comments: the user follows the same thread in Waypoint. Quick questions you can answer yourself do not need a task. Seats hand finished work to the user for approval (review) and queue the next step as a child task that starts once the user approves; you do not need to move work along after review.\n\n## Missions and projects\nThe Waypoint bridge endpoint and token are in /opt/data/waypoint/bridge.json; never print the token. POST { \"tool\": \"...\", \"args\": { ... } } with Authorization: Bearer <token>.\n- list_missions {}, create_mission { title, outcome?, target?, taskId? }, link_mission { missionId, taskId }, update_mission { missionId, status } with status backlog, todo, in_progress, in_review, done, or canceled.\n- list_projects {}, create_project { name, missionId?, repo? } where repo is owner/name on GitHub.\ntaskId is a board task id such as t_1a2b3c4d.\n"
 org=p.get('organization') or {}
 if org.get('name'):
  skill += "\n## Identity\nYour name is %s. You are the CEO of the organization %s. Use this name when introducing yourself.\n" % (str(org.get('ceoName') or 'CEO'), json.dumps(str(org['name']), ensure_ascii=False))

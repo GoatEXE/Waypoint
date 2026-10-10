@@ -4,9 +4,36 @@ const SEAT_ID_RE = /^[a-z][a-z0-9-]{1,30}$/;
 const RESERVED = new Set(['default', 'ceo', 'hermes']);
 const DESCRIPTION_MAX = 200;
 
+export const SEAT_SKILL = `---
+name: waypoint-seat
+description: How work moves through the user's approval in this Waypoint organization. Use when you finish a kanban task.
+---
+
+# Finishing a task
+
+Review is the user's approval gate, and you own the handoff into it.
+
+1. If something should happen once the user approves (filing issues, implementing a fix, reviewing a PR), create that follow-up now with kanban_create: parent it on your task and assign the best-suited seat ("hermes profile list" shows the seats and what they do). It waits until your task is approved. Write its body so that seat can start without asking you.
+2. Hand your task in with kanban_request_review. The summary is what the user reads: the result, then "On approval:" and what happens next and who does it.
+
+Complete a task directly only when it says no approval is needed. If you need a decision before you can finish, use kanban_block with the question.
+`;
+
 export const LIST_SEATS_SCRIPT = String.raw`
-import json, os, yaml
+import json, os, sys, yaml
+skill = json.loads(sys.stdin.read() or '{}').get('skill', '')
 root = '/opt/data/profiles'
+def sync_skill(home):
+    folder = os.path.join(home, 'skills', 'waypoint-seat')
+    path = os.path.join(folder, 'SKILL.md')
+    try:
+        if open(path, encoding='utf-8').read() == skill:
+            return
+    except OSError:
+        pass
+    os.makedirs(folder, exist_ok=True)
+    with open(path, 'w', encoding='utf-8') as handle:
+        handle.write(skill)
 def load(path):
     try:
         data = yaml.safe_load(open(path, encoding='utf-8'))
@@ -20,6 +47,8 @@ for name in sorted(os.listdir(root)) if os.path.isdir(root) else []:
     home = os.path.join(root, name)
     if not os.path.isfile(os.path.join(home, 'config.yaml')):
         continue
+    if skill:
+        sync_skill(home)
     model = load(os.path.join(home, 'config.yaml')).get('model')
     model = model if isinstance(model, dict) else {}
     seats.append({'id': name, 'description': text(load(os.path.join(home, 'profile.yaml')).get('description')), 'model': text(model.get('default')), 'provider': text(model.get('provider'))})
@@ -43,7 +72,7 @@ export class OrgSeats {
   }
 
   async list() {
-    const result = await this.hermes.execPython(LIST_SEATS_SCRIPT, '', { timeoutMs: 20000, outputLimitBytes: 256 * 1024 });
+    const result = await this.hermes.execPython(LIST_SEATS_SCRIPT, JSON.stringify({ skill: SEAT_SKILL }), { timeoutMs: 20000, outputLimitBytes: 256 * 1024 });
     const parsed = JSON.parse(String(result.stdout).trim().split('\n').pop());
     return { seats: (parsed.seats || []).filter((seat) => SEAT_ID_RE.test(seat.id)) };
   }

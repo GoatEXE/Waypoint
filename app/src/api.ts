@@ -197,7 +197,7 @@ export interface BoardTask {
   completedAt: string | null;
   lastError: string | null;
 }
-export interface BoardTaskLink { id: string; ref: string | null }
+export interface BoardTaskLink { id: string; ref: string | null; title: string; status: BoardStatus | null; assignee: string | null }
 export interface BoardComment { author: string; body: string; at: string | null }
 export interface BoardEvent { kind: string; at: string | null; runId: number | null; detail: string }
 export interface BoardTaskDetail extends BoardTask {

@@ -27,11 +27,13 @@ Statuses are the board's: `triage`, `todo`, `ready`, `running`, `blocked`, `revi
 
 - `GET /tasks` returns `{ tasks: [{ id, number, ref, title, body, status, assignee, createdBy, createdAt, startedAt, completedAt, lastError }] }`, newest first.
 - `POST /tasks` takes `{ title, body?, assignee?, parents? }` and returns the created task. `assignee` is a seat id; `parents` are tasks this one waits on.
-- `GET /tasks/:ref` adds `latestSummary`, `parents`, `children` (`{ id, ref }`), `comments` (`{ author, body, at }`), and `events` (`{ kind, at, runId, detail }`).
+- `GET /tasks/:ref` adds `latestSummary`, `parents`, `children` (`{ id, ref, title, status, assignee }`), `comments` (`{ author, body, at }`), and `events` (`{ kind, at, runId, detail }`).
 - `POST /tasks/:ref/comments` takes `{ text }`. On a task in `review` it requests changes, which sends the task back to its seat. On a blocked task it adds the comment and unblocks it. Otherwise it adds a comment the seat sees on its next pass.
-- `POST /tasks/:ref/actions` takes `{ action }`: `complete` (optional `summary`), `archive`, `block` (optional `reason`), `unblock`, or `assign` (`assignee`, or `null` to unassign).
+- `POST /tasks/:ref/actions` takes `{ action }`: `complete` (optional `summary`), `archive` (also archives follow-ups still waiting on the task, so archiving never starts them), `block` (optional `reason`), `unblock`, or `assign` (`assignee`, or `null` to unassign).
 
-The inbox lists tasks in `review` or `blocked`.
+Review is the user's approval gate. Waypoint sets the CEO's `kanban.review_dispatch` to `false`, so no agent picks up a task in `review`. Every seat gets a `waypoint-seat` skill, synced into its profile whenever seats are listed. It tells the seat to own the handoff: create the step that should follow approval as a child task assigned to the best seat, then hand in with `kanban_request_review` and a summary ending in "On approval: ...". The child stays in `todo` until its parent is done.
+
+The inbox lists tasks in `review` (with the handoff summary and the follow-ups that start on approval) and in `blocked` (with the block reason). Approve completes the task, which releases its follow-ups to the dispatcher. Request changes sends it back to the seat.
 
 ## `GET /organization` and `PUT /organization`
 
