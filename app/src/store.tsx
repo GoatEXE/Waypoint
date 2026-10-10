@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { api, type BoardTask, type Pod, type MissionInput, type OrganizationInput, type OrganizationState, type Project } from './api';
+import { api, type AppConfig, type BoardTask, type Pod, type MissionInput, type OrganizationInput, type OrganizationState, type Project } from './api';
 import { createdBoardTask, ceoLiveUpdated, ceoLoadFailed, ceoLoadStarted, ceoLoadSucceeded, ceoSendFailed, ceoSendStarted, ceoSendSucceeded, cleanCeoMessage, emptyCeoState, type CeoState } from './ceoConversation';
 import type { LessonPick } from './data';
 import { liveTasks, pendingInbox, type Resolved } from './model';
@@ -25,12 +25,14 @@ export interface AppState {
   board: BoardTask[];
   projectMission: string | null;
   org: OrganizationState & { loaded: boolean; error?: string };
+  config: AppConfig | null;
+  dryRunDismissed: boolean;
   modal: ModalKind | null;
   toast: string | null;
 }
 
 const STORAGE_KEY = 'waypoint-web';
-const PERSISTED = ['pane', 'missionOpen', 'ceoThread'] as const;
+const PERSISTED = ['pane', 'missionOpen', 'ceoThread', 'dryRunDismissed'] as const;
 
 function cleanPane(saved: Partial<AppState>): AppState['pane'] {
   const fallback: AppState['pane'] = { open: window.innerWidth >= 1280, tab: 'ceo', item: null };
@@ -45,7 +47,7 @@ function initialState(): AppState {
   return {
     pane: cleanPane(saved),
     resolved: {}, picks: {}, seat: '', podStopped: false, missionOpen: Boolean(saved.missionOpen), routinesOff: {}, connected: {},
-    ceo: emptyCeoState, ceoThread: typeof saved.ceoThread === 'string' && saved.ceoThread ? saved.ceoThread : 'general', missions: initialMissionsState, projects: [], pods: [], board: [], projectMission: null, org: { loaded: false, configured: false, organization: null }, modal: null, toast: null,
+    ceo: emptyCeoState, ceoThread: typeof saved.ceoThread === 'string' && saved.ceoThread ? saved.ceoThread : 'general', missions: initialMissionsState, projects: [], pods: [], board: [], projectMission: null, org: { loaded: false, configured: false, organization: null }, config: null, dryRunDismissed: saved.dryRunDismissed === true, modal: null, toast: null,
   };
 }
 
@@ -90,6 +92,9 @@ function useAppStore() {
       const org = await api.saveOrganization(input);
       set({ org: { ...org, loaded: true } });
       return org;
+    },
+    loadConfig: async () => {
+      try { set({ config: await api.config() }); } catch {   }
     },
     loadBoard: async () => {
       try {
@@ -196,7 +201,7 @@ function useAppStore() {
     },
   }), [set]);
 
-  useEffect(() => { void actions.loadMissions(); void actions.loadOrganization(); void actions.loadProjects(); void actions.loadPods(); }, [actions]);
+  useEffect(() => { void actions.loadMissions(); void actions.loadOrganization(); void actions.loadProjects(); void actions.loadPods(); void actions.loadConfig(); }, [actions]);
 
   const derived = useMemo(() => ({
     tasks: liveTasks(state.resolved),

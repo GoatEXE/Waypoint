@@ -4,6 +4,7 @@ import { projById } from '../model';
 import { useRoute, type Route } from '../routes';
 import { useStore } from '../store';
 import { PaneGlyph } from './ui';
+import { DryRunBadge } from './DryRunBanner';
 
 interface Crumb { label: string; to: string; mono?: boolean }
 
@@ -44,6 +45,7 @@ export function Header() {
           </div>
         ))}
       </nav>
+      <DryRunBadge />
       <button className={'pane-toggle' + (state.pane.open ? ' on' : '')} title="Toggle side pane" onClick={() => setPane({ open: !state.pane.open })}>
         <PaneGlyph w={14} h={11} bar={4} r={2.5} bw={1.5} />
         Side pane
