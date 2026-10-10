@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import * as D from '../data';
 import { byParent, projById, st } from '../model';
 import { api, type CeoThread } from '../api';
+import { needsYou, taskLabel } from '../taskQueueModel';
 import { ActivityBlock, ActivityList } from './Activity';
 import { TaskRefText } from './TaskRefText';
 import { useStore, useViewport, type PaneTab } from '../store';
@@ -226,11 +227,19 @@ function ArtifactsTab() {
 }
 
 function InboxTab() {
+  const { state } = useStore();
   const nav = useNavigate();
+  const tasks = needsYou(state.board);
   return (
-    <div className="pane-body" style={{ padding: 14, gap: 10 }}>
-      <div className="empty">Tasks waiting on you are in the workspace inbox.</div>
-      <button className="btn btn-primary" onClick={() => nav('/inbox')}>Open inbox</button>
+    <div className="pane-body thread-list">
+      {!tasks.length && <div className="empty">You're all caught up.</div>}
+      {tasks.map(t => (
+        <button key={t.id} type="button" className="thread-row" onClick={() => nav('/tasks/' + encodeURIComponent(taskLabel(t)))}>
+          <span className="thread-row-title"><span className="ellipsis">{taskLabel(t)} · {t.title}</span></span>
+          <span className="thread-row-meta ellipsis">{t.status === 'review' ? 'In review' : 'Blocked'}{t.assignee ? ` · ${t.assignee}` : ''}</span>
+        </button>
+      ))}
+      <button type="button" className="thread-more" onClick={() => nav('/inbox')}>Open inbox →</button>
     </div>
   );
 }
@@ -288,7 +297,8 @@ export function RightPane() {
     if (k === 'ceo') setCeoThread('general');
     setPane({ tab: k });
   };
-  const tabs: [PaneTab, string][] = [['ceo', ceoNameOf(state.org.organization)], ['tasks', 'Tasks'], ['artifacts', 'Artifacts'], ['inbox', 'Inbox']];
+  const waiting = needsYou(state.board).length;
+  const tabs: [PaneTab, string][] = [['ceo', ceoNameOf(state.org.organization)], ['tasks', 'Tasks'], ['artifacts', 'Artifacts'], ['inbox', waiting ? `Inbox · ${waiting}` : 'Inbox']];
   if (item) tabs.push(['item', item]);
 
   return (
