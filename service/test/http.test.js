@@ -44,6 +44,9 @@ test('bridge requires the CEO token', async () => {
     const ok = await fetch(`${app.bridgeBase}/bridge/tools`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${app.config.bridge.token}` }, body: JSON.stringify({ tool: 'health', args: {} }) });
     assert.equal(ok.status, 200);
     assert.equal((await ok.json()).ok, true);
+    app.board.list = async () => ({ tasks: [{ id: 't_1a2b3c4d', ref: 'SUN-1', title: 'Audit', body: 'long brief', status: 'done', assignee: 'explorer' }] });
+    const tasks = await fetch(`${app.bridgeBase}/bridge/tools`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${app.config.bridge.token}` }, body: JSON.stringify({ tool: 'list_tasks', args: {} }) }).then((r) => r.json());
+    assert.deepEqual(tasks, { tasks: [{ id: 't_1a2b3c4d', ref: 'SUN-1', title: 'Audit', status: 'done', assignee: 'explorer' }] }, 'the CEO can map refs to board ids');
   } finally { await stop(app.server, app.bridgeServer); }
 });
 
