@@ -141,7 +141,7 @@ Missions have a workflow `status`: `backlog`, `todo`, `in_progress`, `in_review`
 
 - `GET /missions` returns `{ "missions": [...] }`, newest first. `GET /missions/:missionId` reads one.
 - `POST /missions` takes `title` (required, max 120 characters), optional `outcome` (max 1000), `target` (`YYYY-MM-DD`), and `taskId`. It is idempotent by title (case-insensitive): repeating a title with the same link returns the existing mission with `200`; a new mission returns `201`; the same title with a different link returns `409`.
-- `PATCH /missions/:missionId` takes `{ "status": "in_review" }` and validates the transition.
+- `PATCH /missions/:missionId` takes any of `title`, `outcome`, `target`, and `status` (for example `{ "status": "in_review" }`). It validates the status transition, and a title already used by another mission returns `409`.
 - `POST /missions/:missionId/links` takes `{ taskId }`. Replacing a different existing link returns `409`.
 - `DELETE /missions/:missionId` removes only the mission; its task stays on the board.
 

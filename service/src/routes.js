@@ -122,11 +122,7 @@ async function route(request, url, { config, store, organization, hermes, board,
   match = pathname.match(/^\/missions\/([^/]+)$/);
   if (method === 'GET' && match) return { body: await store.getMission(match[1]) };
   if (method === 'DELETE' && match) return { body: await store.deleteMission(match[1]) };
-  if (method === 'PATCH' && match) {
-    const body = await readBody(request);
-    assertFields(body, ['status']);
-    return { body: await store.updateMissionStatus(match[1], body.status) };
-  }
+  if (method === 'PATCH' && match) return { body: await store.updateMission(match[1], await readBody(request)) };
   match = pathname.match(/^\/missions\/([^/]+)\/links$/);
   if (method === 'POST' && match) return { body: await store.linkMission(match[1], await readBody(request)) };
 
