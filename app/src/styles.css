@@ -392,6 +392,8 @@ textarea.input { resize: vertical; line-height: 1.5; }
 .thread-peer { border-style: dashed; }
 .ref-link { border: 0; padding: 0; background: none; font: inherit; color: var(--acc-link); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
 .ref-link:hover { color: var(--acc-text); }
+.text-link { color: var(--acc-link); text-decoration: underline; text-underline-offset: 2px; overflow-wrap: anywhere; }
+.text-link:hover { color: var(--acc-text); }
 .thread-peer-reply { display: flex; flex-direction: column; gap: 4px; margin-top: 2px; padding: 8px 10px; border-left: 2px solid var(--border-3); background: var(--surface-2); border-radius: 0 8px 8px 0; }
 .thread-peer-reply .mono { font: 400 11px var(--mono); color: var(--faint); }
 .delivery-pill { font: 500 10.5px/1.6 var(--mono); padding: 0 6px; border-radius: 8px; background: var(--hover); color: var(--muted); }
