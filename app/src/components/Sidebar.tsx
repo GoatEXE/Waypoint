@@ -11,6 +11,8 @@ import { sidebarHermesSummary } from '../hermesSidebarStatus';
 import { sidebarMissionLabel } from '../missionsModel';
 import { ceoNameOf } from '../orgModel';
 
+const SOON = new Set<View>(['routines', 'artifacts']);
+
 const WORKSPACE: [View & NavIconName, string][] = [
   ['tasks', 'Tasks'],
   ['org', 'Organization'],
@@ -73,10 +75,11 @@ export function Sidebar() {
         <div className="sb-section">
           <div className="sb-label sb-label-pad">WORKSPACE</div>
           {WORKSPACE.map(([v, label]) => (
-            <div key={v} className={'sb-item' + (route.v === v ? ' active' : '')} onClick={() => nav('/' + v)}>
+            <div key={v} className={'sb-item' + (route.v === v ? ' active' : '') + (SOON.has(v) ? ' soon' : '')} title={SOON.has(v) ? 'Coming soon' : undefined} onClick={() => nav('/' + v)}>
               <div className="sb-icon"><NavIcon name={v} /></div>
               <span>{label}</span>
               {v === 'inbox' && attention > 0 && <span className="sb-count">{attention}</span>}
+              {SOON.has(v) && <span className="soon-tag">Soon</span>}
             </div>
           ))}
         </div>

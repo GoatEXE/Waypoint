@@ -5,7 +5,7 @@ import type { LessonPick } from './data';
 import { liveTasks, pendingInbox, type Resolved } from './model';
 import { initialMissionsState, missionsLoadFailed, missionsLoadStarted, missionsLoadSucceeded, type MissionsState } from './missionsModel';
 
-export type PaneTab = 'ceo' | 'tasks' | 'artifacts' | 'inbox' | 'item';
+export type PaneTab = 'ceo' | 'tasks' | 'inbox' | 'item';
 export type ModalKind = 'assignment' | 'mission' | 'seat' | 'project' | 'pod';
 
 export interface AppState {
@@ -15,8 +15,6 @@ export interface AppState {
   seat: string;
   podStopped: boolean;
   missionOpen: boolean;
-  routinesOff: Record<string, boolean>;
-  connected: Record<string, boolean>;
   ceo: CeoState;
   ceoThread: string;
   missions: MissionsState;
@@ -35,7 +33,7 @@ const PERSISTED = ['pane', 'missionOpen', 'ceoThread'] as const;
 function cleanPane(saved: Partial<AppState>): AppState['pane'] {
   const fallback: AppState['pane'] = { open: window.innerWidth >= 1280, tab: 'ceo', item: null };
   const pane = saved.pane && typeof saved.pane === 'object' ? saved.pane : fallback;
-  const tab = pane.tab === 'item' ? 'ceo' : (pane.tab || fallback.tab);
+  const tab = pane.tab === 'tasks' || pane.tab === 'inbox' ? pane.tab : fallback.tab;
   return { open: typeof pane.open === 'boolean' ? pane.open : fallback.open, tab, item: null };
 }
 
@@ -44,7 +42,7 @@ function initialState(): AppState {
   try { saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'); } catch {   }
   return {
     pane: cleanPane(saved),
-    resolved: {}, picks: {}, seat: '', podStopped: false, missionOpen: Boolean(saved.missionOpen), routinesOff: {}, connected: {},
+    resolved: {}, picks: {}, seat: '', podStopped: false, missionOpen: Boolean(saved.missionOpen),
     ceo: emptyCeoState, ceoThread: typeof saved.ceoThread === 'string' && saved.ceoThread ? saved.ceoThread : 'general', missions: initialMissionsState, projects: [], pods: [], board: [], projectMission: null, org: { loaded: false, configured: false, organization: null }, modal: null, toast: null,
   };
 }
