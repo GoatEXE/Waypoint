@@ -250,7 +250,7 @@ export function ConnectorsView() {
       {login && <section className="provider-login-panel" aria-label="Pending sign-in">
         <div className="kind">SIGN IN · {providerLabel(login.provider)}</div>
         <div style={{ fontSize: 13 }}>{login.state === 'failed' ? (login.message || 'Sign-in failed. Try again.') : login.state === 'cancelled' ? (login.message || 'Sign-in cancelled.') : login.message}</div>
-        {shouldShowLoginPromptMaterial(login) && login.authUrl && <a href={login.authUrl} target="_blank" rel="noreferrer" style={{ color: 'var(--acc-text)', fontSize: 13, wordBreak: 'break-all' }}>{login.authUrl}</a>}
+        {shouldShowLoginPromptMaterial(login) && login.authUrl && <a className="btn btn-primary" style={{ alignSelf: 'flex-start' }} href={login.authUrl} target="_blank" rel="noreferrer" title={login.authUrl}>Open {providerLabel(login.provider)} sign-in ↗</a>}
         {shouldShowLoginPromptMaterial(login) && login.userCode && <div style={{ font: '600 22px var(--mono)', letterSpacing: '.08em' }}>{login.userCode}</div>}
         {login.requiresCode && login.state === 'pending' && <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}><input type="password" autoComplete="off" value={code} onChange={e => setCode(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') submitCode(); }} style={{ ...inputStyle, flex: '1 1 220px' }} placeholder="Paste authorization code" /><button className="btn btn-primary" disabled={busy === 'code' || !code.trim()} onClick={submitCode}>Submit code</button></div>}
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
