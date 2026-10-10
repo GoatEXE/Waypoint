@@ -2,6 +2,7 @@ import { useState, type MouseEvent } from 'react';
 import { api } from '../api';
 import { useStore } from '../store';
 import { DRY_RUN_REASON } from '../dryRun';
+import { errorText } from '../runtimeHealth';
 
 export function HermesPortalLink({ target, label = 'Hermes UI' }: { target: string; label?: string }) {
   const { state } = useStore();
@@ -20,7 +21,7 @@ export function HermesPortalLink({ target, label = 'Hermes UI' }: { target: stri
       else window.open(url, '_blank', 'noopener');
     } catch (err) {
       win?.close();
-      setError(err instanceof Error ? err.message : String(err));
+      setError(errorText(err));
     } finally { setBusy(false); }
   };
   return (

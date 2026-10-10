@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { api, type GitHubStatus, type Project } from '../api';
 import { useStore } from '../store';
 import { RepoSelect } from '../components/RepoSelect';
+import { errorText } from '../runtimeHealth';
 
 function ProjectSettings({ project, github, onSaved }: { project: Project; github: GitHubStatus | null; onSaved: () => void }) {
   const { state } = useStore();
@@ -18,7 +19,7 @@ function ProjectSettings({ project, github, onSaved }: { project: Project; githu
     try {
       await api.updateProject(project.id, { name: name.trim(), missionId: missionId || null, repo: repo.trim() || null });
       onSaved();
-    } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+    } catch (e) { setError(errorText(e)); }
     finally { setBusy(false); }
   };
 
@@ -62,7 +63,7 @@ export function ProjectView({ id }: { id: string }) {
   const remove = async () => {
     if (!window.confirm(`Delete project ${project.name}? The repository itself is not touched.`)) return;
     try { await api.deleteProject(project.id); await loadProjects(); flash(`Deleted ${project.name}`); nav('/'); }
-    catch (e) { flash(e instanceof Error ? e.message : String(e)); }
+    catch (e) { flash(errorText(e)); }
   };
 
   return (

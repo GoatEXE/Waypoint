@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { api, type GitHubStatus } from '../api';
 import { useStore } from '../store';
 import { RepoSelect } from './RepoSelect';
+import { errorText } from '../runtimeHealth';
 
 export function ProjectDialog() {
   const { state, closeModal, loadProjects, flash } = useStore();
@@ -30,7 +31,7 @@ export function ProjectDialog() {
       closeModal();
       flash(`Added ${project.name} to ${mission.title}`);
       nav('/projects/' + project.id);
-    } catch (e) { setError(e instanceof Error ? e.message : String(e)); setBusy(false); }
+    } catch (e) { setError(errorText(e)); setBusy(false); }
   };
 
   return (

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import { useStore } from '../store';
+import { errorText } from '../runtimeHealth';
 
 export function GitHubCallbackView({ step }: { step: string }) {
   const nav = useNavigate();
@@ -25,7 +26,7 @@ export function GitHubCallbackView({ step }: { step: string }) {
         if (status.installUrl) window.location.assign(status.installUrl);
         else nav('/connectors?connector=github', { replace: true });
       })
-      .catch(e => setError(e instanceof Error ? e.message : String(e)));
+      .catch(e => setError(errorText(e)));
   }, [flash, nav, step]);
 
   return (

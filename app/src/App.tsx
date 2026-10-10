@@ -5,6 +5,7 @@ import { useStore } from './store';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
 import { DryRunBanner } from './components/DryRunBanner';
+import { RuntimeBanner } from './components/RuntimeBanner';
 import { RightPane } from './components/RightPane';
 import { Modal } from './components/Modal';
 import { MissionView } from './views/MissionView';
@@ -64,6 +65,7 @@ export function App() {
       <div className="main-col">
         <Header />
         <DryRunBanner />
+        <RuntimeBanner />
         <main ref={mainRef} className="main-scroll">
 
           <div key={pathname} className="route-enter"><View /></div>

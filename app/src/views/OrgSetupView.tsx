@@ -6,6 +6,7 @@ import { useStore } from '../store';
 import { KEY_RE, cleanKey, deriveOrgKey } from '../orgModel';
 import { ProviderConnect } from '../components/ProviderConnect';
 import { Reveal } from '../components/Reveal';
+import { errorText } from '../runtimeHealth';
 
 const STEPS = ['Organization', 'CEO', 'Connect', 'Team'];
 export const ONBOARDING_KICKOFF = "Let's get me onboarded. Use your waypoint-onboarding skill.";
@@ -27,14 +28,14 @@ export function OrgSetupView() {
   useEffect(() => { api.hermesModelCatalog().then(setCatalog).catch(() => setCatalog(null)); }, []);
 
   const shownKey = keyEdited ? key : deriveOrgKey(name);
-  const ok = step === 0 ? name.trim() && KEY_RE.test(shownKey) : step === 1 ? ceoName.trim() : step === 2 ? Boolean(provider) : true;
+  const ok = step === 0 ? name.trim() && KEY_RE.test(shownKey) : step === 1 ? ceoName.trim() : Boolean(provider);
 
   const finish = async (onboard: boolean) => {
     setBusy(true); setError('');
     try {
       await saveOrganization({ name: name.trim(), key: shownKey, ceoName: ceoName.trim() });
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not save the organization');
+      setError(errorText(e));
       setBusy(false);
       return;
     }
@@ -44,7 +45,7 @@ export function OrgSetupView() {
       try {
         await api.saveModel({ provider, default: defaultModelForProvider(provider, catalogProvider, RECOMMENDED_MODELS[provider]), api_mode: catalogProvider?.api_mode || DEFAULTS[provider].api_mode, base_url: '' });
       } catch (e) {
-        flash(`Model not saved: ${e instanceof Error ? e.message : 'unavailable'}`);
+        flash(`Model not saved: ${errorText(e)}`);
       }
     }
     if (!onboard) return;
@@ -101,6 +102,8 @@ export function OrgSetupView() {
             <div className="eyebrow">YOUR TEAM</div>
             <h1 className="h1">Build your team with {ceoName.trim() || 'the CEO'}</h1>
           </div>
+          <p className="setup-hint">{ceoName.trim() || 'The CEO'} interviews you about what you're working on, then proposes a mission and the seats to hire. Skip goes straight to the workspace; you can onboard later from Organization.</p>
+          {!provider && <div className="setup-hint" role="status">Onboarding needs a connected model. <button type="button" className="link-btn" onClick={() => setStep(2)}>Connect a model first →</button></div>}
         </div>}
 
         <Reveal show={Boolean(error)}><div role="alert" className="setup-hint" style={{ color: 'var(--text)' }}>{error}</div></Reveal>

@@ -11,6 +11,7 @@ import { ceoNameOf } from '../orgModel';
 import { isTaskThread, threadMeta, visibleTaskThreads } from '../ceoThreads';
 import { Dot } from './ui';
 import { PANE_DOCK_MIN } from './layout';
+import { useRuntimeHealth } from './RuntimeBanner';
 
 function messageTime(at: string) {
   const date = new Date(at);
@@ -107,6 +108,8 @@ function TasksTab() {
 
 function CeoChat() {
   const { state, loadCeoConversation, sendCeoMessage } = useStore();
+  const nav = useNavigate();
+  const health = useRuntimeHealth();
   const [draft, setDraft] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
   const loadedRef = useRef(false);
@@ -168,6 +171,7 @@ function CeoChat() {
           <UserBubble text={ceo.failedMessage} meta="Reply not confirmed">
             <div className="stack" style={{ gap: 6, alignItems: 'flex-end' }}>
               {ceo.sendError && <div role="alert" style={{ fontSize: 11.5, color: 'var(--faint)', textAlign: 'right' }}>{ceo.sendError}</div>}
+              {ceo.sendError && !health.ready && <button className="btn sm btn-primary" onClick={() => nav(health.cause === 'setup' ? '/connectors' : '/settings')}>{health.cause === 'setup' ? 'Open Connectors' : 'Open Settings'}</button>}
               <button className="btn sm btn-ghost" onClick={refreshConversation} disabled={ceo.loading}>Refresh conversation</button>
             </div>
           </UserBubble>

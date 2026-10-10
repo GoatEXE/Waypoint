@@ -9,6 +9,7 @@ import { statusLabel, taskLabel } from '../taskQueueModel';
 import { useStore } from '../store';
 import { ceoNameOf } from '../orgModel';
 import { commentPlaceholder, confirmCopy, taskPrimary, type ConfirmKind } from '../taskActionsModel';
+import { errorText } from '../runtimeHealth';
 
 type LoadState =
   | { status: 'loading' }
@@ -86,7 +87,7 @@ export function TaskView({ id }: { id: string }) {
       setLoad({ status: 'ready', task: await api.task(id) });
     } catch (error) {
       if (isNotFoundError(error)) setLoad({ status: 'notfound' });
-      else setLoad({ status: 'error', error: error instanceof Error ? error.message : String(error) });
+      else setLoad({ status: 'error', error: errorText(error) });
     }
   }, [id]);
 
@@ -107,7 +108,7 @@ export function TaskView({ id }: { id: string }) {
   const run = async (action: () => Promise<BoardTaskDetail>) => {
     setBusy(true);
     try { setLoad({ status: 'ready', task: await action() }); void loadBoard(); return true; }
-    catch (e) { flash(e instanceof Error ? e.message : String(e)); return false; }
+    catch (e) { flash(errorText(e)); return false; }
     finally { setBusy(false); }
   };
 

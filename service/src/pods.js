@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { badRequest, conflict, lifecycleError, notFound } from './errors.js';
+import { badRequest, conflict, lifecycleError, notFound, runtimeFailure } from './errors.js';
 import { readJson, writeJson } from './store.js';
 
 const POD_NAME_RE = /^[a-z][a-z0-9-]{1,14}$/;
@@ -146,6 +146,8 @@ export class Pods {
   async #hermes(args) {
     const result = await this.hermes.runner('docker', ['exec', '--user', 'hermes', this.hermes.containerName, 'hermes', ...args], { timeoutMs: 60000, outputLimitBytes: 64 * 1024 });
     if (result.code !== 0) {
+      const failure = runtimeFailure(result);
+      if (failure) throw failure;
       const detail = String(result.stderr || result.stdout || '').trim().split('\n').pop().slice(0, 200);
       throw lifecycleError(`hermes ${args.slice(0, 3).join(' ')} failed${detail ? `: ${detail}` : ''}`, { code: result.code });
     }

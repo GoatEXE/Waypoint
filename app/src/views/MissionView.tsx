@@ -4,6 +4,7 @@ import { api, type Mission, type MissionStatus } from '../api';
 import { currentMission, MISSION_STATUSES, missionStatusLabel, shortDate } from '../missionsModel';
 import { useStore } from '../store';
 import { needsYou, statusLabel, taskLabel } from '../taskQueueModel';
+import { errorText } from '../runtimeHealth';
 
 function ProjectsSection({ mission }: { mission: Mission }) {
   const { state, addProject } = useStore();
@@ -120,7 +121,7 @@ export function MissionView() {
       setConfirmDelete(null);
       await loadMissions();
     } catch (error) {
-      setDeleteError(error instanceof Error ? error.message : String(error));
+      setDeleteError(errorText(error));
     } finally {
       setDeleting(false);
     }

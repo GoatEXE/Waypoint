@@ -1,4 +1,4 @@
-import { badRequest, conflict, lifecycleError } from './errors.js';
+import { badRequest, conflict, lifecycleError, runtimeFailure } from './errors.js';
 
 const SEAT_ID_RE = /^[a-z][a-z0-9-]{1,30}$/;
 const RESERVED = new Set(['default', 'ceo', 'hermes']);
@@ -112,7 +112,7 @@ export class OrgSeats {
 
   async #hermes(args) {
     const result = await this.hermes.runner('docker', ['exec', '--user', 'hermes', this.hermes.containerName, 'hermes', ...args], { timeoutMs: 60000, outputLimitBytes: 16 * 1024 });
-    if (result.code !== 0) throw lifecycleError(`hermes ${args.filter((arg) => !arg.includes(' ')).slice(0, 3).join(' ')} failed`, { code: result.code });
+    if (result.code !== 0) throw runtimeFailure(result) || lifecycleError(`hermes ${args.filter((arg) => !arg.includes(' ')).slice(0, 3).join(' ')} failed`, { code: result.code });
     return result;
   }
 }

@@ -5,6 +5,8 @@ import { isActiveLogin, isMissingLoginError, shouldApplyMissingLoginRecovery, sh
 import { providerReadiness } from '../providerConfig';
 import type { Provider } from '../settingsModel';
 import { GitHubSetup, githubReadiness, githubRepos, useGitHubStatus } from './GitHubConnector';
+import { errorText } from '../runtimeHealth';
+import { StartCeoButton } from '../components/RuntimeBanner';
 
 type ProviderGroupId = 'openai' | 'anthropic';
 type Method = 'subscription' | 'api_key';
@@ -62,7 +64,7 @@ export function ConnectorsView() {
       setStatus(next);
       setError('');
     } catch (e) {
-      if (request === statusRequest.current) setError(e instanceof Error ? e.message : 'Could not reach service');
+      if (request === statusRequest.current) setError(errorText(e));
     }
   };
 
@@ -91,7 +93,7 @@ export function ConnectorsView() {
   const act = async (label: string, fn: () => Promise<unknown>, options: { freshAuth?: boolean } = {}) => {
     setBusy(label); setError('');
     try { await fn(); await loadStatus(options); }
-    catch (e) { setError(e instanceof Error ? e.message : 'Action failed'); }
+    catch (e) { setError(errorText(e)); }
     finally { setBusy(''); }
   };
   const expireMissingLogin = (current: HermesLogin) => {
@@ -129,7 +131,7 @@ export function ConnectorsView() {
       const next = await api.startLogin(provider, flow);
       setCode('');
       setLogin(next);
-    } catch (e) { setError(e instanceof Error ? e.message : 'Action failed'); }
+    } catch (e) { setError(errorText(e)); }
     finally { setBusy(''); }
   };
   const startProviderLogin = () => {
@@ -217,7 +219,7 @@ export function ConnectorsView() {
             {activeGroup.methods.map(method => <button key={method.id} className={activeMethod.id === method.id ? 'on' : ''} onClick={() => setMethodByGroup(current => ({ ...current, [activeGroup.id]: method.id }))}>{method.label}</button>)}
           </div>
 
-          {!runtimeRunning && <div className="empty" style={{ padding: 12 }}>Start the CEO runtime in Settings before sign-in.</div>}
+          {!runtimeRunning && <div className="empty" style={{ padding: 12, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}><span>{status?.runtime.state === 'docker_unavailable' ? "Docker isn't running. Start Docker Desktop, then retry." : 'Sign-in needs the CEO running.'}</span>{status?.runtime.state !== 'docker_unavailable' && <StartCeoButton />}</div>}
 
           <div className="provider-method-card stack" style={{ gap: 12 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
