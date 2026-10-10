@@ -22,6 +22,19 @@ function profile(value, field) {
   return result;
 }
 
+const PR_URL_RE = /https:\/\/github\.com\/([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)\/pull\/[1-9][0-9]*/g;
+
+export function publishedPr(detail) {
+  const contract = detail?.task?.completion_contract;
+  if (typeof contract !== 'string' || !contract || contract === 'local-only') return null;
+  const handoffs = [...(detail.events || [])].reverse().map((event) => event.payload || {});
+  const candidates = [
+    ...handoffs.map((payload) => payload.metadata?.published_pr).filter((url) => typeof url === 'string'),
+    ...[detail.latest_summary, ...handoffs.map((payload) => payload.summary)].flatMap((value) => (typeof value === 'string' ? value.match(PR_URL_RE) || [] : [])),
+  ];
+  return candidates.find((url) => url === contract || url.toLowerCase().startsWith(`https://github.com/${contract.toLowerCase()}/pull/`)) || null;
+}
+
 function toIso(seconds) {
   return Number.isFinite(seconds) ? new Date(seconds * 1000).toISOString() : null;
 }
@@ -168,7 +181,17 @@ export class KanbanBoard {
     if (!input || typeof input !== 'object' || Array.isArray(input)) throw badRequest('body must be an object');
     const id = await this.resolveId(ref);
     const action = String(input.action || '');
-    if (action === 'complete') await this.run(['complete', '--summary', text(input.summary, 'summary', 500, { required: false }) || 'Marked done by the user.', id], { json: false });
+    if (action === 'complete') {
+      const detail = await this.run(['show', id]);
+      const pr = publishedPr(detail);
+      const args = ['complete', '--summary', text(input.summary, 'summary', 500, { required: false }) || 'Marked done by the user.'];
+      if (pr) args.push('--metadata', JSON.stringify({ published_pr: pr }));
+      try { await this.run([...args, id], { json: false }); }
+      catch (error) {
+        const reason = (await this.run(['show', id]).catch(() => null))?.task?.last_failure_error;
+        throw reason ? lifecycleError(`Hermes did not complete the task: ${String(reason).slice(0, 300)}`) : error;
+      }
+    }
     else if (action === 'archive') {
       const [detail, board] = await Promise.all([this.run(['show', id]), this.run(['list'])]);
       const waiting = new Set(board.filter((task) => ['triage', 'todo'].includes(task.status)).map((task) => task.id));
