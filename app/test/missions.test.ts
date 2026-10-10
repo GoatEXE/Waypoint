@@ -12,16 +12,16 @@ function mission(overrides: Partial<Mission> = {}): Mission {
   };
 }
 
-test('mission status update uses PATCH with the selected workflow status', async () => {
+test('mission edits use PATCH with only the changed fields', async () => {
   let request: { url: string; init?: RequestInit } | undefined;
   globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
     request = { url: String(url), init };
     return { ok: true, text: async () => JSON.stringify(mission({ status: 'in_review' })) } as Response;
   }) as typeof fetch;
-  assert.equal((await api.updateMission('mission_1', 'in_review')).status, 'in_review');
+  assert.equal((await api.updateMission('mission_1', { status: 'in_review', title: 'Renamed' })).status, 'in_review');
   assert.equal(request?.url, '/api/missions/mission_1');
   assert.equal(request?.init?.method, 'PATCH');
-  assert.deepEqual(JSON.parse(String(request?.init?.body)), { status: 'in_review' });
+  assert.deepEqual(JSON.parse(String(request?.init?.body)), { status: 'in_review', title: 'Renamed' });
 });
 
 test('missions load state moves through loading, ready, and error without losing loaded data', () => {

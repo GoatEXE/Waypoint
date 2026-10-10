@@ -1,9 +1,12 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, type Mission, type MissionStatus } from '../api';
-import { currentMission, missionStatusLabel, shortDate } from '../missionsModel';
+import { currentMission, MISSION_STATUSES, missionStatusLabel, shortDate } from '../missionsModel';
 import { useStore } from '../store';
-import { statusLabel } from '../taskQueueModel';
+import { needsYou, statusLabel, taskLabel } from '../taskQueueModel';
+import { errorText } from '../runtimeHealth';
+import { ProjectTaskList, StatusCounts } from '../components/ProjectTasks';
+import { projectTasks } from '../projectProgress';
 
 function ProjectsSection({ mission }: { mission: Mission }) {
   const { state, addProject } = useStore();
@@ -49,15 +52,65 @@ function MissionWork({ mission }: { mission: Mission }) {
   );
 }
 
+function MissionEditor({ mission, onDone }: { mission: Mission; onDone: () => void }) {
+  const { loadMissions } = useStore();
+  const [title, setTitle] = useState(mission.title);
+  const [outcome, setOutcome] = useState(mission.outcome);
+  const [target, setTarget] = useState(mission.target || '');
+  const [status, setStatus] = useState<MissionStatus>(mission.status);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const save = async () => {
+    if (!title.trim() || busy) return;
+    const patch = {
+      ...(title.trim() !== mission.title ? { title: title.trim() } : {}),
+      ...(outcome.trim() !== mission.outcome ? { outcome: outcome.trim() } : {}),
+      ...((target || null) !== mission.target ? { target: target || null } : {}),
+      ...(status !== mission.status ? { status } : {}),
+    };
+    if (!Object.keys(patch).length) { onDone(); return; }
+    setBusy(true); setError('');
+    try { await api.updateMission(mission.id, patch); await loadMissions(); onDone(); }
+    catch (e) { setError(e instanceof Error ? e.message : String(e)); setBusy(false); }
+  };
+  return (
+    <form className="stack mission-editor" style={{ gap: 14 }} onSubmit={e => { e.preventDefault(); void save(); }}>
+      <label className="field"><span className="field-label">Mission</span>
+        <input className="input" autoFocus value={title} maxLength={120} disabled={busy} onChange={e => setTitle(e.target.value)} />
+      </label>
+      <label className="field"><span className="field-label">Outcome</span>
+        <textarea className="input" rows={3} value={outcome} maxLength={1000} disabled={busy} onChange={e => setOutcome(e.target.value)} />
+      </label>
+      <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+        <label className="field"><span className="field-label">Status</span>
+          <select className="input" value={status} disabled={busy} onChange={e => setStatus(e.target.value as MissionStatus)}>
+            {MISSION_STATUSES.map(value => <option key={value} value={value}>{missionStatusLabel({ status: value })}</option>)}
+          </select>
+        </label>
+        <label className="field"><span className="field-label">Target</span>
+          <input type="date" className="input" style={{ colorScheme: 'dark' }} value={target} disabled={busy} onChange={e => setTarget(e.target.value)} />
+        </label>
+      </div>
+      {error && <div role="alert" className="form-error">{error}</div>}
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button type="submit" className="btn btn-primary" disabled={busy || !title.trim()}>{busy ? 'Saving…' : 'Save'}</button>
+        <button type="button" className="btn btn-ghost" disabled={busy} onClick={onDone}>Cancel</button>
+      </div>
+    </form>
+  );
+}
+
 export function MissionView() {
-  const { state, pending, openModal, loadMissions } = useStore();
+  const { state, openModal, loadMissions } = useStore();
   const nav = useNavigate();
   const [confirmDelete, setConfirmDelete] = useState<Mission | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState('');
   const [deleted, setDeleted] = useState(false);
-  const [statusError, setStatusError] = useState('');
-  const needs = pending.slice(0, 3);
+  const [editing, setEditing] = useState(false);
+  useEffect(() => { if (deleted) setEditing(false); }, [deleted]);
+  const waiting = needsYou(state.board);
+  const needs = waiting.slice(0, 3);
   const { missions } = state;
   const mission = currentMission(missions);
 
@@ -71,7 +124,7 @@ export function MissionView() {
       setConfirmDelete(null);
       await loadMissions();
     } catch (error) {
-      setDeleteError(error instanceof Error ? error.message : String(error));
+      setDeleteError(errorText(error));
     } finally {
       setDeleting(false);
     }
@@ -135,39 +188,69 @@ export function MissionView() {
   }
 
   const others = missions.missions.slice(1);
+  const missionTasks = projectTasks(state.board, state.projects.filter(p => p.missionId === mission.id).map(p => p.id));
+
+  if (editing) {
+    return (
+      <div className="page" style={{ maxWidth: 920, paddingTop: 48, gap: 28 }}>
+        <div className="eyebrow">EDIT MISSION</div>
+        <MissionEditor key={mission.id} mission={mission} onDone={() => setEditing(false)} />
+        <div className="stack danger-zone" style={{ gap: 12 }}>
+          <div className="section-title">Danger zone</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 13, color: 'var(--muted)', flex: 1 }}>Deleting removes the mission only. Its projects and tasks stay.</span>
+            <button className="btn btn-ghost danger" type="button" onClick={() => { setConfirmDelete(mission); setDeleteError(''); }}>Delete mission</button>
+          </div>
+          {deletionControls}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="page" style={{ maxWidth: 920, paddingTop: 48, gap: 44 }}>
       <div className="stack" style={{ gap: 14 }}>
         <div className="eyebrow">MISSION</div>
-        <h1 className="mission-h1">{mission.title}</h1>
-        <div><button className="btn btn-ghost" type="button" onClick={() => { setConfirmDelete(mission); setDeleteError(''); }}>Delete mission</button></div>
-        {deletionControls}
-        {mission.outcome && <p className="mission-lede">{mission.outcome}</p>}
-        <div className="meta-row" style={{ gap: '8px 22px', marginTop: 4 }}>
-          <label>Status <select aria-label="Mission status" value={mission.status} onChange={async (event) => { try { await api.updateMission(mission.id, event.target.value as MissionStatus); await loadMissions(); setStatusError(''); } catch (error) { setStatusError(error instanceof Error ? error.message : String(error)); } }}>{['backlog', 'todo', 'in_progress', 'in_review', 'done', 'canceled'].map(value => <option key={value} value={value}>{value.replace(/_/g, ' ')}</option>)}</select></label>
-          {mission.target && <span>Target <span className="v">{shortDate(mission.target)}</span></span>}
-          <span>Recorded <span className="v">{shortDate(mission.createdAt)}</span></span>
-        </div>
-        {statusError && <div role="alert">{statusError}</div>}
+        <>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+            <h1 className="mission-h1">{mission.title}</h1>
+            <button type="button" className="icon-btn" style={{ marginTop: 4 }} title="Edit mission" aria-label="Edit mission" onClick={() => setEditing(true)}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" /></svg>
+            </button>
+          </div>
+          {mission.outcome && <p className="mission-lede">{mission.outcome}</p>}
+          <div className="meta-row" style={{ gap: '8px 22px', marginTop: 4 }}>
+            <span>Status <span className="v">{missionStatusLabel(mission)}</span></span>
+            {mission.target && <span>Target <span className="v">{shortDate(mission.target)}</span></span>}
+            <span>Recorded <span className="v">{shortDate(mission.createdAt)}</span></span>
+          </div>
+        </>
       </div>
 
       {needs.length > 0 && (
         <div className="stack" style={{ gap: 12 }}>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
-            <div className="section-title">Needs you</div>
+            <div className="section-title">Needs you <span className="task-count">{waiting.length}</span></div>
             <span className="crumb-link" style={{ fontSize: 12.5 }} onClick={() => nav('/inbox')}>Open inbox →</span>
           </div>
           <div className="needs-grid">
             {needs.map(n => (
-              <div key={n.id} className="need" onClick={() => nav('/inbox')}>
-                <div className="kind">{n.kind.toUpperCase()}</div>
+              <div key={n.id} className="need" onClick={() => nav('/tasks/' + encodeURIComponent(taskLabel(n)))}>
+                <div className="kind">{n.status === 'review' ? 'IN REVIEW' : 'BLOCKED'} · {taskLabel(n)}</div>
                 <div className="title">{n.title}</div>
               </div>
             ))}
           </div>
         </div>
       )}
+
+      <div className="stack" style={{ gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <div className="section-title">Progress</div>
+          <StatusCounts tasks={missionTasks} />
+        </div>
+        {missionTasks.length ? <ProjectTaskList tasks={missionTasks} limit={8} /> : <div className="empty">No project tasks yet. Tasks created in a project show up here.</div>}
+      </div>
 
       <MissionWork mission={mission} />
 
@@ -187,6 +270,7 @@ export function MissionView() {
           </div>
         </div>
       )}
+      {deletionControls}
     </div>
   );
 }

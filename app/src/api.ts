@@ -59,6 +59,8 @@ export interface HermesSkillInventory {
 export type HermesSkillUpdateResponse = HermesSkill | { skill: HermesSkill };
 
 export interface ActivityItem { kind: 'tool' | 'action'; name: string; detail: string; status: 'running' | 'ok' | 'error' | 'unknown'; durationMs?: number; at?: string }
+export interface SeatFeedbackMessage { role: 'user' | 'seat' | 'activity'; text?: string; at: string; items?: ActivityItem[]; rating?: 'up' | 'down' }
+export interface SeatFeedbackConversation { seat: string; task: string; messages: SeatFeedbackMessage[]; live: { startedAt: string; message: string; items: ActivityItem[] } | null }
 export interface CeoMessage { role: 'user' | 'ceo' | 'activity'; text?: string; at: string; status?: 'sent' | 'confirmed' | 'outcome_unknown'; items?: ActivityItem[] }
 export interface CeoLiveTurn { startedAt: string; message: string; items: ActivityItem[] }
 export interface CeoConversation { threadId?: string; sessionId: string | null; messages: CeoMessage[]; live?: CeoLiveTurn | null; busyThreadId?: string | null }
@@ -144,7 +146,7 @@ export const api = {
   missions: () => json<{ missions: Mission[] }>('/missions'),
   tasks: () => json<{ tasks: BoardTask[] }>('/tasks'),
   createMission: (body: MissionInput) => json<Mission>('/missions', { method: 'POST', body: JSON.stringify(body) }),
-  updateMission: (id: string, status: MissionStatus) => json<Mission>(`/missions/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ status }) }),
+  updateMission: (id: string, patch: Partial<Pick<Mission, 'title' | 'outcome' | 'target' | 'status'>>) => json<Mission>(`/missions/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(patch) }),
   pods: () => json<{ pods: Pod[] }>('/pods'),
   pod: (name: string) => json<Pod & { tasks: BoardTask[] }>(`/pods/${encodeURIComponent(name)}`),
   podConversation: (name: string) => json<{ pod: string; entries: PodEntry[] }>(`/pods/${encodeURIComponent(name)}/conversation`),
@@ -158,8 +160,13 @@ export const api = {
   openHermesPortal: (target: string) => json<HermesPortalStatus & { url: string }>('/hermes-portal', { method: 'POST', body: JSON.stringify({ target }) }),
   closeHermesPortal: () => json<HermesPortalStatus>('/hermes-portal', { method: 'DELETE', body: '{}' }),
   deleteMission: (id: string) => json<{ deleted: true; missionId: string }>(`/missions/${encodeURIComponent(id)}`, { method: 'DELETE', body: '{}' }),
+  seatProfile: (seat: string) => json<SeatProfile>(`/org/seats/${encodeURIComponent(seat)}`),
+  updateSeatProfile: (seat: string, patch: Partial<Omit<SeatProfile, 'id'>>) => json<SeatProfile>(`/org/seats/${encodeURIComponent(seat)}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+  seatFeedback: (seat: string, task: string) => json<SeatFeedbackConversation>(`/seats/${encodeURIComponent(seat)}/feedback?task=${encodeURIComponent(task)}`),
+  sendSeatFeedback: (seat: string, task: string, message: string, rating?: 'up' | 'down' | null) => json<SeatFeedbackConversation>(`/seats/${encodeURIComponent(seat)}/feedback`, { method: 'POST', body: JSON.stringify({ task, message, ...(rating ? { rating } : {}) }) }),
   task: (ref: string) => json<BoardTaskDetail>(`/tasks/${encodeURIComponent(ref)}`),
-  createTask: (body: { title: string; body?: string; assignee?: string | null; parents?: string[]; board?: string }) => json<BoardTaskDetail>('/tasks', { method: 'POST', body: JSON.stringify(body) }),
+  taskActivity: (ref: string) => json<TaskActivity>(`/tasks/${encodeURIComponent(ref)}/activity`),
+  createTask: (body: { title: string; body?: string; assignee?: string | null; parents?: string[]; board?: string; project?: string }) => json<BoardTaskDetail>('/tasks', { method: 'POST', body: JSON.stringify(body) }),
   commentTask: (ref: string, text: string) => json<BoardTaskDetail>(`/tasks/${encodeURIComponent(ref)}/comments`, { method: 'POST', body: JSON.stringify({ text }) }),
   taskAction: (ref: string, body: { action: 'complete' | 'archive' | 'block' | 'unblock' | 'assign'; assignee?: string | null; reason?: string; summary?: string }) => json<BoardTaskDetail>(`/tasks/${encodeURIComponent(ref)}/actions`, { method: 'POST', body: JSON.stringify(body) }),
   projects: () => json<{ projects: Project[] }>('/projects'),
@@ -204,12 +211,17 @@ export interface BoardTask {
   startedAt: string | null;
   completedAt: string | null;
   lastError: string | null;
+  projectId?: string | null;
 }
 export interface BoardTaskLink { id: string; ref: string | null; title: string; status: BoardStatus | null; assignee: string | null }
 export interface BoardComment { author: string; body: string; at: string | null }
 export interface BoardEvent { kind: string; at: string | null; runId: number | null; detail: string }
+export type WorkerActivityItem = { kind: 'tool'; icon: string; name: string; detail: string; duration: string } | { kind: 'thought'; detail: string };
+export interface TaskActivity { id: string; items: WorkerActivityItem[]; finished: boolean; runs?: { items: WorkerActivityItem[]; finished: boolean }[] }
+export interface TaskRun { id: number; profile: string | null; status: string | null; outcome: string | null; startedAt: string | null; endedAt: string | null; summary: string }
 export interface BoardTaskDetail extends BoardTask {
   latestSummary: string;
+  runs?: TaskRun[];
   parents: BoardTaskLink[];
   children: BoardTaskLink[];
   comments: BoardComment[];
@@ -222,5 +234,6 @@ export interface LearningItem { id: string; seat: string; from: string; kind: 's
 export interface Pod { name: string; slug: string; purpose: string; durable: boolean; status: 'active' | 'closed'; seats: PodSeat[]; createdAt: string; closedAt: string | null; seatsRemoved?: boolean; learning?: { computedAt: string; reviewedAt?: string; items: LearningItem[] } }
 export const pendingLearning = (pod: Pod) => (pod.learning?.items || []).filter(item => !item.decision).length;
 export interface PodEntry { at: string; kind: 'task' | 'comment' | 'review_requested' | 'completed' | 'blocked'; author: string | null; to?: string | null; text: string; ref: string | null; title: string }
+export interface SeatProfile { id: string; description: string; soul: string; memory: string; user: string; model: { provider: string; default: string } }
 export interface OrgSeat { id: string; description: string; model: string; provider: string }
 export interface HermesPortalStatus { open: boolean; target: string | null; url: string | null; openedAt: string | null }

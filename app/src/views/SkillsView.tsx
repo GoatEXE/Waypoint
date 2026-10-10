@@ -15,6 +15,7 @@ import {
   updatedSkillFromResponse,
   type SkillAvailabilityFilter,
 } from '../skillsModel';
+import { errorText } from '../runtimeHealth';
 
 const FILTERS: { id: SkillAvailabilityFilter; label: string }[] = [
   { id: 'all', label: 'All' },
@@ -46,7 +47,7 @@ export function SkillsView() {
       setActionError('');
       if (!selectedName && next.skills[0]) setSelectedName(next.skills[0].name);
     } catch (e) {
-      if (current === request.current) setError(e instanceof Error ? e.message : 'Could not reach service');
+      if (current === request.current) setError(errorText(e));
     } finally {
       if (current === request.current) setLoading(false);
     }
@@ -79,7 +80,7 @@ export function SkillsView() {
       setSelectedName(updated.name);
     } catch (e) {
       setInventory(previous);
-      setActionError(e instanceof Error ? e.message : 'Could not update skill');
+      setActionError(errorText(e));
     } finally {
       setPending(current => {
         const { [skill.name]: _done, ...rest } = current;

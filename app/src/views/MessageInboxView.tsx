@@ -7,6 +7,7 @@ import { confirmCopy, inboxPrimary } from '../taskActionsModel';
 import { needsYou, taskLabel } from '../taskQueueModel';
 import { WorkspaceHead } from '../components/ui';
 import { useStore } from '../store';
+import { errorText } from '../runtimeHealth';
 
 function InboxItem({ task, onDone }: { task: BoardTask; onDone: () => Promise<void> }) {
   const nav = useNavigate();
@@ -19,7 +20,7 @@ function InboxItem({ task, onDone }: { task: BoardTask; onDone: () => Promise<vo
   const act = async (action: () => Promise<unknown>) => {
     setBusy(true); setError('');
     try { await action(); await onDone(); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); setBusy(false); }
+    catch (cause) { setError(errorText(cause)); setBusy(false); }
   };
   const seat = task.assignee || 'the seat';
   const review = task.status === 'review';

@@ -1,4 +1,6 @@
-import type { Mission } from './api';
+import type { Mission, MissionStatus } from './api';
+
+export const MISSION_STATUSES: MissionStatus[] = ['backlog', 'todo', 'in_progress', 'in_review', 'done', 'canceled'];
 
 export interface MissionsState { status: 'loading' | 'ready' | 'error'; missions: Mission[]; error: string | null }
 
@@ -16,7 +18,7 @@ export function sidebarMissionLabel(s: MissionsState): string {
   return s.missions[0]?.title || 'No mission yet';
 }
 
-export function missionStatusLabel(m: Mission): string {
+export function missionStatusLabel(m: Pick<Mission, 'status'>): string {
   const title = (m.status || 'backlog').replace(/_/g, ' ');
   return title.charAt(0).toUpperCase() + title.slice(1);
 }
