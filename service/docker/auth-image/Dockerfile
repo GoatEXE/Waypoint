@@ -26,6 +26,7 @@ RUN curl -fsSL -o /tmp/gh.tgz "https://github.com/cli/cli/releases/download/v${G
 COPY waypoint_github.py /usr/local/lib/waypoint/waypoint_github.py
 RUN printf '#!/bin/sh\nexec python3 /usr/local/lib/waypoint/waypoint_github.py gh "$@"\n' > /usr/local/bin/gh \
  && printf '#!/bin/sh\nexec python3 /usr/local/lib/waypoint/waypoint_github.py credential "$@"\n' > /usr/local/bin/waypoint-git-credential \
+ && ln -sf /opt/hermes/bin/hermes /usr/local/bin/hermes \
  && chmod 0755 /usr/local/bin/gh /usr/local/bin/waypoint-git-credential \
  && git config --system credential.https://github.com.helper '!/usr/local/bin/waypoint-git-credential' \
  && git config --system credential.https://github.com.useHttpPath true
