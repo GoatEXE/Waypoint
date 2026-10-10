@@ -4,6 +4,7 @@ import { isActiveLogin, isMissingLoginError, shouldClearLoginPrompt } from '../c
 import { providerReadiness } from '../providerConfig';
 import type { Provider } from '../settingsModel';
 import { Reveal } from './Reveal';
+import { ProviderMark } from './ProviderMark';
 
 export type ProviderChoice = 'codex' | 'claude';
 
@@ -11,22 +12,6 @@ const CHOICES: { id: ProviderChoice; name: string; subscription: Provider; apiKe
   { id: 'codex', name: 'Codex', subscription: 'openai-codex', apiKey: 'openai-api', flow: 'device' },
   { id: 'claude', name: 'Claude', subscription: 'anthropic', apiKey: 'anthropic', flow: 'authorization-code' },
 ];
-
-function Mark({ id }: { id: ProviderChoice }) {
-  if (id === 'claude') {
-    return (
-      <svg width="26" height="26" viewBox="0 0 24 24" aria-hidden="true">
-        {Array.from({ length: 12 }, (_, i) => <line key={i} x1="12" y1="12" x2="12" y2={i % 2 ? 4.5 : 2} stroke="#D97757" strokeWidth="2" strokeLinecap="round" transform={`rotate(${i * 30} 12 12)`} />)}
-      </svg>
-    );
-  }
-  return (
-    <svg width="26" height="26" viewBox="0 0 24 24" aria-hidden="true">
-      <polygon points="12,2.5 20.2,7.25 20.2,16.75 12,21.5 3.8,16.75 3.8,7.25" fill="none" stroke="var(--text)" strokeWidth="1.8" strokeLinejoin="round" />
-      <path d="M8.5 10l2.5 2-2.5 2M13 14.5h3" fill="none" stroke="var(--text)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
 
 export function connectedProvider(status: HermesStatus | null, choice: ProviderChoice | null, apiKeyMode: boolean): Provider | null {
   const option = CHOICES.find(c => c.id === choice);
@@ -99,7 +84,7 @@ export function ProviderConnect({ onChange }: { onChange: (provider: Provider | 
           const connected = providerReadiness(status, c.subscription).on || providerReadiness(status, c.apiKey).on;
           return (
             <button key={c.id} type="button" className={'provider-card' + (choice === c.id ? ' on' : '')} aria-pressed={choice === c.id} onClick={() => pick(c.id)}>
-              <Mark id={c.id} />
+              <ProviderMark kind={c.id} />
               <span className="provider-card-name">{c.name}</span>
               <span className="provider-card-sub">{connected ? 'Connected' : choice === c.id && apiKeyMode ? 'API key' : 'Subscription'}</span>
             </button>

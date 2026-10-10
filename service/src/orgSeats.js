@@ -5,23 +5,24 @@ const RESERVED = new Set(['default', 'ceo', 'hermes']);
 const DESCRIPTION_MAX = 200;
 
 export const LIST_SEATS_SCRIPT = String.raw`
-import json, os, re
+import json, os, yaml
 root = '/opt/data/profiles'
-def field(path, key):
+def load(path):
     try:
-        for line in open(path, encoding='utf-8'):
-            m = re.match(r'^\s*' + key + r':\s*(.*)$', line)
-            if m:
-                return m.group(1).strip().strip('"').strip("'")
-    except OSError:
-        return ''
-    return ''
+        data = yaml.safe_load(open(path, encoding='utf-8'))
+        return data if isinstance(data, dict) else {}
+    except (OSError, yaml.YAMLError):
+        return {}
+def text(value):
+    return value.strip() if isinstance(value, str) else ''
 seats = []
 for name in sorted(os.listdir(root)) if os.path.isdir(root) else []:
     home = os.path.join(root, name)
     if not os.path.isfile(os.path.join(home, 'config.yaml')):
         continue
-    seats.append({'id': name, 'description': field(os.path.join(home, 'profile.yaml'), 'description'), 'model': field(os.path.join(home, 'config.yaml'), 'default'), 'provider': field(os.path.join(home, 'config.yaml'), 'provider')})
+    model = load(os.path.join(home, 'config.yaml')).get('model')
+    model = model if isinstance(model, dict) else {}
+    seats.append({'id': name, 'description': text(load(os.path.join(home, 'profile.yaml')).get('description')), 'model': text(model.get('default')), 'provider': text(model.get('provider'))})
 print(json.dumps({'seats': seats}))
 `;
 
