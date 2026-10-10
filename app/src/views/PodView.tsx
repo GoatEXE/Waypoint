@@ -6,6 +6,7 @@ import { useSplitCols } from '../components/layout';
 import { statusLabel, taskLabel } from '../taskQueueModel';
 import { useStore } from '../store';
 import { NewTaskDialog } from './TasksView';
+import { errorText } from '../runtimeHealth';
 
 const ENTRY_VERB: Record<PodEntry['kind'], string> = { task: 'asked', comment: 'commented', review_requested: 'handed in', completed: 'finished', blocked: 'is blocked' };
 
@@ -45,7 +46,7 @@ export function PodView({ name }: { name: string }) {
     try {
       const [detail, conversation] = await Promise.all([api.pod(name), api.podConversation(name)]);
       setPod(detail); setEntries(conversation.entries); setError('');
-    } catch (e) { setError(isNotFoundError(e) ? 'notfound' : e instanceof Error ? e.message : String(e)); }
+    } catch (e) { setError(isNotFoundError(e) ? 'notfound' : errorText(e)); }
   }, [name]);
   const boardKey = JSON.stringify(state.board.filter(t => t.board === `pod-${name}`));
   useEffect(() => { void load(); }, [load, boardKey]);
@@ -58,7 +59,7 @@ export function PodView({ name }: { name: string }) {
   const close = async () => {
     setBusy(true);
     try { await api.closePod(pod.name); await Promise.all([loadPods(), loadBoard(), load()]); flash(`Closed pod ${pod.name}`); setConfirmClose(false); }
-    catch (e) { flash(e instanceof Error ? e.message : String(e)); }
+    catch (e) { flash(errorText(e)); }
     finally { setBusy(false); }
   };
 

@@ -1,5 +1,6 @@
 import { useState, type MouseEvent } from 'react';
 import { api } from '../api';
+import { errorText } from '../runtimeHealth';
 
 export function HermesPortalLink({ target, label = 'Hermes UI' }: { target: string; label?: string }) {
   const [busy, setBusy] = useState(false);
@@ -16,7 +17,7 @@ export function HermesPortalLink({ target, label = 'Hermes UI' }: { target: stri
       else window.open(url, '_blank', 'noopener');
     } catch (err) {
       win?.close();
-      setError(err instanceof Error ? err.message : String(err));
+      setError(errorText(err));
     } finally { setBusy(false); }
   };
   return (

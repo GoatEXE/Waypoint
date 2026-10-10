@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { api, type OrgSeat } from '../api';
 import { useStore } from '../store';
 import { SeatMark } from './ProviderMark';
+import { errorText } from '../runtimeHealth';
 
 export function PodDialog() {
   const { closeModal, flash, loadPods } = useStore();
@@ -33,7 +34,7 @@ export function PodDialog() {
       closeModal();
       flash(`Started pod ${pod.name}`);
       nav('/pods/' + pod.name);
-    } catch (e) { setError(e instanceof Error ? e.message : String(e)); setBusy(false); }
+    } catch (e) { setError(errorText(e)); setBusy(false); }
   };
 
   return (

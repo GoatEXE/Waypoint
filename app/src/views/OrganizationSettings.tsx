@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { OrganizationInput } from '../api';
 import { useStore } from '../store';
 import { KEY_RE, cleanKey, readLogo } from '../orgModel';
+import { errorText } from '../runtimeHealth';
 
 export function OrganizationSettings() {
   const { state, saveOrganization, flash } = useStore();
@@ -25,7 +26,7 @@ export function OrganizationSettings() {
       await saveOrganization(input);
       flash(done);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not save the organization');
+      setError(errorText(e));
     } finally { setBusy(false); }
   };
 
@@ -33,7 +34,7 @@ export function OrganizationSettings() {
     if (fileRef.current) fileRef.current.value = '';
     if (!file) return;
     try { await save({ logo: await readLogo(file) }, 'Organization photo updated'); }
-    catch (e) { setError(e instanceof Error ? e.message : 'Could not read the image'); }
+    catch (e) { setError(errorText(e)); }
   };
 
   const dirty = name.trim() !== (org?.name || '') || key !== (org?.key || '') || ceoName.trim() !== (org?.ceoName || 'CEO');

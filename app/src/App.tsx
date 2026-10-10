@@ -4,6 +4,7 @@ import { parseRoute } from './routes';
 import { useStore } from './store';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
+import { RuntimeBanner } from './components/RuntimeBanner';
 import { RightPane } from './components/RightPane';
 import { Modal } from './components/Modal';
 import { MissionView } from './views/MissionView';
@@ -62,6 +63,7 @@ export function App() {
       <Sidebar />
       <div className="main-col">
         <Header />
+        <RuntimeBanner />
         <main ref={mainRef} className="main-scroll">
 
           <div key={pathname} className="route-enter"><View /></div>

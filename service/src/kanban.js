@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { badRequest, lifecycleError, notFound } from './errors.js';
+import { badRequest, lifecycleError, notFound, runtimeFailure } from './errors.js';
 
 const TASK_ID_RE = /^t_[0-9a-f]{6,32}$/;
 const REF_RE = /^([A-Z][A-Z0-9]{1,5})-([1-9][0-9]{0,8})$/;
@@ -62,6 +62,8 @@ export class KanbanBoard {
     if (result.code !== 0) {
       const detail = String(result.stderr || result.stdout || '').trim().split('\n').pop().slice(0, 200);
       if (/not found|no such task|unknown task/i.test(detail)) throw notFound('task not found');
+      const failure = runtimeFailure(result);
+      if (failure) throw failure;
       throw lifecycleError(`hermes kanban ${args[0]} failed${detail ? `: ${detail}` : ''}`, { code: result.code });
     }
     if (!json) return null;

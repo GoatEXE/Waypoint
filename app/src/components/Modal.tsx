@@ -4,6 +4,7 @@ import * as D from '../data';
 import { chatContextFor, useRoute } from '../routes';
 import { useStore, type ModalKind } from '../store';
 import { api, type OrgSeat } from '../api';
+import { errorText } from '../runtimeHealth';
 
 interface Form { text: string; title: string; date: string; scope: string; hire: string; role: string; clone: string }
 
@@ -87,7 +88,7 @@ ${hiring}`, true, ref => nav('/tasks/' + encodeURIComponent(ref)));
         flash(`Hired ${id}`);
         nav('/org');
       } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
+        setError(errorText(err));
       } finally { setSubmitting(false); }
     }
     if (kind === 'mission') {

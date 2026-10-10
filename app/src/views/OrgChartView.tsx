@@ -6,6 +6,7 @@ import { ceoNameOf } from '../orgModel';
 import { ONBOARDING_KICKOFF } from './OrgSetupView';
 import { HermesPortalLink } from '../components/HermesPortalLink';
 import { SeatMark } from '../components/ProviderMark';
+import { errorText } from '../runtimeHealth';
 
 export function OrgChartView() {
   const { state, setCeoThread, setPane, sendCeoMessage, openModal } = useStore();
@@ -17,7 +18,7 @@ export function OrgChartView() {
     let active = true;
     const load = async () => {
       try { const result = await api.orgSeats(); if (active) { setSeats(result.seats); setError(''); } }
-      catch (e) { if (active) setError(e instanceof Error ? e.message : String(e)); }
+      catch (e) { if (active) setError(errorText(e)); }
     };
     void load();
     api.hermesStatus().then(s => active && setCeo(s)).catch(() => undefined);

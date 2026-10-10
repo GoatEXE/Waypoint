@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { badRequest, conflict, lifecycleError, notFound, timeout as timeoutError } from './errors.js';
+import { badRequest, conflict, lifecycleError, notFound, timeout as timeoutError, runtimeFailure, ceoStopped, modelNotConnected } from './errors.js';
 import { ensureSharedAuthVolume, assertSharedAuthImage, sharedAuthMount } from './authVolume.js';
 import { guardDockerExecArgs, guardPrompt } from './hostDisconnectGuard.js';
 import { ONBOARDING_SKILL, ONBOARDING_SKILL_NAME } from './onboardingSkill.js';
@@ -67,11 +67,16 @@ export class HermesRuntime {
   get volumeName() { return this.config.hermes.volumeName; }
 
   async status(options = {}) {
-    const inspected = await this.inspect({ allowMissing: true });
-    const runtime = inspected.exists ? inspected.state : { state: 'missing', running: false };
+    let inspected;
+    try { inspected = await this.inspect({ allowMissing: true }); }
+    catch (error) {
+      if (error?.code !== 'docker_unavailable') throw error;
+      inspected = { exists: false, dockerDown: true };
+    }
+    const runtime = inspected.exists ? inspected.state : { state: inspected.dockerDown ? 'docker_unavailable' : 'missing', running: false };
     const details = inspected.exists && runtime.running
       ? await this.readSafeState().catch((error) => ({ ...defaultSafeState(), diagnostics: { configAvailable: false, message: safeMessage(error.message) } }))
-      : { ...defaultSafeState(), diagnostics: { configAvailable: false, message: 'Hermes CEO container is not running.' } };
+      : { ...defaultSafeState(), diagnostics: { configAvailable: false, message: inspected.dockerDown ? "Docker isn't running." : 'Hermes CEO container is not running.' } };
     if (inspected.exists && runtime.running) await this.attachNativeAuthStatus(details, { fresh: options.nativeAuth === 'fresh' });
     return {
       image: this.image,
@@ -239,13 +244,13 @@ export class HermesRuntime {
 
   async assertCeoTurnReady() {
     const inspected = await this.inspect({ allowMissing: true });
-    if (!inspected.exists || !inspected.state.running) throw lifecycleError('Hermes CEO container must be running before starting a CEO conversation turn.', { state: inspected.exists ? inspected.state.state : 'missing' });
+    if (!inspected.exists || !inspected.state.running) throw ceoStopped();
     await this.prepareCeoHome();
     const details = await this.status({ nativeAuth: 'fresh' });
-    if (!details.model.configured || !details.model.default) throw lifecycleError('Hermes CEO model must be configured before starting a CEO conversation turn.');
+    if (!details.model.configured || !details.model.default) throw modelNotConnected('The CEO has no model connected yet. Choose one in Settings, then retry.');
     const provider = normalizeReadyProvider(details.model.provider);
-    if (!provider) throw lifecycleError('Hermes CEO model provider must be configured before starting a CEO conversation turn.');
-    if (!details.auth?.[provider]?.ready) throw lifecycleError('Hermes CEO native auth must be ready for the configured model provider before starting a CEO conversation turn.', { provider });
+    if (!provider) throw modelNotConnected('The CEO has no model provider yet. Choose one in Settings, then retry.');
+    if (!details.auth?.[provider]?.ready) throw modelNotConnected("The CEO's model provider isn't signed in. Sign in under Connectors, then retry.", { provider });
   }
 
   ceoConversationPath(threadId = GENERAL_THREAD) {
@@ -552,6 +557,10 @@ export class HermesRuntime {
     const result = await this.runner('docker', ['inspect', '--format', format, this.containerName]);
     if (result.code !== 0) {
       if (allowMissing && /No such object|No such container/i.test(result.stderr || '')) return { exists: false };
+      if (!/No such object|No such container/i.test(result.stderr || '')) {
+        const failure = runtimeFailure(result);
+        if (failure) throw failure;
+      }
       throw lifecycleError('Hermes CEO container cannot be inspected as Waypoint-owned', { containerName: this.containerName, code: result.code });
     }
     let parsed;
@@ -603,13 +612,13 @@ export class HermesRuntime {
   async execPython(script, input, options = {}) {
     const user = options.user || 'hermes';
     const result = await this.runner('docker', ['exec', '-i', '--user', user, this.containerName, 'python3', '-c', script], { input, timeoutMs: options.timeoutMs || 30000, outputLimitBytes: options.outputLimitBytes });
-    if (result.code !== 0) throw lifecycleError('Hermes command failed', { code: result.code });
+    if (result.code !== 0) throw runtimeFailure(result) || lifecycleError('Hermes command failed', { code: result.code });
     return result;
   }
 
   async runDocker(args) {
     const result = await this.runner('docker', args, { timeoutMs: 60000 });
-    if (result.code !== 0) throw lifecycleError('docker command failed', { code: result.code });
+    if (result.code !== 0) throw runtimeFailure(result) || lifecycleError('docker command failed', { code: result.code });
     return result;
   }
 }

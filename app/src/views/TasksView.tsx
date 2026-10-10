@@ -5,6 +5,7 @@ import { WorkspaceHead } from '../components/ui';
 import { TaskFields, emptyDraft, useQueueData, type TaskDraft } from '../components/TaskFields';
 import { GROUP_BY, STATUSES, filterByStatus, groupTasks, savedStatusFilter, statusLabel, taskLabel, toggleStatusFilter, type GroupBy } from '../taskQueueModel';
 import { useStore } from '../store';
+import { errorText } from '../runtimeHealth';
 
 const PREFS_KEY = 'waypoint-task-view';
 
@@ -132,7 +133,7 @@ export function NewTaskDialog({ tasks, seats, board, initial, onClose, onCreated
     if (!draft.title.trim() || busy) return;
     setBusy(true); setError('');
     try { onCreated(await api.createTask({ title: draft.title.trim(), body: draft.body.trim(), assignee: draft.assignee || null, parents: draft.parents, ...(board ? { board } : {}) })); }
-    catch (e) { setError(e instanceof Error ? e.message : String(e)); setBusy(false); }
+    catch (e) { setError(errorText(e)); setBusy(false); }
   };
 
   return (

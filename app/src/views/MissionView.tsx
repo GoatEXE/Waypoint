@@ -4,6 +4,7 @@ import { api, type Mission, type MissionStatus } from '../api';
 import { currentMission, missionStatusLabel, shortDate } from '../missionsModel';
 import { useStore } from '../store';
 import { statusLabel } from '../taskQueueModel';
+import { errorText } from '../runtimeHealth';
 
 function ProjectsSection({ mission }: { mission: Mission }) {
   const { state, addProject } = useStore();
@@ -71,7 +72,7 @@ export function MissionView() {
       setConfirmDelete(null);
       await loadMissions();
     } catch (error) {
-      setDeleteError(error instanceof Error ? error.message : String(error));
+      setDeleteError(errorText(error));
     } finally {
       setDeleting(false);
     }
@@ -145,7 +146,7 @@ export function MissionView() {
         {deletionControls}
         {mission.outcome && <p className="mission-lede">{mission.outcome}</p>}
         <div className="meta-row" style={{ gap: '8px 22px', marginTop: 4 }}>
-          <label>Status <select aria-label="Mission status" value={mission.status} onChange={async (event) => { try { await api.updateMission(mission.id, event.target.value as MissionStatus); await loadMissions(); setStatusError(''); } catch (error) { setStatusError(error instanceof Error ? error.message : String(error)); } }}>{['backlog', 'todo', 'in_progress', 'in_review', 'done', 'canceled'].map(value => <option key={value} value={value}>{value.replace(/_/g, ' ')}</option>)}</select></label>
+          <label>Status <select aria-label="Mission status" value={mission.status} onChange={async (event) => { try { await api.updateMission(mission.id, event.target.value as MissionStatus); await loadMissions(); setStatusError(''); } catch (error) { setStatusError(errorText(error)); } }}>{['backlog', 'todo', 'in_progress', 'in_review', 'done', 'canceled'].map(value => <option key={value} value={value}>{value.replace(/_/g, ' ')}</option>)}</select></label>
           {mission.target && <span>Target <span className="v">{shortDate(mission.target)}</span></span>}
           <span>Recorded <span className="v">{shortDate(mission.createdAt)}</span></span>
         </div>

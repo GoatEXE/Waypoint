@@ -4,10 +4,10 @@ import { ACC } from '../model';
 import { activeProject, useRoute, type View } from '../routes';
 import { useStore } from '../store';
 import { NavIcon, type NavIconName } from './NavIcon';
-import { api, type HermesStatus, type OrgSeat } from '../api';
+import { api, type OrgSeat } from '../api';
 import { needsYou } from '../taskQueueModel';
 import { SeatMark } from './ProviderMark';
-import { sidebarHermesSummary } from '../hermesSidebarStatus';
+import { runtimeHealth } from '../runtimeHealth';
 import { sidebarMissionLabel } from '../missionsModel';
 import { ceoNameOf } from '../orgModel';
 
@@ -30,13 +30,8 @@ export function Sidebar() {
   const nav = useNavigate();
   const route = useRoute();
   const activeProj = activeProject(route);
-  const [hermes, setHermes] = useState<HermesStatus | null>(null);
-  const [hermesChecked, setHermesChecked] = useState(false);
   const [seats, setSeats] = useState<OrgSeat[]>([]);
   const attention = needsYou(state.board).length;
-  useEffect(() => {
-    api.hermesStatus({ freshAuth: true }).then(s => { setHermes(s); setHermesChecked(true); }).catch(() => { setHermes(null); setHermesChecked(true); });
-  }, []);
   useEffect(() => {
     let active = true;
     const refresh = async () => {
@@ -50,7 +45,7 @@ export function Sidebar() {
     const timer = window.setInterval(() => void refresh(), 30000);
     return () => { active = false; window.clearInterval(timer); };
   }, [state.missions.missions, loadBoard]);
-  const { label: hermesLabel, ready: hermesReady } = sidebarHermesSummary(hermes, hermesChecked);
+  const { label: hermesLabel, ready: hermesReady } = runtimeHealth(state.runtime.status, state.runtime.error, state.runtime.checked);
   const missionLabel = sidebarMissionLabel(state.missions);
   const currentMissionId = state.missions.missions[0]?.id;
   const missionProjects = state.projects.filter(p => currentMissionId && p.missionId === currentMissionId);

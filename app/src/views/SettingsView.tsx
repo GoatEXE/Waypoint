@@ -5,6 +5,9 @@ import { OnDot, WorkspaceHead } from '../components/ui';
 import { OrganizationSettings } from './OrganizationSettings';
 import { PROVIDERS, RECOMMENDED_MODELS, authForProvider } from '../providerConfig';
 import { applySavedModelIfClean, DEFAULTS, defaultModelForProvider as defaultCatalogModelForProvider, type ModelState, type Provider } from '../settingsModel';
+import { errorText, runtimeHealth } from '../runtimeHealth';
+import { StartCeoButton } from '../components/RuntimeBanner';
+import { useStore } from '../store';
 
 const CUSTOM = '__custom__';
 
@@ -29,6 +32,7 @@ function defaultModelForProvider(provider: Provider, catalogProvider?: HermesMod
 
 export function SettingsView() {
   const nav = useNavigate();
+  const { state: appState } = useStore();
   const [status, setStatus] = useState<HermesStatus | null>(null);
   const [catalog, setCatalog] = useState<HermesModelCatalog | null>(null);
   const [catalogLoading, setCatalogLoading] = useState(false);
@@ -69,9 +73,10 @@ export function SettingsView() {
         return next;
       });
       setError('');
-    } catch (e) { if (request === statusRequest.current) setError(e instanceof Error ? e.message : 'Could not reach service'); }
+    } catch (e) { if (request === statusRequest.current) setError(errorText(e)); }
   };
-  useEffect(() => { loadStatus({ freshAuth: true }); loadCatalog(); }, []);
+  useEffect(() => { loadCatalog(); }, []);
+  useEffect(() => { if (!appState.runtime.starting) void loadStatus({ freshAuth: true }); }, [appState.runtime.starting]);
 
   const currentCatalog = providerCatalog(catalog, model.provider);
   const listedModels = currentCatalog?.models || [];
@@ -82,10 +87,10 @@ export function SettingsView() {
   const modelSelectValue = customMode ? CUSTOM : model.default;
 
   const runtimeSummary = useMemo(() => {
-    if (!status) return { text: 'checking', detail: 'Checking CEO…', on: false };
-    if (status.runtime.running) return { text: 'running', detail: 'CEO is on.', on: true };
-    return { text: status.runtime.state || 'unavailable', detail: 'CEO is unavailable. Check Docker and refresh.', on: false };
-  }, [status]);
+    const health = runtimeHealth(status, null, Boolean(status || error));
+    if (status?.runtime.running) return { text: 'running', detail: 'CEO is on.', on: true, canStart: false };
+    return { text: health.label, detail: `${health.message} ${health.next}`.trim(), on: false, canStart: health.canStart };
+  }, [status, error]);
   const accountSummary = useMemo(() => {
     const auth = authForProvider(status, model.provider);
     const providerName = PROVIDERS.find(p => p.id === model.provider)?.name || model.provider;
@@ -107,7 +112,7 @@ export function SettingsView() {
         setCustomMode(false);
       }
       await loadStatus();
-    } catch (e) { setError(e instanceof Error ? e.message : 'Action failed'); }
+    } catch (e) { setError(errorText(e)); }
     finally { setBusy(''); }
   };
   const switchProvider = (provider: Provider) => {
@@ -142,8 +147,10 @@ export function SettingsView() {
             {status?.diagnostics?.message && <div role="status" style={{ color: 'var(--text)' }}>{status.diagnostics.message}</div>}
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <button className="btn btn-ghost" disabled={!!busy} onClick={() => loadStatus({ freshAuth: true })}>Refresh status</button>
+            {runtimeSummary.canStart && <StartCeoButton className="btn btn-primary" />}
+            <button className="btn btn-ghost" disabled={!!busy || appState.runtime.starting} onClick={() => loadStatus({ freshAuth: true })}>Refresh status</button>
           </div>
+          {appState.runtime.startError && <div role="alert" className="form-error">{appState.runtime.startError}</div>}
         </section>
 
         <section className="card stack" style={{ padding: 16, gap: 14 }} aria-label="Connections shortcut">
