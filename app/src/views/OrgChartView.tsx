@@ -8,22 +8,19 @@ import { DRY_RUN_REASON } from '../dryRun';
 import { errorText } from '../runtimeHealth';
 import { useNavigate } from 'react-router-dom';
 import { SEAT_STATE_LABEL, seatWork } from '../seatModel';
-import { taskLabel } from '../taskQueueModel';
 
 function SeatCard({ seat }: { seat: OrgSeat }) {
   const { state } = useStore();
   const nav = useNavigate();
   const work = seatWork(seat.id, state.board);
   return (
-    <button type="button" className={'org-node org-seat' + (work.state === 'running' ? ' busy' : '')} onClick={() => nav('/seats/' + encodeURIComponent(seat.id))}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, width: '100%' }}>
-        <SeatIcon id={seat.id} description={seat.description} size={15} />
+    <button type="button" className="org-node org-seat-node" title={seat.description || undefined} onClick={() => nav('/seats/' + encodeURIComponent(seat.id))}>
+      <SeatIcon id={seat.id} description={seat.description} size={15} />
+      <div className="stack" style={{ minWidth: 0, alignItems: 'flex-start' }}>
         <span className="org-name mono">{seat.id}</span>
-        <span className="org-sub">{seat.model}</span>
-        <span className="org-state"><OnDot on={work.state === 'running'} />{SEAT_STATE_LABEL[work.state]}</span>
+        <span className="org-sub ellipsis" style={{ maxWidth: '100%' }}>{seat.model}</span>
       </div>
-      <span className="org-sub ellipsis" style={{ maxWidth: '100%' }} title={seat.description || undefined}>{seat.description || 'No description'}</span>
-      {work.current && <span className="org-sub ellipsis" style={{ maxWidth: '100%', color: 'var(--muted)' }}>{taskLabel(work.current)} · {work.current.title}</span>}
+      <span className="org-state"><OnDot on={work.state === 'running'} />{SEAT_STATE_LABEL[work.state]}</span>
     </button>
   );
 }
