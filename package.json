@@ -2,6 +2,7 @@
   "name": "waypoint",
   "private": true,
   "scripts": {
+    "start": "node scripts/start.mjs",
     "lint": "npm --prefix app run lint",
     "check": "npm --prefix app run lint && npm --prefix service run check && npm --prefix app test && npm --prefix app run build",
     "reset": "npm --prefix service run reset --"
