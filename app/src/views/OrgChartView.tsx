@@ -5,6 +5,7 @@ import { useStore } from '../store';
 import { ceoNameOf } from '../orgModel';
 import { ONBOARDING_KICKOFF } from './OrgSetupView';
 import { HermesPortalLink } from '../components/HermesPortalLink';
+import { SeatMark } from '../components/ProviderMark';
 
 export function OrgChartView() {
   const { state, setCeoThread, setPane, sendCeoMessage, openModal } = useStore();
@@ -64,7 +65,8 @@ export function OrgChartView() {
           <div className="org-seats org-seats-row">
             {seats.map(seat => (
               <div key={seat.id} className="org-node org-seat">
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                  <SeatMark provider={seat.provider} size={14} />
                   <span className="org-name mono">{seat.id}</span>
                   <span className="org-sub">{seat.model}</span>
                 </div>

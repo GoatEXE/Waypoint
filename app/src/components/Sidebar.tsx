@@ -6,6 +6,7 @@ import { useStore } from '../store';
 import { NavIcon, type NavIconName } from './NavIcon';
 import { api, type HermesStatus, type OrgSeat } from '../api';
 import { needsYou } from '../taskQueueModel';
+import { SeatMark } from './ProviderMark';
 import { sidebarHermesSummary } from '../hermesSidebarStatus';
 import { sidebarMissionLabel } from '../missionsModel';
 import { ceoNameOf } from '../orgModel';
@@ -114,9 +115,9 @@ export function Sidebar() {
           <div className="sb-label-row"><span className="sb-label">SEATS</span><AddButton onClick={() => openModal('seat')} /></div>
           {!seats.length && <div className="sb-item" style={{ color: 'var(--faint)', cursor: 'default' }}>No seats</div>}
           {seats.map(seat => (
-            <div key={seat.id} className={'sb-item seat' + (route.v === 'org' ? ' active' : '')} title={seat.description} onClick={() => nav('/org')}>
-              <span className="sb-name c-text3">{seat.id}</span>
-              <span className="sb-role ellipsis">{seat.description}</span>
+            <div key={seat.id} className="sb-item" title={seat.description} onClick={() => nav('/org')}>
+              <SeatMark provider={seat.provider} />
+              <span className="sb-name">{seat.id}</span>
             </div>
           ))}
         </div>

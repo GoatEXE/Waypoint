@@ -27,7 +27,7 @@ function UserBubble({ text, meta, children }: { text: string; meta?: string; chi
   );
 }
 
-function CeoBubble({ text, at, name = 'ceo' }: { text: string; at: string; name?: string }) {
+function CeoBubble({ text, at, name = 'CEO' }: { text: string; at: string; name?: string }) {
   return (
     <div className="stack" style={{ gap: 6, maxWidth: '94%' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11.5, color: 'var(--dim)' }}>
@@ -160,7 +160,7 @@ function CeoChat() {
         {ceo.messages.map((m, i) => {
           if (m.role === 'activity') return <ActivityBlock key={`${m.at}-${i}`} items={m.items || []} />;
           if (m.role === 'user') return <UserBubble key={`${m.at}-${i}`} text={m.text || ''} meta={messageTime(m.at)} />;
-          return <CeoBubble key={`${m.at}-${i}`} text={m.text || ''} at={m.at} name="ceo" />;
+          return <CeoBubble key={`${m.at}-${i}`} text={m.text || ''} at={m.at} />;
         })}
         {ceo.pendingMessage && <UserBubble text={ceo.pendingMessage} meta="Sent" />}
         {ceo.failedMessage && (
