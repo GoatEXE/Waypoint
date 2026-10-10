@@ -405,7 +405,9 @@ textarea.input { resize: vertical; line-height: 1.5; }
 .act-glyph.ok { color: oklch(0.74 0.14 155); }
 .act-glyph.err { color: oklch(0.68 0.16 25); }
 .act-glyph.running { width: 8px; height: 8px; margin: 0 2px; border-radius: 50%; background: var(--acc); animation: wp-pulse 1s infinite; }
-.seat-feedback { padding: 14px; border: 1px solid var(--border-3); border-radius: 10px; background: var(--surface); }
+.rate-btn { padding: 6px 12px; border: 1px solid var(--border-4); border-radius: 18px; background: transparent; color: var(--text-3); font-size: 13px; cursor: pointer; }
+.rate-btn:hover { border-color: var(--border-6); }
+.rate-btn.on { border-color: var(--acc); background: oklch(0.72 0.14 252 / .14); color: var(--text); }
 .seat-reply { padding: 10px 12px; border-radius: 10px; background: var(--surface-2); color: var(--text-2); }
 .act-hint { font-size: 12px; color: var(--faint); }
 .act-thought .act-detail { font-family: var(--sans, inherit); font-style: italic; color: var(--faint); }

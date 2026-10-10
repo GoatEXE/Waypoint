@@ -210,7 +210,7 @@ export function TaskView({ id }: { id: string }) {
           <h1 className="h1">{task.title}</h1>
         </div>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-          {task.assignee && <button className="btn lg btn-ghost" onClick={() => setFeedback(true)}>Give {task.assignee} feedback</button>}
+          {task.assignee && <button className="btn lg btn-ghost" onClick={() => setFeedback(true)}>Feedback for {task.assignee}</button>}
           <button className="btn lg btn-ghost" onClick={() => { setCeoThread(task.id); setPane({ open: true, tab: 'tasks' }); }}>Discuss with {ceoNameOf(appState.org.organization)}</button>
         </div>
       </div>
@@ -224,7 +224,7 @@ export function TaskView({ id }: { id: string }) {
             ? <RunEntry key={i} run={entry.run} items={runItems(entry.index)} />
             : <div key={i} style={{ display: 'flex', gap: 8, fontSize: 12, color: 'var(--faint)', padding: '0 14px' }}><span>{entry.kind === 'heartbeats' ? `${entry.count} heartbeat${entry.count === 1 ? '' : 's'} · latest` : entry.text}</span><span style={{ marginLeft: 'auto' }}>{formatDateTime(entry.at)}</span></div>)}
           {task.status === 'running' && <LiveActivity items={activity?.items || []} assignee={task.assignee} />}
-          {feedback && task.assignee && <SeatFeedback seat={task.assignee} taskRef={ref} onClose={() => setFeedback(false)} />}
+          {feedback && task.assignee && <SeatFeedback seat={task.assignee} taskRef={ref} onClose={() => setFeedback(false)} onSent={() => void loadTask()} />}
           {task.latestSummary && !task.runs?.length && (
             <div className="stack" style={{ gap: 6, padding: '12px 14px', border: '1px solid var(--border-3)', borderRadius: 10, background: 'var(--surface-2)' }}>
               <div style={{ fontSize: 11.5, color: 'var(--faint)' }}>Latest summary</div>

@@ -4,7 +4,8 @@ import { ActivityBlock, ActivityList } from './Activity';
 import { TaskRefText } from './TaskRefText';
 import { errorText } from '../runtimeHealth';
 
-export function SeatFeedback({ seat, taskRef, onClose }: { seat: string; taskRef: string; onClose: () => void }) {
+export function SeatFeedback({ seat, taskRef, onClose, onSent }: { seat: string; taskRef: string; onClose: () => void; onSent?: () => void }) {
+  const [rating, setRating] = useState<'up' | 'down' | null>(null);
   const [conversation, setConversation] = useState<SeatFeedbackConversation | null>(null);
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
@@ -19,24 +20,33 @@ export function SeatFeedback({ seat, taskRef, onClose }: { seat: string; taskRef
     const timer = window.setInterval(() => void load(), 1500);
     return () => { active = false; window.clearInterval(timer); };
   }, [seat, taskRef, sending]);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !sending) onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [sending, onClose]);
   useEffect(() => { scrollRef.current?.scrollIntoView({ block: 'nearest' }); }, [conversation?.messages.length, conversation?.live?.items.length]);
 
   const send = async () => {
     const message = draft.trim();
     if (!message || sending) return;
     setSending(true); setError(''); setDraft('');
-    try { setConversation(await api.sendSeatFeedback(seat, taskRef, message)); }
+    try { setConversation(await api.sendSeatFeedback(seat, taskRef, message, rating)); setRating(null); onSent?.(); }
     catch (e) { setError(errorText(e)); setDraft(message); }
     finally { setSending(false); }
   };
 
   const live = conversation?.live;
   return (
-    <section className="stack seat-feedback" style={{ gap: 12 }} aria-label={`Feedback for ${seat}`}>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
-        <div className="section-title">Feedback for <span className="mono">{seat}</span></div>
-        <span style={{ fontSize: 12, color: 'var(--faint)' }}>A direct chat with the seat. It saves what it learns.</span>
-        <button type="button" className="icon-btn" style={{ marginLeft: 'auto' }} title="Close" onClick={onClose}>×</button>
+    <div className="scrim" onMouseDown={e => { if (e.target === e.currentTarget && !sending) onClose(); }}>
+    <section className="modal stack seat-feedback" role="dialog" aria-modal="true" style={{ width: 560, padding: 22, gap: 12, maxHeight: '85vh', overflow: 'auto' }} aria-label={`Feedback for ${seat}`}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+        <div className="stack" style={{ gap: 4 }}>
+          <div className="eyebrow">FEEDBACK · {taskRef}</div>
+          <h2 className="h1" style={{ fontSize: 20 }}>How did <span className="mono">{seat}</span> do?</h2>
+          <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>{seat} reads this, replies, and saves what it learns. It's also added to the task's history.</span>
+        </div>
+        <button type="button" className="icon-btn" style={{ marginLeft: 'auto' }} title="Close" disabled={sending} onClick={onClose}>×</button>
       </div>
       {conversation?.messages.map((m, i) => m.role === 'activity'
         ? <ActivityBlock key={i} items={m.items || []} />
@@ -53,7 +63,13 @@ export function SeatFeedback({ seat, taskRef, onClose }: { seat: string; taskRef
       )}
       {error && <div role="alert" className="form-error">{error}</div>}
       <form className="stack" style={{ gap: 8 }} onSubmit={e => { e.preventDefault(); void send(); }}>
-        <textarea className="input" rows={3} value={draft} disabled={sending} placeholder={`What should ${seat} do differently next time?`} onChange={e => setDraft(e.target.value)}
+        {!conversation?.messages.length && (
+          <div style={{ display: 'flex', gap: 8 }} role="radiogroup" aria-label="Rating">
+            <button type="button" role="radio" aria-checked={rating === 'up'} className={'rate-btn' + (rating === 'up' ? ' on' : '')} disabled={sending} onClick={() => setRating(r => r === 'up' ? null : 'up')}>👍 Good</button>
+            <button type="button" role="radio" aria-checked={rating === 'down'} className={'rate-btn' + (rating === 'down' ? ' on' : '')} disabled={sending} onClick={() => setRating(r => r === 'down' ? null : 'down')}>👎 Needs work</button>
+          </div>
+        )}
+        <textarea className="input" rows={3} autoFocus value={draft} disabled={sending} placeholder={`Tell ${seat} what worked or what to change`} onChange={e => setDraft(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(); } }} />
         <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
           <button type="submit" className="btn btn-primary" disabled={sending || !draft.trim()}>{sending ? 'Waiting for reply…' : `Send to ${seat}`}</button>
@@ -61,5 +77,6 @@ export function SeatFeedback({ seat, taskRef, onClose }: { seat: string; taskRef
       </form>
       <div ref={scrollRef} />
     </section>
+    </div>
   );
 }

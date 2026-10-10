@@ -35,8 +35,9 @@ async function setup(assignee = 'dev') {
       return child;
     },
   };
-  const board = { show: async () => ({ id: 't_abc123', ref: 'WP-4', title: 'Fix login', assignee, latestSummary: 'Fixed it.' }) };
-  return { feedback: new SeatFeedback({ config, hermes, board }), spawns };
+  const notes = [];
+  const board = { show: async () => ({ id: 't_abc123', ref: 'WP-4', title: 'Fix login', assignee, latestSummary: 'Fixed it.' }), note: async (...args) => { notes.push(args); } };
+  return { feedback: new SeatFeedback({ config, hermes, board }), spawns, notes };
 }
 
 test('feedback runs a chat on the assigned seat and keeps the thread', async () => {
@@ -64,4 +65,13 @@ test('seat chat args use the seat profile and a named session', () => {
   const args = buildSeatChatArgs('c', 'dev', 'waypoint-feedback-t_1', { ceoTurnTimeoutMs: 60000, ceoMaxTurns: 20 });
   assert.ok(args.includes('--create-if-missing'));
   assert.equal(args[args.indexOf('--continue') + 1], 'waypoint-feedback-t_1');
+});
+
+test('a rating goes to the seat and the feedback and reply are kept on the task', async () => {
+  const { feedback, spawns, notes } = await setup();
+  await feedback.send('dev', 'WP-4', { message: 'Too long.', rating: 'down' });
+  assert.match(spawns[0].child.input, /thumbs down/);
+  assert.deepEqual(notes[0], ['t_abc123', 'user', '👎 Feedback for dev: Too long.']);
+  assert.equal(notes[1][1], 'dev');
+  assert.equal((await feedback.conversation('dev', 'WP-4')).messages[0].rating, 'down');
 });

@@ -257,6 +257,11 @@ export class KanbanBoard {
     return this.show(id);
   }
 
+  async note(ref, author, body) {
+    const { id, board } = await this.locate(ref);
+    await this.run(['comment', '--author', author, id, text(body, 'comment', COMMENT_MAX)], { json: false, board });
+  }
+
   async comment(ref, input = {}, { author = 'user' } = {}) {
     if (!input || typeof input !== 'object' || Object.keys(input).some((key) => key !== 'text')) throw badRequest('body must be { text }');
     const { id, board } = await this.locate(ref);

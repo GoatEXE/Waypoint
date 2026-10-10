@@ -59,7 +59,7 @@ export interface HermesSkillInventory {
 export type HermesSkillUpdateResponse = HermesSkill | { skill: HermesSkill };
 
 export interface ActivityItem { kind: 'tool' | 'action'; name: string; detail: string; status: 'running' | 'ok' | 'error' | 'unknown'; durationMs?: number; at?: string }
-export interface SeatFeedbackMessage { role: 'user' | 'seat' | 'activity'; text?: string; at: string; items?: ActivityItem[] }
+export interface SeatFeedbackMessage { role: 'user' | 'seat' | 'activity'; text?: string; at: string; items?: ActivityItem[]; rating?: 'up' | 'down' }
 export interface SeatFeedbackConversation { seat: string; task: string; messages: SeatFeedbackMessage[]; live: { startedAt: string; message: string; items: ActivityItem[] } | null }
 export interface CeoMessage { role: 'user' | 'ceo' | 'activity'; text?: string; at: string; status?: 'sent' | 'confirmed' | 'outcome_unknown'; items?: ActivityItem[] }
 export interface CeoLiveTurn { startedAt: string; message: string; items: ActivityItem[] }
@@ -159,7 +159,7 @@ export const api = {
   closeHermesPortal: () => json<HermesPortalStatus>('/hermes-portal', { method: 'DELETE', body: '{}' }),
   deleteMission: (id: string) => json<{ deleted: true; missionId: string }>(`/missions/${encodeURIComponent(id)}`, { method: 'DELETE', body: '{}' }),
   seatFeedback: (seat: string, task: string) => json<SeatFeedbackConversation>(`/seats/${encodeURIComponent(seat)}/feedback?task=${encodeURIComponent(task)}`),
-  sendSeatFeedback: (seat: string, task: string, message: string) => json<SeatFeedbackConversation>(`/seats/${encodeURIComponent(seat)}/feedback`, { method: 'POST', body: JSON.stringify({ task, message }) }),
+  sendSeatFeedback: (seat: string, task: string, message: string, rating?: 'up' | 'down' | null) => json<SeatFeedbackConversation>(`/seats/${encodeURIComponent(seat)}/feedback`, { method: 'POST', body: JSON.stringify({ task, message, ...(rating ? { rating } : {}) }) }),
   task: (ref: string) => json<BoardTaskDetail>(`/tasks/${encodeURIComponent(ref)}`),
   taskActivity: (ref: string) => json<TaskActivity>(`/tasks/${encodeURIComponent(ref)}/activity`),
   createTask: (body: { title: string; body?: string; assignee?: string | null; parents?: string[]; board?: string; project?: string }) => json<BoardTaskDetail>('/tasks', { method: 'POST', body: JSON.stringify(body) }),

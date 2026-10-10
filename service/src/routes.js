@@ -45,7 +45,7 @@ async function route(request, url, { config, store, organization, hermes, board,
     if (method === 'GET') return { body: await seatFeedback.conversation(seat, url.searchParams.get('task') || '') };
     if (method === 'POST') {
       const body = await readBody(request);
-      return { body: await seatFeedback.send(seat, body?.task || '', { message: body?.message }) };
+      return { body: await seatFeedback.send(seat, body?.task || '', { message: body?.message, rating: body?.rating }) };
     }
   }
   if (pathname === '/org/seats' && orgSeats) {
