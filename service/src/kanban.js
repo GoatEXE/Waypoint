@@ -254,7 +254,13 @@ export class KanbanBoard {
     const { id, board } = await this.locate(ref);
     const body = text(input.text, 'comment', COMMENT_MAX);
     const before = await this.run(['show', id], { board });
-    if (before.task.status === 'review') await this.run(['request-changes', id, body], { json: false, board });
+    if (before.task.status === 'review') {
+      await this.run(['request-changes', id, body], { json: false, board }).catch(async (error) => {
+        if (!/not in an active review run/i.test(error?.message || '')) throw error;
+        await this.run(['comment', '--author', author, id, body], { json: false, board });
+        await this.run(['reopen-review', id], { json: false, board });
+      });
+    }
     else {
       await this.run(['comment', '--author', author, id, body], { json: false, board });
       if (before.task.status === 'blocked') await this.run(['unblock', '--reason', `${author} replied`, id], { json: false, board });
