@@ -1,14 +1,14 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import * as D from '../data';
-import { byParent, projById, st } from '../model';
+import { projById, st } from '../model';
 import { api, type CeoThread } from '../api';
 import { ActivityBlock, ActivityList } from './Activity';
 import { TaskRefText } from './TaskRefText';
 import { useStore, useViewport, type PaneTab } from '../store';
 import { ceoNameOf } from '../orgModel';
 import { isTaskThread, threadMeta, visibleTaskThreads } from '../ceoThreads';
-import { Dot, PaneGroupHead } from './ui';
+import { Dot } from './ui';
 import { PANE_DOCK_MIN } from './layout';
 
 function messageTime(at: string) {
@@ -202,29 +202,6 @@ function CeoChat() {
   );
 }
 
-function ArtifactsTab() {
-  const nav = useNavigate();
-  return (
-    <div className="pane-body" style={{ padding: 16, gap: 10 }}>
-      {!D.paneArtifacts.length && <div className="empty">No artifacts yet.</div>}
-      {byParent(D.paneArtifacts, a => a.p).map(g => (
-        <div key={g.key} className="stack" style={{ gap: 8, marginBottom: 8 }}>
-          <div style={{ padding: '2px 2px 0' }}><PaneGroupHead g={g} /></div>
-          {g.items.map(a => (
-            <div key={a.name} className="pane-card link" onClick={() => nav(a.to)}>
-              {a.img && <div className="hatch" style={{ height: 120, borderBottom: '1px solid var(--border)' }}>{a.name}</div>}
-              <div className="stack" style={{ padding: '10px 12px', gap: 2 }}>
-                <div style={{ display: 'flex', gap: 8, fontSize: 11.5, color: 'var(--faint)' }}><span className="mono">{a.kind}</span><span style={{ marginLeft: 'auto' }}>{a.src}</span></div>
-                <div style={{ font: '400 12.5px var(--mono)', color: 'var(--text-3)' }}>{a.name}</div>
-              </div>
-            </div>
-          ))}
-        </div>
-      ))}
-    </div>
-  );
-}
-
 function InboxTab() {
   const nav = useNavigate();
   return (
@@ -288,7 +265,7 @@ export function RightPane() {
     if (k === 'ceo') setCeoThread('general');
     setPane({ tab: k });
   };
-  const tabs: [PaneTab, string][] = [['ceo', ceoNameOf(state.org.organization)], ['tasks', 'Tasks'], ['artifacts', 'Artifacts'], ['inbox', 'Inbox']];
+  const tabs: [PaneTab, string][] = [['ceo', ceoNameOf(state.org.organization)], ['tasks', 'Tasks'], ['inbox', 'Inbox']];
   if (item) tabs.push(['item', item]);
 
   return (
@@ -301,7 +278,6 @@ export function RightPane() {
       </div>
       {tab === 'ceo' && <CeoChat />}
       {tab === 'tasks' && <TasksTab />}
-      {tab === 'artifacts' && <ArtifactsTab />}
       {tab === 'inbox' && <InboxTab />}
       {tab === 'item' && item && <PinnedTask id={item} />}
     </aside>

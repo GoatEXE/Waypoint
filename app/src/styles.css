@@ -83,6 +83,9 @@ button, input, textarea { font-family: inherit; }
 .sb-item:hover, .sb-item.active { background: var(--hover); }
 .sb-item:hover { color: var(--text); }
 .sb-item.active { color: var(--text); }
+.sb-item.soon { color: var(--faint); }
+.soon-tag { margin-left: auto; padding: 0 6px; border-radius: 8px; background: var(--hover); color: var(--muted); font: 500 10.5px/1.6 var(--mono); }
+.empty .soon-tag { margin: 0 6px 0 0; }
 .sb-icon { width: 14px; display: flex; justify-content: center; flex: none; }
 .sb-icon > svg { opacity: .8; }
 .sb-count { margin-left: auto; min-width: 20px; text-align: center; padding: 1px 6px; border-radius: 10px; background: oklch(0.72 0.14 252 / .16); color: var(--acc-text); font: 500 11px/1.5 var(--mono); }
