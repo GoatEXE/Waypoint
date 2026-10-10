@@ -20,6 +20,7 @@ import { TasksView } from './views/TasksView';
 import { ProjectDialog } from './components/ProjectDialog';
 import { PodDialog } from './components/PodDialog';
 import { PodView } from './views/PodView';
+import { SeatView } from './views/SeatView';
 import { OrgChartView } from './views/OrgChartView';
 import { GitHubCallbackView } from './views/GitHubCallbackView';
 import { OrgSetupView } from './views/OrgSetupView';
@@ -34,6 +35,7 @@ function View() {
     case 'github': return <GitHubCallbackView step={r.id!} />;
     case 'task': return <TaskView id={r.id!} />;
     case 'pod': return <PodView name={r.id!} />;
+    case 'seat': return <SeatView id={r.id!} />;
     case 'inbox': return <MessageInboxView />;
     case 'routines': return <RoutinesView />;
     case 'artifacts': return <ArtifactsView />;

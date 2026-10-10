@@ -9,6 +9,7 @@ import { needsYou } from '../taskQueueModel';
 import { SeatMark } from './ProviderMark';
 import { DRY_RUN_REASON } from '../dryRun';
 import { runtimeHealth } from '../runtimeHealth';
+import { seatWork } from '../seatModel';
 import { sidebarMissionLabel } from '../missionsModel';
 import { ceoNameOf } from '../orgModel';
 
@@ -124,9 +125,10 @@ export function Sidebar() {
           <div className="sb-label-row"><span className="sb-label">SEATS</span><AddButton onClick={() => openModal('seat')} disabledReason={dryRun} /></div>
           {!seats.length && <div className="sb-item" style={{ color: 'var(--faint)', cursor: 'default' }}>No seats</div>}
           {seats.map(seat => (
-            <div key={seat.id} className="sb-item" title={seat.description} onClick={() => nav('/org')}>
+            <div key={seat.id} className={'sb-item' + (route.v === 'seat' && route.id === seat.id ? ' active' : '')} title={seat.description} onClick={() => nav('/seats/' + encodeURIComponent(seat.id))}>
               <SeatMark provider={seat.provider} />
               <span className="sb-name">{seat.id}</span>
+              {seatWork(seat.id, state.board).state === 'running' && <span className="thread-row-busy" title="Working" style={{ marginLeft: 'auto' }} />}
             </div>
           ))}
         </div>

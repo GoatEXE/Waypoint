@@ -20,6 +20,7 @@ export function crumbsFor(r: Route, missionTitle: string | null, projects: Proje
     case 'mission': return [m];
     case 'project': return [m, { label: projects.find(p => p.id === r.id)?.name || 'Project', to: '/projects/' + r.id }];
     case 'task': return taskCrumbs(r.id!);
+    case 'seat': return [{ label: 'Organization', to: '/org' }, { label: r.id!, to: '/seats/' + r.id, mono: true }];
     case 'pod': return [{ label: 'Pods', to: '/pods/' + r.id }, { label: r.id!, to: '/pods/' + r.id, mono: true }];
     case 'inbox': return [{ label: 'Workspace', to: '/inbox' }, { label: 'Inbox', to: '/inbox' }];
     default: return WS[r.v] ? [{ label: 'Workspace', to: '/inbox' }, { label: WS[r.v]!, to: '/' + r.v }] : [m];
