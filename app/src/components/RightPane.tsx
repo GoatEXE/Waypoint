@@ -194,7 +194,7 @@ function CeoChat() {
             onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
           />
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11.5, color: 'var(--fainter)' }}>
-            <button className="btn btn-primary" style={{ marginLeft: 'auto', padding: '5px 11px', borderRadius: 6, fontSize: 12, opacity: draft.trim() && !blocked ? 1 : 0.45 }} disabled={!draft.trim() || blocked} onClick={send}>{working ? 'Working…' : 'Send'}</button>
+            <button className="btn btn-primary" style={{ marginLeft: 'auto', padding: '5px 11px', borderRadius: 6, fontSize: 12}} disabled={!draft.trim() || blocked} onClick={send}>{working ? 'Working…' : 'Send'}</button>
           </div>
         </div>
       </div>

@@ -147,7 +147,7 @@ ${hiring}`, true, ref => nav('/tasks/' + encodeURIComponent(ref)));
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '14px 22px', borderTop: '1px solid var(--border)' }}>
           <span style={{ fontSize: 12, color: error ? 'var(--faint)' : 'var(--fainter)' }} role={error ? 'alert' : undefined}>{error || meta.note}</span>
           <button className="btn lg btn-ghost" style={{ marginLeft: 'auto' }} onClick={closeIfIdle} disabled={submitting}>Cancel</button>
-          <button className="btn lg btn-primary" style={{ opacity: meta.ok && !submitting ? 1 : 0.45 }} disabled={!meta.ok || submitting} onClick={submit}>{submitting ? (kind === 'mission' ? 'Saving…' : kind === 'seat' ? 'Hiring…' : 'Sending…') : meta.cta}</button>
+          <button className="btn lg btn-primary" disabled={!meta.ok || submitting} onClick={submit}>{submitting ? (kind === 'mission' ? 'Saving…' : kind === 'seat' ? 'Hiring…' : 'Sending…') : meta.cta}</button>
         </div>
       </div>
     </div>
