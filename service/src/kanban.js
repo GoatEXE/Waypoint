@@ -44,7 +44,7 @@ export function boardSlug(value) {
   return result;
 }
 
-const WORKER_LOG_TAIL = 32 * 1024;
+const WORKER_LOG_TAIL = 128 * 1024;
 const ACTIVITY_MAX = 60;
 const TOOL_LINE_RE = /^\s*┊\s*(\S+)\s+(\S+)(?:\s+(.*?))?\s+(\d+(?:\.\d+)?s)\s*$/u;
 
@@ -73,6 +73,11 @@ export function parseWorkerLog(text, secrets = []) {
     items.push({ kind: 'tool', icon: tool[1], name: tool[2], detail: activityDetail(tool[3] || '', secrets), duration: tool[4] });
   }
   return { items: items.slice(-ACTIVITY_MAX), finished };
+}
+
+export function parseWorkerRuns(text, secrets = []) {
+  const parts = String(text || '').split(/^(?=Query: )/m).filter((part) => part.trim());
+  return parts.map((part) => parseWorkerLog(part, secrets));
 }
 
 function toIso(seconds) {
@@ -199,7 +204,7 @@ export class KanbanBoard {
 
   async show(ref) {
     const { id, board } = await this.locate(ref);
-    const [detail, rows] = await Promise.all([this.run(['show', id], { board }), this.run(['list'], { board })]);
+    const [detail, rows, runs] = await Promise.all([this.run(['show', id], { board }), this.run(['list'], { board }), this.run(['runs', id], { board }).catch(() => [])]);
     const numbers = await this.numberAll([id, ...(detail.parents || []), ...(detail.children || [])], board);
     const prefix = await this.prefix();
     const byId = new Map(rows.map((task) => [task.id, task]));
@@ -210,6 +215,7 @@ export class KanbanBoard {
     return {
       ...this.summary(detail.task, numbers, prefix, board, await this.projectMap()),
       latestSummary: detail.latest_summary || '',
+      runs: (Array.isArray(runs) ? runs : []).map((run) => ({ id: run.id, profile: run.profile || null, status: run.status || null, outcome: run.outcome || null, startedAt: toIso(run.started_at), endedAt: toIso(run.ended_at), summary: run.summary || '' })),
       parents: (detail.parents || []).map(link),
       children: (detail.children || []).map(link),
       comments: (detail.comments || []).map((comment) => ({ author: comment.author, body: comment.body, at: toIso(comment.created_at) })),
@@ -223,7 +229,9 @@ export class KanbanBoard {
       if (error?.status === 404 || /no log for/i.test(error?.message || '')) return '';
       throw error;
     });
-    return { id, ...parseWorkerLog(text, [this.config.bridge?.token]) };
+    const runs = parseWorkerRuns(text, [this.config.bridge?.token]);
+    const last = runs.at(-1) || { items: [], finished: false };
+    return { id, items: last.items, finished: last.finished, runs };
   }
 
   async create(input = {}) {

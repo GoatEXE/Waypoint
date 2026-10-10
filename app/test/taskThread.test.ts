@@ -23,3 +23,13 @@ test('running tasks refresh fastest and closed tasks stop refreshing', () => {
   assert.equal(activityPollMs('blocked'), 10000);
   assert.equal(activityPollMs('done'), null);
 });
+
+test('each finished run shows in the thread in order, and its summary is not repeated as an event', () => {
+  const run = (id: number, endedAt: string | null, summary: string, status = 'review') => ({ id, profile: 'explorer', status, outcome: 'review_requested', startedAt: '2026-01-01T00:00:00Z', endedAt, summary });
+  const entries = threadEntries({
+    comments: [{ author: 'user', body: 'Concisely, please', at: '2026-01-01T00:00:05Z' }],
+    events: [event('review_requested', '2026-01-01T00:00:04Z', 'Long answer'), event('review_requested', '2026-01-01T00:00:09Z', 'Short answer')],
+    runs: [run(1, '2026-01-01T00:00:04Z', 'Long answer'), run(2, '2026-01-01T00:00:09Z', 'Short answer'), run(3, null, '', 'running')],
+  });
+  assert.deepEqual(entries.map(e => e.kind === 'run' ? `run ${e.run.summary}` : e.kind === 'comment' ? `comment ${e.body}` : e.kind), ['run Long answer', 'comment Concisely, please', 'run Short answer']);
+});

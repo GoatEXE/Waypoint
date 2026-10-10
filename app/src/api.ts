@@ -213,9 +213,11 @@ export interface BoardTaskLink { id: string; ref: string | null; title: string; 
 export interface BoardComment { author: string; body: string; at: string | null }
 export interface BoardEvent { kind: string; at: string | null; runId: number | null; detail: string }
 export type WorkerActivityItem = { kind: 'tool'; icon: string; name: string; detail: string; duration: string } | { kind: 'thought'; detail: string };
-export interface TaskActivity { id: string; items: WorkerActivityItem[]; finished: boolean }
+export interface TaskActivity { id: string; items: WorkerActivityItem[]; finished: boolean; runs?: { items: WorkerActivityItem[]; finished: boolean }[] }
+export interface TaskRun { id: number; profile: string | null; status: string | null; outcome: string | null; startedAt: string | null; endedAt: string | null; summary: string }
 export interface BoardTaskDetail extends BoardTask {
   latestSummary: string;
+  runs?: TaskRun[];
   parents: BoardTaskLink[];
   children: BoardTaskLink[];
   comments: BoardComment[];

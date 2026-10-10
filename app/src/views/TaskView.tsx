@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api, isNotFoundError, type BoardTaskDetail, type BoardTaskLink, type OrgSeat, type TaskActivity } from '../api';
+import { api, isNotFoundError, type BoardTaskDetail, type BoardTaskLink, type OrgSeat, type TaskActivity, type TaskRun, type WorkerActivityItem } from '../api';
 import { activityPollMs, threadEntries } from '../taskThread';
 import { useSplitCols } from '../components/layout';
 import { ConfirmPanel } from '../components/ConfirmPanel';
@@ -26,10 +26,8 @@ function formatDateTime(iso?: string | null): string {
   return date.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
 
-function WorkerActivity({ taskRef, status, assignee }: { taskRef: string; status: string; assignee: string | null }) {
+function useTaskActivity(taskRef: string, running: boolean, runCount: number) {
   const [activity, setActivity] = useState<TaskActivity | null>(null);
-  const [showAll, setShowAll] = useState(false);
-  const running = status === 'running';
   useEffect(() => {
     let active = true;
     const load = () => api.taskActivity(taskRef).then(next => { if (active) setActivity(next); }).catch(() => undefined);
@@ -37,27 +35,65 @@ function WorkerActivity({ taskRef, status, assignee }: { taskRef: string; status
     if (!running) return () => { active = false; };
     const timer = window.setInterval(() => void load(), 3000);
     return () => { active = false; window.clearInterval(timer); };
-  }, [taskRef, running]);
-  const items = activity?.items || [];
-  if (!running && !items.length) return null;
-  const shown = showAll ? items : items.slice(-8);
+  }, [taskRef, running, runCount]);
+  return activity;
+}
+
+function ActivityItems({ items }: { items: WorkerActivityItem[] }) {
+  return (
+    <div className="act-list">
+      {items.map((item, i) => item.kind === 'thought'
+        ? <div key={i} className="act-item act-thought" title={item.detail}><span className="act-detail">{item.detail}</span></div>
+        : <div key={i} className="act-item" title={item.detail}><span className="act-glyph" aria-hidden="true">{item.icon}</span><span className="act-name">{item.name === '$' ? 'run' : item.name}</span><span className="act-detail">{item.detail}</span><span className="act-time">{item.duration}</span></div>)}
+    </div>
+  );
+}
+
+function stepsLabel(items: WorkerActivityItem[]) {
   const tools = items.filter(i => i.kind === 'tool').length;
+  return `${tools} tool call${tools === 1 ? '' : 's'}`;
+}
+
+const OUTCOME_VERB: Record<string, string> = { review_requested: 'handed in', completed: 'finished', blocked: 'is blocked', failed: 'failed', crashed: 'stopped unexpectedly', reclaimed: 'was stopped' };
+
+function RunEntry({ run, items }: { run: TaskRun; items: WorkerActivityItem[] | null }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="stack" style={{ gap: 6 }}>
+      {items && items.length > 0 && (
+        <div className="act-block" style={{ padding: '0 14px' }}>
+          <button type="button" className="act-toggle" aria-expanded={open} onClick={() => setOpen(v => !v)}>
+            <span style={{ transform: `rotate(${open ? 90 : 0}deg)`, display: 'inline-block' }}>▸</span> {run.profile || 'Seat'} · {stepsLabel(items)}
+          </button>
+          {open && <ActivityItems items={items} />}
+        </div>
+      )}
+      <div className="stack" style={{ gap: 6, padding: '12px 14px', border: '1px solid var(--border-3)', borderRadius: 10, background: 'var(--surface-2)' }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', fontSize: 12 }}>
+          <span className="mono" style={{ color: 'var(--text)' }}>{run.profile || 'Seat'}</span>
+          <span style={{ color: 'var(--muted)' }}>{OUTCOME_VERB[run.outcome || ''] || (run.outcome || 'ran').replaceAll('_', ' ')}</span>
+          <span style={{ color: 'var(--faint)', marginLeft: 'auto' }}>{formatDateTime(run.endedAt || run.startedAt)}</span>
+        </div>
+        {run.summary
+          ? <div style={{ whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.5, color: 'var(--text-2)' }}><TaskRefText text={run.summary} /></div>
+          : <div style={{ fontSize: 12.5, color: 'var(--faint)' }}>No summary.</div>}
+      </div>
+    </div>
+  );
+}
+
+function LiveActivity({ items, assignee }: { items: WorkerActivityItem[]; assignee: string | null }) {
+  const [showAll, setShowAll] = useState(false);
+  const shown = showAll ? items : items.slice(-8);
   return (
     <div className="stack worker-activity" style={{ gap: 6 }}>
       <div className="working-line">
-        {running && <span className="act-glyph running" aria-hidden="true" />}
-        <span>{running ? `${assignee || 'The seat'} is working` : 'Last run'}</span>
-        {tools > 0 && <span className="act-time">{tools} tool call{tools === 1 ? '' : 's'}{items.length >= 60 ? ' (latest)' : ''}</span>}
+        <span className="act-glyph running" aria-hidden="true" />
+        <span>{assignee || 'The seat'} is working</span>
+        {items.length > 0 && <span className="act-time">{stepsLabel(items)}</span>}
         {items.length > 8 && <button type="button" className="act-toggle" style={{ marginLeft: 'auto' }} onClick={() => setShowAll(v => !v)}>{showAll ? 'Show latest' : `Show all ${items.length}`}</button>}
       </div>
-      {running && !items.length && <div className="act-hint">Waiting for the first step…</div>}
-      {shown.length > 0 && (
-        <div className="act-list" aria-live="polite">
-          {shown.map((item, i) => item.kind === 'thought'
-            ? <div key={i} className="act-item act-thought" title={item.detail}><span className="act-detail">{item.detail}</span></div>
-            : <div key={i} className="act-item" title={item.detail}><span className="act-glyph" aria-hidden="true">{item.icon}</span><span className="act-name">{item.name === '$' ? 'run' : item.name}</span><span className="act-detail">{item.detail}</span><span className="act-time">{item.duration}</span></div>)}
-        </div>
-      )}
+      {items.length ? <div aria-live="polite"><ActivityItems items={shown} /></div> : <div className="act-hint">Waiting for the first step…</div>}
     </div>
   );
 }
@@ -122,6 +158,7 @@ export function TaskView({ id }: { id: string }) {
   }, [boardKey, loadTask]);
   useEffect(() => { api.orgSeats().then(r => setSeats(r.seats)).catch(() => undefined); }, []);
   const pollMs = load.status === 'ready' ? activityPollMs(load.task.status) : null;
+  const activity = useTaskActivity(id, load.status === 'ready' && load.task.status === 'running', load.status === 'ready' ? load.task.runs?.length || 0 : 0);
   useEffect(() => {
     if (!pollMs) return;
     const timer = window.setInterval(() => void loadTask(), pollMs);
@@ -144,6 +181,9 @@ export function TaskView({ id }: { id: string }) {
   if (load.status === 'error') return <div className="page" style={{ maxWidth: 920, gap: 14 }}><div className="eyebrow">TASK</div><h1 className="h1">Couldn't load this task</h1><p className="lede" role="alert">{load.error}</p>{refreshButton}</div>;
 
   const { task } = load;
+  const runs = task.runs || [];
+  const activityRuns = activity?.runs || [];
+  const runItems = (index: number) => activityRuns[activityRuns.length - (runs.length - index)]?.items || null;
   const ref = taskLabel(task);
   const closed = task.status === 'done' || task.status === 'archived';
   const inReview = task.status === 'review';
@@ -180,10 +220,12 @@ export function TaskView({ id }: { id: string }) {
           <Comment author={task.createdBy || 'user'} at={task.createdAt || ''} body={task.body || 'No description.'} />
           {threadEntries(task).map((entry, i) => entry.kind === 'comment'
             ? <Comment key={i} author={entry.author} at={entry.at} body={entry.body} />
+            : entry.kind === 'run'
+            ? <RunEntry key={i} run={entry.run} items={runItems(entry.index)} />
             : <div key={i} style={{ display: 'flex', gap: 8, fontSize: 12, color: 'var(--faint)', padding: '0 14px' }}><span>{entry.kind === 'heartbeats' ? `${entry.count} heartbeat${entry.count === 1 ? '' : 's'} · latest` : entry.text}</span><span style={{ marginLeft: 'auto' }}>{formatDateTime(entry.at)}</span></div>)}
-          <WorkerActivity taskRef={ref} status={task.status} assignee={task.assignee} />
+          {task.status === 'running' && <LiveActivity items={activity?.items || []} assignee={task.assignee} />}
           {feedback && task.assignee && <SeatFeedback seat={task.assignee} taskRef={ref} onClose={() => setFeedback(false)} />}
-          {task.latestSummary && (
+          {task.latestSummary && !task.runs?.length && (
             <div className="stack" style={{ gap: 6, padding: '12px 14px', border: '1px solid var(--border-3)', borderRadius: 10, background: 'var(--surface-2)' }}>
               <div style={{ fontSize: 11.5, color: 'var(--faint)' }}>Latest summary</div>
               <div style={{ whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.5, color: 'var(--text-2)' }}><TaskRefText text={task.latestSummary} /></div>

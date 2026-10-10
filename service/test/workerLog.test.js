@@ -34,3 +34,12 @@ test('an unfinished log is not marked finished', () => {
   assert.equal(parseWorkerLog('  ┊ 📖 read      a.md  0.0s').finished, false);
   assert.deepEqual(parseWorkerLog('').items, []);
 });
+
+test('a worker log with several runs splits into one activity list per run', async () => {
+  const { parseWorkerRuns } = await import('../src/kanban.js');
+  const runs = parseWorkerRuns(`${LOG}\n${LOG.replace('README.md', 'NOTES.md')}`);
+  assert.equal(runs.length, 2);
+  assert.equal(runs[0].items[2].detail, 'README.md');
+  assert.equal(runs[1].items[2].detail, 'NOTES.md');
+  assert.ok(runs.every((run) => run.finished));
+});
