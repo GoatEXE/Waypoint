@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { api, type Mission, type MissionStatus } from '../api';
 import { currentMission, missionStatusLabel, shortDate } from '../missionsModel';
 import { useStore } from '../store';
+import { statusLabel } from '../taskQueueModel';
 
 function ProjectsSection({ mission }: { mission: Mission }) {
   const { state, addProject } = useStore();
@@ -30,13 +31,18 @@ function ProjectsSection({ mission }: { mission: Mission }) {
 
 function MissionWork({ mission }: { mission: Mission }) {
   const nav = useNavigate();
+  const { state } = useStore();
+  const task = state.board.find(t => t.id === mission.taskId);
   return (
     <div className="stack" style={{ gap: 12 }}>
       <div className="section-title">Linked task</div>
       {!mission.taskId && <div className="empty">No task is linked yet.</div>}
       {mission.taskId && <div className="list">
-        <div className="row link" style={{ padding: '14px 16px' }} onClick={() => nav('/tasks/' + encodeURIComponent(mission.taskId!))}>
-          <span className="mono">{mission.taskId}</span> →
+        <div className="row link" style={{ display: 'flex', gap: 10, alignItems: 'baseline', padding: '14px 16px' }} onClick={() => nav('/tasks/' + encodeURIComponent(task?.ref || mission.taskId!))}>
+          <span className="task-ref">{task?.ref || mission.taskId}</span>
+          <span className="ellipsis" style={{ flex: 1 }}>{task?.title || ''}</span>
+          {task && <span className="task-pill">{statusLabel(task.status)}</span>}
+          <span style={{ color: 'var(--quiet)' }}>→</span>
         </div>
       </div>}
     </div>

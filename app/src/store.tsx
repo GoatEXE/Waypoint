@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { api, type MissionInput, type OrganizationInput, type OrganizationState, type Project } from './api';
+import { api, type BoardTask, type MissionInput, type OrganizationInput, type OrganizationState, type Project } from './api';
 import { createdBoardTask, ceoLiveUpdated, ceoLoadFailed, ceoLoadStarted, ceoLoadSucceeded, ceoSendFailed, ceoSendStarted, ceoSendSucceeded, cleanCeoMessage, emptyCeoState, type CeoState } from './ceoConversation';
 import type { LessonPick } from './data';
 import { liveTasks, pendingInbox, type Resolved } from './model';
@@ -21,6 +21,7 @@ export interface AppState {
   ceoThread: string;
   missions: MissionsState;
   projects: Project[];
+  board: BoardTask[];
   projectMission: string | null;
   org: OrganizationState & { loaded: boolean; error?: string };
   modal: ModalKind | null;
@@ -43,7 +44,7 @@ function initialState(): AppState {
   return {
     pane: cleanPane(saved),
     resolved: {}, picks: {}, seat: '', podStopped: false, missionOpen: Boolean(saved.missionOpen), routinesOff: {}, connected: {},
-    ceo: emptyCeoState, ceoThread: typeof saved.ceoThread === 'string' && saved.ceoThread ? saved.ceoThread : 'general', missions: initialMissionsState, projects: [], projectMission: null, org: { loaded: false, configured: false, organization: null }, modal: null, toast: null,
+    ceo: emptyCeoState, ceoThread: typeof saved.ceoThread === 'string' && saved.ceoThread ? saved.ceoThread : 'general', missions: initialMissionsState, projects: [], board: [], projectMission: null, org: { loaded: false, configured: false, organization: null }, modal: null, toast: null,
   };
 }
 
@@ -88,6 +89,13 @@ function useAppStore() {
       const org = await api.saveOrganization(input);
       set({ org: { ...org, loaded: true } });
       return org;
+    },
+    loadBoard: async () => {
+      try {
+        const { tasks } = await api.tasks();
+        set(s => JSON.stringify(s.board) === JSON.stringify(tasks) ? {} : { board: tasks });
+        return tasks;
+      } catch { return null; }
     },
     loadProjects: async () => {
       try { set({ projects: (await api.projects()).projects }); } catch {   }
@@ -146,15 +154,15 @@ function useAppStore() {
       const thread = ceoThreadRef.current;
       let followed = false;
       const known = onTaskCreated ? api.tasks().then(r => new Set(r.tasks.map(t => t.id))).catch(() => null) : null;
-      const follow = (items: Parameters<typeof createdBoardTask>[0]) => {
-        if (followed || !known || !createdBoardTask(items)) return;
+      const followCreated = async () => {
+        if (followed || !known) return;
         followed = true;
-        void Promise.all([known, api.tasks()]).then(([before, after]) => {
-          const created = before && after.tasks.find(t => !before.has(t.id));
-          if (created) onTaskCreated?.(created.ref || created.id);
-          else followed = false;
-        }).catch(() => { followed = false; });
+        const [before, after] = await Promise.all([known, actions.loadBoard()]);
+        const created = before && after?.find(t => !before.has(t.id));
+        if (created) onTaskCreated?.(created.ref || created.id);
+        else followed = false;
       };
+      const follow = (items: Parameters<typeof createdBoardTask>[0]) => { if (createdBoardTask(items)) void followCreated(); };
       const poll = window.setInterval(() => {
         void api.ceoConversation(thread).then(conversation => {
           follow(conversation.live?.items);
@@ -167,7 +175,9 @@ function useAppStore() {
       }));
       try {
         const response = await api.sendCeoMessage(text, thread);
-        follow(response.messages.filter(m => m.role === 'activity').at(-1)?.items);
+        await followCreated();
+        void actions.loadBoard();
+        void actions.loadMissions();
         set(s => ({ ceo: s.ceoThread === thread ? ceoSendSucceeded(s.ceo, response) : { ...s.ceo, busyThreadId: null }, ...(openPane ? { pane: { ...s.pane, open: true, tab: 'ceo' as const } } : {}) }));
         return { ok: true };
       } catch (err) {

@@ -26,14 +26,14 @@ function AddButton({ onClick }: { onClick: () => void }) {
 }
 
 export function Sidebar() {
-  const { state, set, openModal } = useStore();
+  const { state, set, openModal, loadBoard } = useStore();
   const nav = useNavigate();
   const route = useRoute();
   const activeProj = activeProject(route);
   const [hermes, setHermes] = useState<HermesStatus | null>(null);
   const [hermesChecked, setHermesChecked] = useState(false);
   const [seats, setSeats] = useState<OrgSeat[]>([]);
-  const [attention, setAttention] = useState(0);
+  const attention = needsYou(state.board).length;
   useEffect(() => {
     api.hermesStatus({ freshAuth: true }).then(s => { setHermes(s); setHermesChecked(true); }).catch(() => { setHermes(null); setHermesChecked(true); });
   }, []);
@@ -41,16 +41,15 @@ export function Sidebar() {
     let active = true;
     const refresh = async () => {
       try {
-        const [orgSeats, taskList] = await Promise.all([api.orgSeats().catch(() => ({ seats: [] as OrgSeat[] })), api.tasks()]);
+        const [orgSeats] = await Promise.all([api.orgSeats().catch(() => ({ seats: [] as OrgSeat[] })), loadBoard()]);
         if (!active) return;
         setSeats(orgSeats.seats);
-        setAttention(needsYou(taskList.tasks).length);
       } catch {   }
     };
     void refresh();
     const timer = window.setInterval(() => void refresh(), 30000);
     return () => { active = false; window.clearInterval(timer); };
-  }, [state.missions.missions]);
+  }, [state.missions.missions, loadBoard]);
   const { label: hermesLabel, ready: hermesReady } = sidebarHermesSummary(hermes, hermesChecked);
   const missionLabel = sidebarMissionLabel(state.missions);
   const currentMissionId = state.missions.missions[0]?.id;
