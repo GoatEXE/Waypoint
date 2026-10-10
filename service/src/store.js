@@ -59,13 +59,25 @@ function assertStoredId(prefix, id) {
 }
 async function writeJson(filePath, value) {
   await fs.mkdir(path.dirname(filePath), { recursive: true });
-  const tmp = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+  const tmp = `${filePath}.${randomUUID()}.tmp`;
   await fs.writeFile(tmp, JSON.stringify(value, null, 2));
-  await fs.rename(tmp, filePath);
+  for (let attempt = 0; ; attempt += 1) {
+    try { await fs.rename(tmp, filePath); return; }
+    catch (error) {
+      if (!['EPERM', 'EACCES', 'EBUSY'].includes(error.code) || attempt >= 10) { await fs.unlink(tmp).catch(() => {}); throw error; }
+      await new Promise((resolve) => setTimeout(resolve, 10 * (attempt + 1)));
+    }
+  }
 }
 async function readJson(filePath) {
-  try { return JSON.parse(await fs.readFile(filePath, 'utf8')); }
-  catch (error) { if (error.code === 'ENOENT') return undefined; throw error; }
+  for (let attempt = 0; ; attempt += 1) {
+    try { return JSON.parse(await fs.readFile(filePath, 'utf8')); }
+    catch (error) {
+      if (error.code === 'ENOENT') return undefined;
+      if (!['EPERM', 'EACCES', 'EBUSY'].includes(error.code) || attempt >= 10) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 10 * (attempt + 1)));
+    }
+  }
 }
 function assertPlainObject(value, field) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw badRequest(`${field} must be an object`);
