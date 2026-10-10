@@ -279,7 +279,7 @@ export function RightPane() {
     setPane({ tab: k });
   };
   const waiting = needsYou(state.board).length;
-  const tabs: [PaneTab, string][] = [['ceo', ceoNameOf(state.org.organization)], ['tasks', 'Tasks'], ['inbox', waiting ? `Inbox Â· ${waiting}` : 'Inbox']];
+  const tabs: [PaneTab, string][] = [['ceo', ceoNameOf(state.org.organization)], ['tasks', 'Tasks'], ['inbox', waiting ? `Inbox · ${waiting}` : 'Inbox']];
   if (item) tabs.push(['item', item]);
 
   return (
