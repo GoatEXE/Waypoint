@@ -72,7 +72,7 @@ export function PodView({ name }: { name: string }) {
         </div>
         {active && <div style={{ marginLeft: 'auto', display: 'flex', gap: 10 }}>
           <button className="btn lg btn-ghost" disabled={busy} onClick={() => setConfirmClose(true)}>Close pod</button>
-          <button className="btn lg btn-primary" onClick={() => setCreating(true)}>New task</button>
+          <button className="btn lg btn-primary" onClick={() => setCreating(true)}>Add task</button>
         </div>}
       </div>
       {confirmClose && (
@@ -122,7 +122,7 @@ export function PodView({ name }: { name: string }) {
       {creating && <NewTaskDialog tasks={pod.tasks} board={pod.slug}
         seats={pod.seats.map(seat => ({ id: seat.id, description: seat.description, model: '', provider: '' }))}
         onClose={() => setCreating(false)}
-        onCreated={async task => { setCreating(false); flash(`Created ${taskLabel(task)}`); await Promise.all([loadBoard(), load()]); }} />}
+        onCreated={async task => { setCreating(false); flash(`Added ${taskLabel(task)} to the pod board`); await Promise.all([loadBoard(), load()]); }} />}
     </div>
   );
 }

@@ -60,7 +60,7 @@ export function TasksView() {
             <button key={s.id} className={prefs.statuses.includes(s.id) ? 'on' : ''} aria-pressed={prefs.statuses.includes(s.id)} onClick={() => setPrefs(p => ({ ...p, statuses: toggleStatusFilter(p.statuses, s.id) }))}>{s.label}</button>
           ))}
         </div>
-        <button className="btn btn-primary" style={{ marginLeft: 'auto' }} onClick={() => setCreating(true)}>New task</button>
+        <button className="btn btn-primary" style={{ marginLeft: 'auto' }} onClick={() => setCreating(true)}>Add task</button>
       </div>
 
       {error && <div className="card" role="alert" style={{ padding: 12 }}>{error}</div>}
@@ -108,7 +108,7 @@ export function TasksView() {
 
       {creating && <NewTaskDialog tasks={tasks} seats={seats}
         onClose={() => setCreating(false)}
-        onCreated={async task => { setCreating(false); flash(`Created ${taskLabel(task)}`); await reload(); }} />}
+        onCreated={async task => { setCreating(false); flash(`Added ${taskLabel(task)} to the board`); await reload(); }} />}
     </div>
   );
 }
@@ -139,14 +139,15 @@ export function NewTaskDialog({ tasks, seats, board, initial, onClose, onCreated
     <div className="scrim" onMouseDown={e => { if (e.target === e.currentTarget && !busy) onClose(); }}>
       <form className="modal" style={{ width: 640, padding: 22, gap: 18 }} onSubmit={e => { e.preventDefault(); void submit(); }}>
         <div className="stack" style={{ gap: 6 }}>
-          <div className="eyebrow">NEW TASK</div>
-          <h2 className="h1" style={{ fontSize: 20 }}>Create a task</h2>
+          <div className="eyebrow">ADD TO BOARD</div>
+          <h2 className="h1" style={{ fontSize: 20 }}>Add a task</h2>
+          <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Goes straight onto the board{board ? ` of pod ${board}` : ''}. If you assign a seat, it picks the task up once any parent tasks are done.</div>
         </div>
         <TaskFields draft={draft} onChange={setDraft} tasks={tasks} seats={seats} disabled={busy} />
         {error && <div role="alert" style={{ fontSize: 12.5, color: 'var(--text)' }}>{error}</div>}
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
           <button type="button" className="btn btn-ghost" disabled={busy} onClick={onClose}>Cancel</button>
-          <button type="submit" className="btn btn-primary" disabled={busy || !draft.title.trim()}>{busy ? 'Creating…' : 'Create task'}</button>
+          <button type="submit" className="btn btn-primary" disabled={busy || !draft.title.trim()}>{busy ? 'Adding…' : 'Add task'}</button>
         </div>
       </form>
     </div>
