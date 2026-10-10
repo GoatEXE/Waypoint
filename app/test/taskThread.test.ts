@@ -33,3 +33,14 @@ test('each finished run shows in the thread in order, and its summary is not rep
   });
   assert.deepEqual(entries.map(e => e.kind === 'run' ? `run ${e.run.summary}` : e.kind === 'comment' ? `comment ${e.body}` : e.kind), ['run Long answer', 'comment Concisely, please', 'run Short answer']);
 });
+
+test('back-to-back status updates fold into one group between messages', async () => {
+  const { groupUpdates } = await import('../src/taskThread.ts');
+  const blocks = groupUpdates([
+    { kind: 'event', at: '1', text: 'claimed' },
+    { kind: 'heartbeats', at: '2', count: 3 },
+    { kind: 'comment', at: '3', author: 'user', body: 'hi' },
+    { kind: 'event', at: '4', text: 'review reopened' },
+  ]);
+  assert.deepEqual(blocks.map(b => b.kind === 'updates' ? `updates ${b.entries.length}` : b.kind), ['updates 2', 'comment', 'updates 1']);
+});

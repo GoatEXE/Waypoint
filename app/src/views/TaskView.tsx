@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, isNotFoundError, type BoardTaskDetail, type BoardTaskLink, type OrgSeat, type TaskActivity, type TaskRun, type WorkerActivityItem } from '../api';
-import { activityPollMs, threadEntries } from '../taskThread';
+import { activityPollMs, groupUpdates, isUserAuthor, threadEntries, type ThreadBlock } from '../taskThread';
 import { useSplitCols } from '../components/layout';
 import { ConfirmPanel } from '../components/ConfirmPanel';
 import { AssigneeSelect } from '../components/TaskFields';
@@ -59,9 +59,9 @@ const OUTCOME_VERB: Record<string, string> = { review_requested: 'handed in', co
 function RunEntry({ run, items }: { run: TaskRun; items: WorkerActivityItem[] | null }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className="stack" style={{ gap: 6 }}>
+    <div className="stack thread-msg theirs" style={{ gap: 6 }}>
       {items && items.length > 0 && (
-        <div className="act-block" style={{ padding: '0 14px' }}>
+        <div className="act-block">
           <button type="button" className="act-toggle" aria-expanded={open} onClick={() => setOpen(v => !v)}>
             <span style={{ transform: `rotate(${open ? 90 : 0}deg)`, display: 'inline-block' }}>▸</span> {run.profile || 'Seat'} · {stepsLabel(items)}
           </button>
@@ -83,17 +83,18 @@ function RunEntry({ run, items }: { run: TaskRun; items: WorkerActivityItem[] | 
 }
 
 function LiveActivity({ items, assignee }: { items: WorkerActivityItem[]; assignee: string | null }) {
-  const [showAll, setShowAll] = useState(false);
-  const shown = showAll ? items : items.slice(-8);
+  const [open, setOpen] = useState(false);
+  const latest = [...items].reverse().find(item => item.kind === 'tool');
   return (
-    <div className="stack worker-activity" style={{ gap: 6 }}>
-      <div className="working-line">
+    <div className="stack worker-activity thread-msg theirs" style={{ gap: 6 }}>
+      <button type="button" className="working-line act-toggle" aria-expanded={open} onClick={() => setOpen(v => !v)} style={{ textAlign: 'left' }}>
         <span className="act-glyph running" aria-hidden="true" />
         <span>{assignee || 'The seat'} is working</span>
         {items.length > 0 && <span className="act-time">{stepsLabel(items)}</span>}
-        {items.length > 8 && <button type="button" className="act-toggle" style={{ marginLeft: 'auto' }} onClick={() => setShowAll(v => !v)}>{showAll ? 'Show latest' : `Show all ${items.length}`}</button>}
-      </div>
-      {items.length ? <div aria-live="polite"><ActivityItems items={shown} /></div> : <div className="act-hint">Waiting for the first step…</div>}
+        {!open && latest && <span className="act-detail" style={{ flex: 1, minWidth: 0 }}>{latest.name === '$' ? 'run' : latest.name} {latest.detail}</span>}
+        <span style={{ marginLeft: 'auto' }}>{open ? 'Hide steps' : 'Show steps'}</span>
+      </button>
+      {open && (items.length ? <div aria-live="polite"><ActivityItems items={items} /></div> : <div className="act-hint">Waiting for the first step…</div>)}
     </div>
   );
 }
@@ -114,9 +115,25 @@ function TaskLinks({ title, links }: { title: string; links: BoardTaskLink[] }) 
   );
 }
 
-function Comment({ author, at, body }: { author: string; at: string; body: string }) {
+function UpdatesGroup({ entries }: { entries: Extract<ThreadBlock, { kind: 'updates' }>['entries'] }) {
+  const [open, setOpen] = useState(false);
+  const label = (e: (typeof entries)[number]) => e.kind === 'heartbeats' ? `${e.count} heartbeat${e.count === 1 ? '' : 's'}` : e.text;
+  const last = entries[entries.length - 1];
   return (
-    <div className="stack" style={{ gap: 6, padding: '12px 14px', border: '1px solid var(--border)', borderRadius: 10, background: 'var(--surface)' }}>
+    <div className="stack thread-updates">
+      <button type="button" className="act-toggle" aria-expanded={open} onClick={() => setOpen(v => !v)}>
+        <span style={{ transform: `rotate(${open ? 90 : 0}deg)`, display: 'inline-block' }}>▸</span> {entries.length === 1 ? label(last) : `${entries.length} updates · ${label(last)}`}
+        <span style={{ marginLeft: 12, color: 'var(--fainter)' }}>{formatDateTime(last.at)}</span>
+      </button>
+      {open && entries.length > 1 && entries.map((e, i) => <div key={i} style={{ display: 'flex', gap: 8, fontSize: 12, color: 'var(--faint)', paddingLeft: 16 }}><span>{label(e)}</span><span style={{ marginLeft: 'auto' }}>{formatDateTime(e.at)}</span></div>)}
+    </div>
+  );
+}
+
+function Comment({ author, at, body }: { author: string; at: string; body: string }) {
+  const mine = isUserAuthor(author);
+  return (
+    <div className={'stack thread-msg' + (mine ? ' mine' : ' theirs')} style={{ gap: 6, padding: '12px 14px', border: '1px solid var(--border)', borderRadius: 10, background: mine ? 'var(--surface-3)' : 'var(--surface)' }}>
       <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', fontSize: 12 }}>
         <span className="mono" style={{ color: 'var(--text)' }}>{author}</span>
         <span style={{ color: 'var(--faint)' }}>{formatDateTime(at)}</span>
@@ -218,11 +235,11 @@ export function TaskView({ id }: { id: string }) {
       <div className="split" style={{ gridTemplateColumns: splitCols, gap: 36 }}>
         <div className="stack" style={{ gap: 14 }}>
           <Comment author={task.createdBy || 'user'} at={task.createdAt || ''} body={task.body || 'No description.'} />
-          {threadEntries(task).map((entry, i) => entry.kind === 'comment'
+          {groupUpdates(threadEntries(task)).map((entry, i) => entry.kind === 'comment'
             ? <Comment key={i} author={entry.author} at={entry.at} body={entry.body} />
             : entry.kind === 'run'
             ? <RunEntry key={i} run={entry.run} items={runItems(entry.index)} />
-            : <div key={i} style={{ display: 'flex', gap: 8, fontSize: 12, color: 'var(--faint)', padding: '0 14px' }}><span>{entry.kind === 'heartbeats' ? `${entry.count} heartbeat${entry.count === 1 ? '' : 's'} · latest` : entry.text}</span><span style={{ marginLeft: 'auto' }}>{formatDateTime(entry.at)}</span></div>)}
+            : <UpdatesGroup key={i} entries={entry.entries} />)}
           {task.status === 'running' && <LiveActivity items={activity?.items || []} assignee={task.assignee} />}
           {feedback && task.assignee && <SeatFeedback seat={task.assignee} taskRef={ref} onClose={() => setFeedback(false)} onSent={() => void loadTask()} />}
           {task.latestSummary && !task.runs?.length && (

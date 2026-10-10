@@ -409,6 +409,10 @@ textarea.input { resize: vertical; line-height: 1.5; }
 .rate-btn:hover { border-color: var(--border-6); }
 .rate-btn.on { border-color: var(--acc); background: oklch(0.72 0.14 252 / .14); color: var(--text); }
 .seat-reply { padding: 10px 12px; border-radius: 10px; background: var(--surface-2); color: var(--text-2); }
+.thread-msg.mine { margin-left: 12%; }
+.thread-msg.theirs { margin-right: 12%; }
+.thread-updates { padding: 0 4px; gap: 4px; }
+.act-toggle .act-detail { color: var(--fainter); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .act-hint { font-size: 12px; color: var(--faint); }
 .act-thought .act-detail { font-family: var(--sans, inherit); font-style: italic; color: var(--faint); }
 .worker-activity .act-list { max-height: 420px; overflow: auto; }

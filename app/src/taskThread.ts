@@ -39,3 +39,21 @@ export function activityPollMs(status: string): number | null {
   if (status === 'done' || status === 'archived') return null;
   return 10000;
 }
+
+export type ThreadBlock = Exclude<ThreadEntry, { kind: 'event' } | { kind: 'heartbeats' }> | { kind: 'updates'; at: string; entries: Extract<ThreadEntry, { kind: 'event' } | { kind: 'heartbeats' }>[] };
+
+export function groupUpdates(entries: ThreadEntry[]): ThreadBlock[] {
+  const out: ThreadBlock[] = [];
+  for (const entry of entries) {
+    if (entry.kind === 'event' || entry.kind === 'heartbeats') {
+      const last = out.at(-1);
+      if (last?.kind === 'updates') { last.entries.push(entry); last.at = entry.at; }
+      else out.push({ kind: 'updates', at: entry.at, entries: [entry] });
+    } else out.push(entry);
+  }
+  return out;
+}
+
+export function isUserAuthor(author: string | null | undefined) {
+  return !author || author === 'user';
+}
