@@ -9,9 +9,12 @@ async function board(statuses, children = {}) {
   const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'waypoint-kanban-'));
   const calls = [];
   const runner = async (_command, args) => {
-    const kanban = args.slice(args.indexOf('kanban') + 1).filter((arg) => arg !== '--json');
-    calls.push(kanban);
+    let kanban = args.slice(args.indexOf('kanban') + 1).filter((arg) => arg !== '--json');
+    const board = kanban[0] === '--board' ? kanban[1] : 'default';
+    if (board !== 'default') kanban = kanban.slice(2);
+    calls.push(board === 'default' ? kanban : [`@${board}`, ...kanban]);
     const [verb, ...rest] = kanban;
+    if (verb === 'boards') return { code: 0, stdout: JSON.stringify([{ slug: 'default' }]) };
     if (verb === 'list') return { code: 0, stdout: JSON.stringify(Object.keys(statuses).map((id) => ({ id, title: id, status: statuses[id] }))) };
     if (verb === 'show') return { code: 0, stdout: JSON.stringify({ task: { id: rest[0], title: rest[0], status: statuses[rest[0]] }, comments: [], events: [], parents: [], children: children[rest[0]] || [] }) };
     if (verb === 'create') return { code: 0, stdout: JSON.stringify({ id: 't_cccccccc' }) };
@@ -49,4 +52,14 @@ test('approving a task with a repo contract finds its PR in the handoff', async 
   assert.equal(publishedPr(handoff('See https://github.com/other/repo/pull/3 and https://github.com/acme/site/pull/12.')), 'https://github.com/acme/site/pull/12');
   assert.equal(publishedPr(handoff('Done.', { published_pr: 'https://github.com/Acme/Site/pull/7' })), 'https://github.com/Acme/Site/pull/7');
   assert.equal(publishedPr({ task: {}, events: [] }), null, 'no contract, no PR needed');
+});
+
+test('a pod board task keeps its board for later reads and actions', async () => {
+  const { kanban, calls } = await board({ t_cccccccc: 'review' });
+  const created = await kanban.create({ title: 'Draft the plan', assignee: 'web-builder', board: 'pod-web' });
+  assert.equal(created.board, 'pod-web');
+  calls.length = 0;
+  await kanban.act(created.ref, { action: 'unblock' });
+  assert.ok(calls.length && calls.every((call) => call[0] === '@pod-web'), 'every call for the task goes to its board');
+  await assert.rejects(kanban.create({ title: 'x', board: 'Bad Board' }), /board slug/);
 });

@@ -8,7 +8,7 @@ import { api, type OrgSeat } from '../api';
 interface Form { text: string; title: string; date: string; scope: string; hire: string; role: string; clone: string }
 
 const BLANK: Form = { text: '', title: '', date: '', scope: '', hire: '', role: '', clone: '' };
-type FormKind = Exclude<ModalKind, 'project'>;
+type FormKind = Exclude<ModalKind, 'project' | 'pod'>;
 
 const DEFAULTS: Record<FormKind, Partial<Form>> = {
   assignment: { scope: 'workspace', hire: 'ask' },

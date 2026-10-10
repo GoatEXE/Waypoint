@@ -10,6 +10,7 @@ import { GitHubConnector } from './github.js';
 import { HermesPortal } from './hermesPortal.js';
 import { OrgSeats } from './orgSeats.js';
 import { KanbanBoard } from './kanban.js';
+import { Pods } from './pods.js';
 import { createBridgeHandler, createHandler } from './routes.js';
 import { listenControl } from './controlChannel.js';
 
@@ -25,13 +26,15 @@ export async function createApp(env = process.env) {
   const portal = new HermesPortal({ config, hermes, logger });
   const orgSeats = new OrgSeats({ config, hermes });
   const board = new KanbanBoard({ config, hermes, organization });
+  const pods = new Pods({ config, hermes, board, orgSeats });
+  orgSeats.excluded = () => pods.seatIds();
   if (config.hermes.autoStart) {
     void hermes.reconcileStartup()
       .then((result) => logger.info('hermes_reconciled', { action: result.action, executed: result.executed, state: result.status?.state, running: result.status?.running }))
       .catch((error) => logger.warn('hermes_reconcile_skipped', { message: error.message }));
   }
 
-  const context = { config, store, organization, hermes, board, github, portal, orgSeats, logger };
+  const context = { config, store, organization, hermes, board, pods, github, portal, orgSeats, logger };
   const server = http.createServer(createHandler(context));
   const bridgeServer = http.createServer(createBridgeHandler(context));
   return { ...context, server, bridgeServer };

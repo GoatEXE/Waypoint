@@ -16,7 +16,8 @@ The only route on the TCP listener, for the CEO. Body: `{ "tool": "...", "args":
 - `github_token { repo? }`: see GitHub below.
 - `list_missions {}`, `create_mission { title, outcome?, target?, taskId? }`, `link_mission { missionId, taskId }`, `update_mission { missionId, status }`. Missions created here are recorded with `source: "ceo"`.
 - `list_projects {}`, `create_project { name, missionId?, repo? }`.
-- `list_tasks {}`: the board as `{ id, ref, title, status, assignee }`, so the CEO can map the refs the user sees to board ids.
+- `list_tasks {}`: every live board's tasks as `{ id, ref, board, title, status, assignee }`, so the CEO can map the refs the user sees to board ids.
+- `list_pods {}`, `create_pod { name, purpose?, seats, durable? }`, `close_pod { pod }`: see Pods below.
 
 Seats, tasks, and coordination are native Hermes: the CEO hires seats with `hermes profile create` and delegates with `hermes kanban create --assignee <seat>`.
 
@@ -121,6 +122,18 @@ Stores supported API-key fallback credentials through Hermes credential lifecycl
 
 Starts a native Hermes OAuth/login flow. OpenAI Codex is exposed as device-code login; Anthropic is exposed as authorization URL plus code submission. Responses contain only login URL, user code when applicable, and status text.
 
+
+## Pods
+
+A pod is a team for one piece of work: its own Hermes board, `pod-<name>`, and a clone of each seat it needs, `<name>-<seat>` (`hermes profile create --clone-from`). The gateway's dispatcher runs every live board, so pod tasks start like any other. Each pod seat gets a `waypoint-pod` skill, auto-loaded, with the pod's purpose and roster. It tells the seat to ask podmates by creating tasks for them and to answer by commenting on their tasks, so the conversation stays on the board. Pod clones are left out of `GET /org/seats`.
+
+- `GET /pods` lists pods: `{ name, slug, purpose, durable, status: active|closed, seats: [{ id, from, description }], createdAt, closedAt }`.
+- `POST /pods` takes `{ name, purpose?, seats: [seat ids], durable? }`. The name is 2-15 lowercase letters, digits, or dashes, and each `<name>-<seat>` must fit in 31 characters. Dry-run mode refuses.
+- `GET /pods/:name` adds the pod board's `tasks`.
+- `GET /pods/:name/conversation` merges the pod's tasks, comments, and handoffs (`review_requested`, `completed`, `blocked`) by time: `{ entries: [{ at, kind, author, to?, text, ref, title }] }`.
+- `POST /pods/:name/close` archives the pod board. The clones are kept for the learning review.
+
+Tasks carry the `board` they live on. `GET /tasks` covers every live board, and `POST /tasks` takes an optional `board`. Refs remember each task's board, so every task route works for pod tasks too.
 
 ## Missions
 

@@ -36,7 +36,7 @@ function createJsonHandler(logger, dispatch) {
   };
 }
 
-async function route(request, url, { config, store, organization, hermes, board, github, portal, orgSeats, logger }) {
+async function route(request, url, { config, store, organization, hermes, board, pods, github, portal, orgSeats, logger }) {
   const { pathname } = url;
   const method = request.method;
   if (pathname === '/org/seats' && orgSeats) {
@@ -105,6 +105,15 @@ async function route(request, url, { config, store, organization, hermes, board,
   match = pathname.match(/^\/tasks\/([^/]+)\/actions$/);
   if (method === 'POST' && match) return { body: await board.act(decodeRouteParam(match[1]), await readBody(request)) };
 
+  if (method === 'GET' && pathname === '/pods') return { body: await pods.list() };
+  if (method === 'POST' && pathname === '/pods') return { status: 201, body: await pods.create(await readBody(request)) };
+  match = pathname.match(/^\/pods\/([^/]+)$/);
+  if (method === 'GET' && match) return { body: await pods.show(decodeRouteParam(match[1])) };
+  match = pathname.match(/^\/pods\/([^/]+)\/conversation$/);
+  if (method === 'GET' && match) return { body: await pods.conversation(decodeRouteParam(match[1])) };
+  match = pathname.match(/^\/pods\/([^/]+)\/close$/);
+  if (method === 'POST' && match) return { body: await pods.close(decodeRouteParam(match[1])) };
+
   if (method === 'GET' && pathname === '/missions') return { body: { missions: await store.listMissions() } };
   if (method === 'POST' && pathname === '/missions') {
     const { created, mission } = await store.createMission(await readBody(request), { source: 'app' });
@@ -130,14 +139,14 @@ async function route(request, url, { config, store, organization, hermes, board,
   return NOT_FOUND;
 }
 
-async function bridgeTool(request, { config, store, hermes, github, board }) {
+async function bridgeTool(request, { config, store, hermes, github, board, pods }) {
   const body = await readBody(request);
   const tool = String(body.tool || '');
   const args = body.args || {};
   if (!bearerMatches(request.headers.authorization, config.bridge.token)) throw forbidden('Waypoint bridge token is required');
   if (!args || typeof args !== 'object' || Array.isArray(args)) throw badRequest('args must be an object');
   let result;
-  try { result = await ceoControlTool(tool, args, { config, store, github, board }); }
+  try { result = await ceoControlTool(tool, args, { config, store, github, board, pods }); }
   catch (error) {
     if (tool !== 'health') hermes.recordCeoAction?.(tool, String(error.message || 'failed'), 'error');
     throw error;
@@ -146,12 +155,15 @@ async function bridgeTool(request, { config, store, hermes, github, board }) {
   return result;
 }
 
-async function ceoControlTool(tool, args, { config, store, github, board }) {
+async function ceoControlTool(tool, args, { config, store, github, board, pods }) {
   if (tool === 'health') return { ok: true, service: config.serviceName };
+  if (tool === 'list_pods') { assertFields(args, []); return pods.list(); }
+  if (tool === 'create_pod') return pods.create(args);
+  if (tool === 'close_pod') { assertFields(args, ['pod']); return pods.close(String(args.pod || '')); }
   if (tool === 'list_tasks') {
     assertFields(args, []);
     const { tasks } = await board.list();
-    return { tasks: tasks.map(({ id, ref, title, status, assignee }) => ({ id, ref, title, status, assignee })) };
+    return { tasks: tasks.map(({ id, ref, board: slug, title, status, assignee }) => ({ id, ref, board: slug, title, status, assignee })) };
   }
   if (tool === 'github_token') return githubToken(args, { store, github });
   if (tool === 'list_projects') return { projects: await store.listProjects() };
@@ -213,6 +225,7 @@ function actionSummary(tool, args = {}, result = {}) {
   if (tool === 'list_projects') return `${result.projects?.length ?? 0} projects`;
   if (tool === 'list_missions') return `${result.missions?.length ?? 0} missions`;
   if (tool === 'list_tasks') return `${result.tasks?.length ?? 0} tasks`;
+  if (tool === 'create_pod' || tool === 'close_pod') return value(result.name);
   return '';
 }
 
