@@ -22,7 +22,7 @@ function SeatCard({ seat }: { seat: OrgSeat }) {
         <span className="org-sub">{seat.model}</span>
         <span className="org-state"><OnDot on={work.state === 'running'} />{SEAT_STATE_LABEL[work.state]}</span>
       </div>
-      <span className="org-sub">{seat.description || 'No description'}</span>
+      <span className="org-sub ellipsis" style={{ maxWidth: '100%' }} title={seat.description || undefined}>{seat.description || 'No description'}</span>
       {work.current && <span className="org-sub ellipsis" style={{ maxWidth: '100%', color: 'var(--muted)' }}>{taskLabel(work.current)} · {work.current.title}</span>}
     </button>
   );
@@ -84,7 +84,7 @@ export function OrgChartView() {
           {seats.length === 0 && <div className="empty">No seats yet. Hire one, or ask {ceoName} to.</div>}
           <div className="org-seats org-seats-row">
             {seats.map(seat => (
-              <SeatCard key={seat.id} seat={seat} />
+              <div key={seat.id} className="org-branch"><SeatCard seat={seat} /></div>
             ))}
           </div>
         </div>

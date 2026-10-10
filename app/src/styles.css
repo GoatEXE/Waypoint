@@ -450,7 +450,14 @@ button.org-node:hover, .org-seat:hover { border-color: var(--border-6); }
 .org-pod { width: 100%; }
 .org-seats { display: flex; flex-direction: column; gap: 8px; margin-left: 14px; padding-left: 12px; border-left: 1px solid var(--border-4); }
 .org-seats-row { flex-direction: row; flex-wrap: wrap; justify-content: center; margin: 0; padding: 0; border: 0; }
-.org-seats-row .org-seat { flex-direction: column; align-items: flex-start; gap: 4px; min-width: 200px; max-width: 280px; }
+.org-seats-row .org-seat { flex-direction: column; align-items: flex-start; gap: 4px; width: 240px; }
+.org-seats-row { gap: 0; row-gap: 12px; }
+.org-branch { position: relative; display: flex; padding: 18px 6px 0; }
+.org-branch::before { content: ''; position: absolute; top: 0; left: 50%; width: 1px; height: 18px; background: var(--border-4); }
+.org-branch::after { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 1px; background: var(--border-4); }
+.org-branch:first-child::after { left: 50%; }
+.org-branch:last-child::after { right: 50%; }
+.org-branch:only-child::after { display: none; }
 .org-seat { flex-direction: column; align-items: stretch; gap: 4px; padding: 9px 12px; }
 .org-seat.busy { border-color: oklch(0.72 0.14 252 / .55); }
 .org-working { font-size: 11.5px; color: var(--acc); }
