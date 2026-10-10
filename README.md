@@ -14,7 +14,7 @@ Current limits (details in `docs/status-and-limitations.md`):
 
 - `DRY_RUN=true` is the default; set it to `false` for live use.
 - Seats share the CEO's container, credentials, and GitHub access.
-- Pods are new; the learning diff back to the original seats is not built yet.
+- Pods and their learning review are new.
 
 ## Validate
 
