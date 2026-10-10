@@ -47,7 +47,7 @@ test('organization updates keep unspecified fields and validate input', async ()
   await assert.rejects(store.update({ owner: 'x' }), /unsupported organization fields/);
 });
 
-test('organization routes save settings and name the CEO in the org chart', async () => {
+test('organization routes save and validate settings', async () => {
   const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'waypoint-org-http-'));
   const app = await createApp({ DATA_DIR: dataDir, WAYPOINT_CONTROL_DIR: path.join(dataDir, 'control'), LOG_LEVEL: 'error', HERMES_AUTO_START: 'false' });
   app.hermes.refreshCeoIdentity = async () => ({ refreshed: false });
@@ -60,7 +60,5 @@ test('organization routes save settings and name the CEO in the org chart', asyn
     assert.equal((await saved.json()).organization.key, 'ACM');
     const bad = await fetch(`${base}/organization`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: '' }) });
     assert.equal(bad.status, 400);
-    const chart = await fetch(`${base}/org-chart?query=ada`).then((r) => r.json());
-    assert.equal(chart.ceo.name, 'Ada');
   } finally { await new Promise((resolve) => app.server.close(resolve)); }
 });

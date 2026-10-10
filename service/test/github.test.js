@@ -4,8 +4,7 @@ import { createVerify, generateKeyPairSync } from 'node:crypto';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { GitHubConnector, appJwt, inspectLocalPath, normalizeRepo, repoFromRemote } from '../src/github.js';
+import { GitHubConnector, appJwt, normalizeRepo } from '../src/github.js';
 import { createApp } from '../src/index.js';
 
 const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048, privateKeyEncoding: { type: 'pkcs8', format: 'pem' }, publicKeyEncoding: { type: 'spki', format: 'pem' } });
@@ -42,12 +41,9 @@ test('app JWT is RS256 signed with the app id as issuer', () => {
   assert.deepEqual(claims, { iat: 1_699_999_940, exp: 1_700_000_540, iss: '42' });
 });
 
-test('repo names and remotes normalize to owner/name', () => {
+test('repo names normalize to owner/name', () => {
   assert.equal(normalizeRepo('https://github.com/Acme/Site.git'), 'Acme/Site');
   assert.throws(() => normalizeRepo('acme'), /owner\/name/);
-  assert.equal(repoFromRemote('git@github.com:acme/site.git'), 'acme/site');
-  assert.equal(repoFromRemote('https://user:tok@github.com/acme/site'), 'acme/site');
-  assert.equal(repoFromRemote('https://gitlab.com/acme/site.git'), null);
 });
 
 test('manifest flow stores the app privately and lists installations', async () => {
@@ -84,65 +80,40 @@ test('repo tokens are scoped to one repository and cached', async () => {
   await assert.rejects(github.repoToken('acme/other'), /not installed on acme\/other/);
 });
 
-test('local paths detect git repositories and their GitHub remote', async () => {
-  const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-  const found = await inspectLocalPath(repoRoot);
-  assert.equal(found.isGit, true);
-  assert.equal(typeof found.branch, 'string');
-  const plain = await inspectLocalPath(await fs.mkdtemp(path.join(os.tmpdir(), 'waypoint-plain-')));
-  assert.deepEqual([plain.exists, plain.isGit, plain.repo], [true, false, null]);
-  assert.equal((await inspectLocalPath(path.join(os.tmpdir(), 'missing-waypoint-dir-xyz'))).exists, false);
-  await assert.rejects(inspectLocalPath('relative/path'), /absolute/);
-});
-
-test('designated seats and the CEO get tokens only for project repositories', async () => {
+test('the bridge token gets GitHub tokens only for project repositories', async () => {
   const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'waypoint-github-http-'));
   const app = await createApp({ DATA_DIR: dataDir, HERMES_AUTO_START: 'false', LOG_LEVEL: 'error' });
-  const calls = [];
-  app.github.fetch = fakeGitHub(calls);
+  app.github.fetch = fakeGitHub([]);
   await new Promise((resolve) => app.bridgeServer.listen(0, '127.0.0.1', resolve));
   const bridge = `http://127.0.0.1:${app.bridgeServer.address().port}/bridge/tools`;
-  const tool = (token, name, args) => fetch(bridge, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` }, body: JSON.stringify({ tool: name, args }) }).then(async (r) => ({ status: r.status, body: await r.json() }));
+  const tool = (token, args) => fetch(bridge, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` }, body: JSON.stringify({ tool: 'github_token', args }) }).then(async (r) => ({ status: r.status, body: await r.json() }));
+  const ceo = app.config.bridge.token;
   try {
-    const template = await app.store.createTemplate({ name: 'team', version: '1', seats: [{ id: 'builder', role: 'Builder' }, { id: 'qa', role: 'QA' }] });
-    const pod = await app.store.cloneTemplate(template.id, { podName: 'alpha' }, () => ({}));
-    await app.store.createProject({ name: 'Site', repo: 'acme/site', githubSeats: [`${pod.id}/builder`] });
-    await assert.rejects(app.store.createProject({ name: 'Bad', githubSeats: [`${pod.id}/nobody`] }), /does not belong/);
+    assert.match((await tool(ceo, {})).body.error.message, /No Waypoint project has a GitHub repository/);
+    await app.store.createProject({ name: 'Site', repo: 'acme/site' });
     const { state } = app.github.manifest({ origin: 'http://127.0.0.1:5173' });
     await app.github.completeManifest({ code: 'goodcode123', state });
-    const builder = app.messaging.seatToken(pod.id, 'builder');
-    const granted = await tool(builder, 'github_token', { repo: 'ACME/site.git' });
+    const granted = await tool(ceo, { repo: 'ACME/site.git' });
     assert.equal(granted.status, 200);
     assert.match(granted.body.token, /^ghs_/);
-    assert.equal(granted.body.repo, 'acme/site');
-    assert.equal((await tool(app.messaging.seatToken(pod.id, 'qa'), 'github_token', { repo: 'acme/site' })).status, 403);
-    assert.equal((await tool(builder, 'github_token', { repo: 'acme/other' })).status, 403);
-    assert.equal((await tool(builder, 'github_token', {})).body.repo, 'acme/site', 'one repository needs no name');
-    assert.match((await tool(app.messaging.seatToken(pod.id, 'qa'), 'github_token', {})).body.error.message, /GitHub seats/);
-    assert.equal((await tool(builder, 'github_api', { repo: 'acme/site', method: 'GET', path: '/pulls' })).status, 403);
-    const ceo = app.config.bridge.token;
-    assert.equal((await tool(ceo, 'github_token', { repo: 'acme/site' })).body.repo, 'acme/site');
+    assert.equal((await tool(ceo, {})).body.repo, 'acme/site', 'one repository needs no name');
+    assert.equal((await tool('wrong-token', { repo: 'acme/site' })).status, 403);
     await app.store.createProject({ name: 'Docs', repo: 'acme/docs' });
-    const ambiguous = await tool(ceo, 'github_token', {});
+    const ambiguous = await tool(ceo, {});
     assert.equal(ambiguous.status, 400);
     assert.match(ambiguous.body.error.message, /Available: acme\/site, acme\/docs/);
-    assert.equal((await tool(ceo, 'github_token', { repo: 'acme/elsewhere' })).status, 403);
+    assert.equal((await tool(ceo, { repo: 'acme/elsewhere' })).status, 403);
   } finally { await new Promise((resolve) => app.bridgeServer.close(resolve)); }
 });
-
 test('projects belong to missions and validate the mission', async () => {
   const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'waypoint-project-mission-'));
   const app = await createApp({ DATA_DIR: dataDir, HERMES_AUTO_START: 'false', LOG_LEVEL: 'error' });
   const { mission } = await app.store.createMission({ title: 'Ship v1' }, { source: 'app' });
   const project = await app.store.createProject({ name: 'Goat Ops', missionId: mission.id, repo: 'GoatEXE/goat-ops' });
   assert.equal(project.missionId, mission.id);
-  const moved = await app.store.updateProject(project.id, { localPath: 'E:\Repositories\goat-ops' });
-  assert.equal(moved.missionId, mission.id);
   assert.equal((await app.store.updateProject(project.id, { missionId: null })).missionId, null);
   await assert.rejects(app.store.createProject({ name: 'Bad', missionId: 'mission_00000000-0000-4000-8000-000000000000' }), /does not match a stored mission/);
-  const task = await app.store.createTask({ summary: 'Uses it', projectId: project.id });
-  await assert.rejects(app.store.deleteProject(project.id), /1 task uses this project/);
-  await app.store.updateTask(task.id, { projectId: null });
+  await assert.rejects(app.store.createProject({ name: 'Goat ops' }), /already exists/);
   assert.deepEqual(await app.store.deleteProject(project.id), { deleted: true, projectId: project.id });
   assert.deepEqual(await app.store.listProjects(), []);
 });

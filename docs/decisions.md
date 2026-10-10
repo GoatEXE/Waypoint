@@ -2,6 +2,14 @@
 
 Status: accepted by user direction and partially runtime-verified in this backend/UI slice.
 
+## Native Hermes (October 2026, supersedes the pod container model below)
+
+- The CEO and its seats run as Hermes profiles in one container. Seats are hired natively with `hermes profile create`.
+- Tasks are Hermes kanban tasks. The gateway dispatcher runs them; Waypoint adds refs and a GitHub-style thread view. Comments are how the user, the CEO, and seats talk about a task.
+- Pods will be separate kanban boards with cloned seats that can see and message each other, created and torn down by the CEO. Learning flows back to the original seats through a reviewed diff of skills and memories.
+- Projects are GitHub repositories. Seats share the CEO's GitHub access.
+- The earlier pod containers, Waypoint task runs, mailbox wakes, and peer messaging were removed in one cutover with no migration.
+
 ## Operating model
 
 - Waypoint has one Hermes CEO / chief-of-staff role that delegates, provisions, and monitors work.

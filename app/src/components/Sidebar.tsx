@@ -1,14 +1,13 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import * as D from '../data';
-import { ACC, seatStatus } from '../model';
+import { ACC } from '../model';
 import { activeProject, useRoute, type View } from '../routes';
 import { useStore } from '../store';
-import { Dot, OnDot } from './ui';
 import { NavIcon, type NavIconName } from './NavIcon';
-import { api, type HermesStatus, type MissionPod, type TaskSummary } from '../api';
+import { api, type HermesStatus, type OrgSeat } from '../api';
+import { needsYou } from '../taskQueueModel';
 import { sidebarHermesSummary } from '../hermesSidebarStatus';
-import { missionPods, sidebarMissionLabel } from '../missionsModel';
+import { sidebarMissionLabel } from '../missionsModel';
 import { ceoNameOf } from '../orgModel';
 
 const WORKSPACE: [View & NavIconName, string][] = [
@@ -26,16 +25,14 @@ function AddButton({ onClick }: { onClick: () => void }) {
 }
 
 export function Sidebar() {
-  const { state, set, setPane, openModal } = useStore();
+  const { state, set, openModal } = useStore();
   const nav = useNavigate();
   const route = useRoute();
   const activeProj = activeProject(route);
-  const activePod = route.v === 'pod' || route.v === 'review' ? route.id : null;
   const [hermes, setHermes] = useState<HermesStatus | null>(null);
   const [hermesChecked, setHermesChecked] = useState(false);
-  const [orgPods, setOrgPods] = useState<MissionPod[] | null>(null);
-  const [storedTasks, setStoredTasks] = useState<TaskSummary[]>([]);
-  const [deliveryAttention, setDeliveryAttention] = useState(0);
+  const [seats, setSeats] = useState<OrgSeat[]>([]);
+  const [attention, setAttention] = useState(0);
   useEffect(() => {
     api.hermesStatus({ freshAuth: true }).then(s => { setHermes(s); setHermesChecked(true); }).catch(() => { setHermes(null); setHermesChecked(true); });
   }, []);
@@ -43,11 +40,10 @@ export function Sidebar() {
     let active = true;
     const refresh = async () => {
       try {
-        const [chart, taskList, deliveries] = await Promise.all([api.orgChart(), api.tasks(), api.messageDeliveries().catch(() => null)]);
+        const [orgSeats, taskList] = await Promise.all([api.orgSeats().catch(() => ({ seats: [] as OrgSeat[] })), api.tasks()]);
         if (!active) return;
-        setOrgPods(chart.pods.map(pod => ({ id: pod.podId, podName: pod.name, templateId: '', state: pod.state, seats: pod.seats.map(seat => ({ id: seat.seatId, role: seat.role })) })));
-        setStoredTasks(taskList.tasks);
-        setDeliveryAttention((deliveries ? deliveries.messages.filter(message => !message.readAt && ['failed', 'outcome_unknown'].includes(message.wake?.state || '')).length : 0) + taskList.tasks.filter(task => task.status === 'in_review').length);
+        setSeats(orgSeats.seats);
+        setAttention(needsYou(taskList.tasks).length);
       } catch {   }
     };
     void refresh();
@@ -56,11 +52,9 @@ export function Sidebar() {
   }, [state.missions.missions]);
   const { label: hermesLabel, ready: hermesReady } = sidebarHermesSummary(hermes, hermesChecked);
   const missionLabel = sidebarMissionLabel(state.missions);
-  const pods = orgPods ?? missionPods(state.missions.missions);
   const currentMissionId = state.missions.missions[0]?.id;
   const missionProjects = state.projects.filter(p => currentMissionId && p.missionId === currentMissionId);
   const unfiledProjects = state.projects.filter(p => !p.missionId || !state.missions.missions.some(m => m.id === p.missionId));
-  const openCount = (projectId: string) => storedTasks.filter(t => t.projectId === projectId && t.status !== 'done' && t.status !== 'canceled').length;
 
   return (
     <aside className="sidebar">
@@ -82,7 +76,7 @@ export function Sidebar() {
             <div key={v} className={'sb-item' + (route.v === v ? ' active' : '')} onClick={() => nav('/' + v)}>
               <div className="sb-icon"><NavIcon name={v} /></div>
               <span>{label}</span>
-              {v === 'inbox' && deliveryAttention > 0 && <span className="sb-count">{deliveryAttention}</span>}
+              {v === 'inbox' && attention > 0 && <span className="sb-count">{attention}</span>}
             </div>
           ))}
         </div>
@@ -104,14 +98,12 @@ export function Sidebar() {
               {missionProjects.map(p => (
                 <div key={p.id} className={'sb-item' + (activeProj === p.id ? ' active' : '')} onClick={() => nav('/projects/' + p.id)}>
                   <span className="sb-name">{p.name}</span>
-                  <span className="sb-meta">{openCount(p.id) || ''}</span>
                 </div>
               ))}
               {unfiledProjects.length > 0 && <div className="sb-item" style={{ color: 'var(--faint)', cursor: 'default', fontSize: 11 }}>Not in a mission</div>}
               {unfiledProjects.map(p => (
                 <div key={p.id} className={'sb-item' + (activeProj === p.id ? ' active' : '')} style={{ color: 'var(--muted)' }} onClick={() => nav('/projects/' + p.id)}>
                   <span className="sb-name">{p.name}</span>
-                  <span className="sb-meta">{openCount(p.id) || ''}</span>
                 </div>
               ))}
             </div>
@@ -119,49 +111,12 @@ export function Sidebar() {
         </div>
 
         <div className="sb-section">
-          <div className="sb-label-row"><span className="sb-label">PODS</span><AddButton onClick={() => openModal('pod')} /></div>
-          {!D.pods.length && !pods.length && <div className="sb-item" style={{ color: 'var(--faint)', cursor: 'default' }}>No pods</div>}
-          {pods.map(p => (
-            <div key={p.id} className={'sb-item' + (activePod === p.id ? ' active' : '')} style={{ color: 'var(--text)' }} title={p.state === 'running' ? 'Running' : 'Not running'} onClick={() => nav('/pods/' + p.id)}>
-              <OnDot on={p.state === 'running'} />
-              <span className="sb-name">{p.podName}</span>
-              <span className="sb-meta">{p.seats.length}</span>
-            </div>
-          ))}
-          {D.pods.map(p => {
-            const stopped = state.podStopped && p.name === activePod;
-            return (
-              <div key={p.name} className={'sb-item' + (activePod === p.name ? ' active' : '')} style={{ color: 'var(--text)' }} onClick={() => nav('/pods/' + p.name)}>
-                <OnDot on={!stopped} />
-                <span className="sb-name">{p.name}</span>
-                <span className="sb-meta">{D.seats.filter(s => s.pod === p.name).length}</span>
-              </div>
-            );
-          })}
-        </div>
-
-        <div className="sb-section">
           <div className="sb-label-row"><span className="sb-label">SEATS</span><AddButton onClick={() => openModal('seat')} /></div>
-          {!D.seats.length && !pods.length && <div className="sb-item" style={{ color: 'var(--faint)', cursor: 'default' }}>No seats</div>}
-          {pods.flatMap(p => p.seats.map(s => (
-            <div key={p.id + s.id} className={'sb-item seat' + (activePod === p.id ? ' active' : '')} title={`${p.podName} · ${p.state === 'running' ? 'running' : 'not running'}`} onClick={() => nav('/pods/' + p.id)}>
-              <OnDot on={p.state === 'running'} />
-              <span className="sb-name c-text3">{s.id}</span>
-              <span className="sb-role">{s.role}</span>
-            </div>
-          )))}
-          {D.seats.map(s => (
-            <div
-              key={s.name}
-              className={'sb-item seat' + (route.v === 'pod' && state.seat === s.name ? ' active' : '')}
-              onClick={() => {
-                if (s.pod) { set({ seat: s.name }); nav('/pods/' + s.pod); }
-                else setPane({ open: true, tab: 'ceo' });
-              }}
-            >
-              <Dot status={seatStatus(s, state.resolved, state.podStopped)} size={7} />
-              <span className="sb-name c-text3">{s.name}</span>
-              <span className="sb-role">{s.role}</span>
+          {!seats.length && <div className="sb-item" style={{ color: 'var(--faint)', cursor: 'default' }}>No seats</div>}
+          {seats.map(seat => (
+            <div key={seat.id} className={'sb-item seat' + (route.v === 'org' ? ' active' : '')} title={seat.description} onClick={() => nav('/org')}>
+              <span className="sb-name c-text3">{seat.id}</span>
+              <span className="sb-role ellipsis">{seat.description}</span>
             </div>
           ))}
         </div>

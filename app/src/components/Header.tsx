@@ -23,9 +23,6 @@ function crumbsFor(r: Route, projectName?: string): Crumb[] {
     case 'mission': return [m];
     case 'project': return [m, { label: projectName || 'Project', to: '/projects/' + r.id }];
     case 'task': return taskCrumbs(r.id!);
-    case 'run': return D.runs[r.id!] ? [...taskCrumbs(D.runs[r.id!].task), { label: r.id!, to: '/runs/' + r.id, mono: true }] : [m, { label: 'Run not found', to: '/', mono: true }];
-    case 'pod': return [{ label: 'Pods', to: '/pods/' + r.id }, { label: r.id!, to: '/pods/' + r.id, mono: true }];
-    case 'review': return [{ label: 'Pods', to: r.id ? '/pods/' + r.id : '/' }, { label: r.id || 'Pod', to: r.id ? '/pods/' + r.id : '/', mono: true }, { label: 'Learning review', to: r.id ? '/pods/' + r.id + '/review' : '/' }];
     case 'inbox': return [{ label: 'Workspace', to: '/inbox' }, { label: 'Inbox', to: '/inbox' }];
     default: return WS[r.v] ? [{ label: 'Workspace', to: '/inbox' }, { label: WS[r.v]!, to: '/' + r.v }] : [m];
   }

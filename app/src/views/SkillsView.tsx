@@ -90,7 +90,7 @@ export function SkillsView() {
 
   return (
     <div className="page skills-page" style={{ maxWidth: 1180, gap: 22 }}>
-      <WorkspaceHead title="Skills" lede="Choose which installed Hermes skills the CEO can use. Pod seats are not listed here." />
+      <WorkspaceHead title="Skills" lede="Choose which installed Hermes skills the CEO can use. Seat skills are not listed here." />
 
       <section className="skills-toolbar" aria-label="Skill controls">
         <div className="skills-search-wrap">

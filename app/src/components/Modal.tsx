@@ -3,17 +3,16 @@ import { useNavigate } from 'react-router-dom';
 import * as D from '../data';
 import { chatContextFor, useRoute } from '../routes';
 import { useStore, type ModalKind } from '../store';
-import { api, type OrgChartPod } from '../api';
+import { api, type OrgSeat } from '../api';
 
-interface Form { text: string; title: string; date: string; scope: string; hire: string; repos: string[]; tpl: string; proj: string; role: string; pod: string; ident: string; secrets: string[] }
+interface Form { text: string; title: string; date: string; scope: string; hire: string; role: string; clone: string }
 
-const BLANK: Form = { text: '', title: '', date: '', scope: '', hire: '', repos: [], tpl: '', proj: '', role: '', pod: '', ident: '', secrets: [] };
+const BLANK: Form = { text: '', title: '', date: '', scope: '', hire: '', role: '', clone: '' };
 type FormKind = Exclude<ModalKind, 'project'>;
 
 const DEFAULTS: Record<FormKind, Partial<Form>> = {
   assignment: { scope: 'workspace', hire: 'ask' },
   mission: {},
-  pod: {},
   seat: {},
 };
 
@@ -49,10 +48,10 @@ export function Modal({ kind }: { kind: FormKind }) {
   const [error, setError] = useState<string | null>(null);
   const focusRef = useRef<HTMLInputElement & HTMLTextAreaElement>(null);
   const f = <K extends keyof Form>(k: K, v: Form[K]) => setForm(s => ({ ...s, [k]: v }));
-  const [pods, setPods] = useState<OrgChartPod[] | null>(null);
+  const [seats, setSeats] = useState<OrgSeat[] | null>(null);
   useEffect(() => {
     if (kind !== 'seat') return;
-    api.orgChart().then(chart => { setPods(chart.pods); if (chart.pods.length === 1) f('pod', chart.pods[0].podId); }).catch(() => setPods([]));
+    api.orgSeats().then(result => setSeats(result.seats)).catch(() => setSeats([]));
   }, [kind]);
 
   useEffect(() => { const t = setTimeout(() => focusRef.current?.focus(), 60); return () => clearTimeout(t); }, []);
@@ -64,9 +63,8 @@ export function Modal({ kind }: { kind: FormKind }) {
 
   const meta = {
     assignment: { eyebrow: 'NEW ASSIGNMENT · TO CEO', title: 'What needs doing?', cta: 'Send to CEO', note: 'Context: ' + ctx, ok: form.text.trim() },
-    mission: { eyebrow: 'NEW MISSION', title: 'Set a mission', cta: 'Save mission', note: 'Saves the mission. Nothing starts until the CEO assigns a pod.', ok: form.title.trim() },
-    pod: { eyebrow: 'NEW POD', title: 'Start a pod from a template', cta: 'Not connected', note: 'Pod creation is not connected in this view.', ok: '' },
-    seat: { eyebrow: 'NEW SEAT', title: 'Hire a seat', cta: 'Hire seat', note: 'Adds the seat to the pod. A running pod prepares it right away.', ok: form.pod && form.title.trim() && form.role.trim() },
+    mission: { eyebrow: 'NEW MISSION', title: 'Set a mission', cta: 'Save mission', note: 'Saves the mission. Nothing starts until the CEO puts work on the board.', ok: form.title.trim() },
+    seat: { eyebrow: 'NEW SEAT', title: 'Hire a seat', cta: 'Hire seat', note: 'Adds a Hermes profile to the organization.', ok: form.title.trim() && form.role.trim() },
   }[kind];
 
   const submit = async () => {
@@ -84,10 +82,10 @@ ${hiring}`, true, ref => nav('/tasks/' + encodeURIComponent(ref)));
       setError(null);
       try {
         const id = form.title.trim();
-        await api.addSeat(form.pod, { id, role: form.role.trim(), ...(form.text.trim() ? { instructions: form.text.trim() } : {}) });
+        await api.hireSeat({ id, description: form.role.trim(), ...(form.clone ? { cloneFrom: form.clone } : {}) });
         closeModal();
         flash(`Hired ${id}`);
-        nav('/pods/' + form.pod);
+        nav('/org');
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
       } finally { setSubmitting(false); }
@@ -121,7 +119,7 @@ ${hiring}`, true, ref => nav('/tasks/' + encodeURIComponent(ref)));
               <textarea ref={focusRef} className="input" rows={4} value={form.text} onChange={e => f('text', e.target.value)} placeholder="Describe the real work you want to hand off" />
             </Field>
             <Field label="Advances"><Chips opts={[[D.mission ? 'mission' : 'workspace', D.mission ? 'Whole mission' : 'Workspace'], ...D.projects.map(p => p.name)]} value={form.scope} onPick={v => f('scope', v)} /></Field>
-            <Field label="Hiring"><Chips opts={[['ask', 'Ask me before hiring'], ['auto', 'CEO may hire from templates']]} value={form.hire} onPick={v => f('hire', v)} /></Field>
+            <Field label="Hiring"><Chips opts={[['ask', 'Ask me before hiring'], ['auto', 'CEO may hire seats']]} value={form.hire} onPick={v => f('hire', v)} /></Field>
             <Hint>This sends the assignment to the CEO conversation.</Hint>
           </>}
 
@@ -137,31 +135,12 @@ ${hiring}`, true, ref => nav('/tasks/' + encodeURIComponent(ref)));
             </Field>
           </>}
 
-          {kind === 'pod' && <>
-            <Field label="Template">
-              {!D.podTemplates.length && <div className="empty">No pod templates yet.</div>}
-              {!!D.podTemplates.length && <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(150px,1fr))', gap: 8 }}>
-                {D.podTemplates.map(t => (
-                  <div key={t.name} className={'tpl' + (form.tpl === t.name ? ' on' : '')} onClick={() => setForm(s => ({ ...s, tpl: t.name }))}>
-                    <span style={{ font: '500 12.5px var(--mono)' }}>{t.name}</span>
-                    <span style={{ fontSize: 12, color: 'var(--muted)' }}>{t.seats}</span>
-                    <span style={{ fontSize: 11.5, color: 'var(--fainter)' }}>{t.limits}</span>
-                  </div>
-                ))}
-              </div>}
-            </Field>
-            <Field label="Attach to project"><Chips mono opts={D.projects.map(p => p.name)} value={form.proj} onPick={v => f('proj', v)} /></Field>
-            <Field label="Pod name"><input ref={focusRef} className="input mono" value={form.title} onChange={e => f('title', e.target.value)} /></Field>
-            <Hint>Creating pods through the service is separate from this visual draft.</Hint>
-          </>}
-
           {kind === 'seat' && <>
-            <Field label="Pod">
-              {pods === null ? <Hint>Loading pods…</Hint> : <Chips mono opts={pods.map(p => [p.podId, p.name] as [string, string])} value={form.pod} onPick={v => f('pod', v)} />}
+            <Field label="Seat id"><input ref={focusRef} className="input mono" value={form.title} placeholder="designer" maxLength={31} onChange={e => f('title', e.target.value.toLowerCase())} /></Field>
+            <Field label="What this seat does"><input className="input" value={form.role} placeholder="UI and UX design" maxLength={200} onChange={e => f('role', e.target.value)} /></Field>
+            <Field label="Copy skills from (optional)">
+              {seats === null ? <Hint>Loading seats…</Hint> : seats.length ? <Chips mono opts={seats.map(seat => seat.id)} value={form.clone} onPick={v => f('clone', form.clone === v ? '' : v)} /> : <Hint>No seats yet; this one starts fresh.</Hint>}
             </Field>
-            <Field label="Seat id"><input ref={focusRef} className="input mono" value={form.title} placeholder="builder" maxLength={63} onChange={e => f('title', e.target.value.toLowerCase())} /></Field>
-            <Field label="Role"><input className="input" value={form.role} placeholder="Builder" maxLength={120} onChange={e => f('role', e.target.value)} /></Field>
-            <Field label="Instructions (optional)"><textarea className="input" rows={3} value={form.text} placeholder="What this seat is responsible for" onChange={e => f('text', e.target.value)} /></Field>
           </>}
         </div>
 

@@ -1,16 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import * as D from '../data';
-import { api, type Mission, type MissionStatus, type TaskSummary } from '../api';
-import { currentMission, missionStatus, podStateLabel, shortDate, taskStateLabel } from '../missionsModel';
+import { api, type Mission, type MissionStatus } from '../api';
+import { currentMission, missionStatusLabel, shortDate } from '../missionsModel';
 import { useStore } from '../store';
-import { OnDot } from '../components/ui';
 
 function ProjectsSection({ mission }: { mission: Mission }) {
   const { state, addProject } = useStore();
   const nav = useNavigate();
-  const [tasks, setTasks] = useState<TaskSummary[]>([]);
-  useEffect(() => { api.tasks().then(t => setTasks(t.tasks)).catch(() => undefined); }, [state.projects.length]);
   const projects = state.projects.filter(p => p.missionId === mission.id);
   return (
     <div className="stack" style={{ gap: 12 }}>
@@ -20,66 +16,28 @@ function ProjectsSection({ mission }: { mission: Mission }) {
       </div>
       {!projects.length && <div className="empty">No projects yet.</div>}
       {!!projects.length && <div className="list">
-        {projects.map(p => {
-          const own = tasks.filter(t => t.projectId === p.id && t.status !== 'canceled');
-          const done = own.filter(t => t.status === 'done').length;
-          const pct = own.length ? Math.round((done / own.length) * 100) : 0;
-          return (
-            <div key={p.id} className="row link proj-row" onClick={() => nav('/projects/' + p.id)}>
-              <div className="stack" style={{ gap: 4, minWidth: 0 }}>
-                <div style={{ font: '500 13.5px var(--mono)' }}>{p.name}</div>
-                <div style={{ color: 'var(--muted)', fontSize: 13 }}>{p.repo || p.localPath || 'No repository yet'}</div>
-              </div>
-              <div className="stack" style={{ gap: 8 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--dim)' }}>
-                  <span>{done} of {own.length} done</span><span className="mono">{pct}%</span>
-                </div>
-                <div className="bar" style={{ background: 'var(--border)' }}><div style={{ width: pct + '%', background: 'var(--text-3)' }} /></div>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 14, fontSize: 12, color: 'var(--muted)', flexWrap: 'wrap' }}>
-                <span>{own.length - done} open</span>
-                <span style={{ color: 'var(--quiet)' }}>→</span>
-              </div>
-            </div>
-          );
-        })}
+        {projects.map(p => (
+          <div key={p.id} className="row link" style={{ display: 'flex', gap: 12, padding: '12px 16px', alignItems: 'baseline' }} onClick={() => nav('/projects/' + p.id)}>
+            <span style={{ font: '500 13.5px var(--mono)' }}>{p.name}</span>
+            <span style={{ color: 'var(--muted)', fontSize: 13 }}>{p.repo || 'No repository yet'}</span>
+            <span style={{ marginLeft: 'auto', color: 'var(--quiet)' }}>→</span>
+          </div>
+        ))}
       </div>}
     </div>
   );
 }
 
 function MissionWork({ mission }: { mission: Mission }) {
-  const { pod, task } = mission;
   const nav = useNavigate();
   return (
     <div className="stack" style={{ gap: 12 }}>
-      <div className="section-title">Who is on it</div>
-      {!pod && !task && <div className="empty">No pod or task is assigned yet.</div>}
-      {(pod || task) && <div className="list">
-        {pod && (
-          <div className="row stack link" style={{ padding: '14px 16px', gap: 8 }} onClick={() => nav('/pods/' + pod.id)}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <span className="sb-label" style={{ color: 'var(--dim)' }}>POD</span>
-              <OnDot on={pod.state === 'running'} />
-              <span style={{ font: '500 13.5px var(--mono)' }}>{pod.podName}</span>
-              <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--muted)' }}>{podStateLabel(pod.state)} →</span>
-            </div>
-            <div style={{ fontSize: 12.5, color: 'var(--text-4)' }}>
-              {pod.seats.length ? pod.seats.map(s => `${s.id} (${s.role})`).join(' · ') : 'No seats'}
-            </div>
-          </div>
-        )}
-        {task && (
-          <div className="row stack link" style={{ padding: '14px 16px', gap: 8 }} onClick={() => nav('/tasks/' + task.id)}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <span className="sb-label" style={{ color: 'var(--dim)' }}>TASK</span>
-              <span style={{ fontSize: 12.5, color: 'var(--text-3)' }}>To the <span className="mono">{task.seatId}</span> seat</span>
-              <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--muted)' }}>{taskStateLabel(task.state)} →</span>
-            </div>
-            <div style={{ fontSize: 13, lineHeight: 1.45 }}>{task.summary}</div>
-            <div style={{ fontSize: 11.5, color: 'var(--faint)' }}>Handed off {shortDate(task.updatedAt)}</div>
-          </div>
-        )}
+      <div className="section-title">Linked task</div>
+      {!mission.taskId && <div className="empty">No task is linked yet.</div>}
+      {mission.taskId && <div className="list">
+        <div className="row link" style={{ padding: '14px 16px' }} onClick={() => nav('/tasks/' + encodeURIComponent(mission.taskId!))}>
+          <span className="mono">{mission.taskId}</span> →
+        </div>
       </div>}
     </div>
   );
@@ -91,7 +49,7 @@ export function MissionView() {
   const [confirmDelete, setConfirmDelete] = useState<Mission | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState('');
-  const [deletedLinks, setDeletedLinks] = useState<{ podId: string | null; taskId: string | null } | null>(null);
+  const [deleted, setDeleted] = useState(false);
   const [statusError, setStatusError] = useState('');
   const needs = pending.slice(0, 3);
   const { missions } = state;
@@ -102,8 +60,8 @@ export function MissionView() {
     setDeleting(true);
     setDeleteError('');
     try {
-      const result = await api.deleteMission(confirmDelete.id);
-      setDeletedLinks({ podId: result.podId, taskId: result.taskId });
+      await api.deleteMission(confirmDelete.id);
+      setDeleted(true);
       setConfirmDelete(null);
       await loadMissions();
     } catch (error) {
@@ -118,7 +76,7 @@ export function MissionView() {
       {confirmDelete && (
         <div className="stack" style={{ gap: 10, padding: 16, border: '1px solid var(--border-3)', borderRadius: 10, background: 'var(--surface-2)' }}>
           <strong>Delete “{confirmDelete.title}”?</strong>
-          <span style={{ fontSize: 13, color: 'var(--muted)' }}>This removes the mission only. Its pod and task records stay available.</span>
+          <span style={{ fontSize: 13, color: 'var(--muted)' }}>This removes the mission only. Its tasks stay on the board.</span>
           <div style={{ display: 'flex', gap: 8 }}>
             <button className="btn btn-primary" type="button" onClick={() => void deleteSelectedMission()} disabled={deleting}>{deleting ? 'Deleting…' : 'Delete mission'}</button>
             <button className="btn btn-ghost" type="button" onClick={() => { setConfirmDelete(null); setDeleteError(''); }} disabled={deleting}>Cancel</button>
@@ -126,13 +84,7 @@ export function MissionView() {
           {deleteError && <span role="alert" style={{ fontSize: 12.5 }}>{deleteError}</span>}
         </div>
       )}
-      {deletedLinks && (
-        <div role="status" style={{ fontSize: 13, color: 'var(--muted)' }}>
-          Mission deleted. Any linked pod and task records remain.
-          {deletedLinks.podId && <button className="btn btn-ghost" type="button" onClick={() => nav('/pods/' + deletedLinks.podId)}>Open pod</button>}
-          {deletedLinks.taskId && <button className="btn btn-ghost" type="button" onClick={() => nav('/tasks/' + deletedLinks.taskId)}>Open task</button>}
-        </div>
-      )}
+      {deleted && <div role="status" style={{ fontSize: 13, color: 'var(--muted)' }}>Mission deleted. Its tasks remain on the board.</div>}
     </>
   );
 
@@ -165,7 +117,7 @@ export function MissionView() {
           <div className="eyebrow">MISSION</div>
           <h1 className="mission-h1">No mission yet</h1>
           {deletionControls}
-          <p className="mission-lede">No mission is active. Existing pods and tasks remain available in the sidebar. Create a smaller mission when you are ready, or ask the CEO to set one up.</p>
+          <p className="mission-lede">No mission is active. Existing tasks remain on the board. Create a smaller mission when you are ready, or ask the CEO to set one up.</p>
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
             <button className="btn lg btn-primary" onClick={() => openModal('mission')}>Create a mission</button>
             <button className="btn lg btn-ghost" onClick={() => nav('/settings')}>Open Settings</button>
@@ -176,7 +128,6 @@ export function MissionView() {
     );
   }
 
-  const status = missionStatus(mission);
   const others = missions.missions.slice(1);
 
   return (
@@ -192,7 +143,6 @@ export function MissionView() {
           {mission.target && <span>Target <span className="v">{shortDate(mission.target)}</span></span>}
           <span>Recorded <span className="v">{shortDate(mission.createdAt)}</span></span>
         </div>
-        <div style={{ fontSize: 13, color: 'var(--muted)' }}>{status.detail}</div>
         {statusError && <div role="alert">{statusError}</div>}
       </div>
 
@@ -204,7 +154,7 @@ export function MissionView() {
           </div>
           <div className="needs-grid">
             {needs.map(n => (
-              <div key={n.id} className="need" onClick={() => nav(n.review ? '/pods/' + (D.pods[0]?.name || '') + '/review' : '/inbox')}>
+              <div key={n.id} className="need" onClick={() => nav('/inbox')}>
                 <div className="kind">{n.kind.toUpperCase()}</div>
                 <div className="title">{n.title}</div>
               </div>
@@ -224,7 +174,7 @@ export function MissionView() {
             {others.map(m => (
               <div key={m.id} className="row" style={{ display: 'flex', gap: 12, padding: '12px 16px', alignItems: 'baseline' }}>
                 <span style={{ fontSize: 13.5 }}>{m.title}</span>
-                <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--muted)' }}>{missionStatus(m).label}</span>
+                <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--muted)' }}>{missionStatusLabel(m)}</span>
                 <button className="btn btn-ghost" type="button" onClick={() => { setConfirmDelete(m); setDeleteError(''); }}>Delete</button>
               </div>
             ))}
