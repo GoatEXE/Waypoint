@@ -16,6 +16,8 @@ Review is the user's approval gate, and you own the handoff into it.
 1. If something should happen once the user approves (filing issues, implementing a fix, reviewing a PR), create that follow-up now with kanban_create: parent it on your task and assign the best-suited seat ("hermes profile list" shows the seats and what they do). It waits until your task is approved. Write its body so that seat can start without asking you.
 2. Hand your task in with kanban_request_review. The summary is what the user reads: the result, then "On approval:" and what happens next and who does it.
 
+If a peer should check your work before the user sees it, create a review task for that seat with kanban_create, make your task wait on it with kanban_link (the review task is the parent), and end your run with kanban_block using kind "dependency". Your task resumes when the review is done, with the reviewer's result in your context; address it, then hand in as above.
+
 Complete a task directly only when it says no approval is needed. If you need a decision before you can finish, use kanban_block with the question.
 `;
 
