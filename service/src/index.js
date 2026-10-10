@@ -17,6 +17,7 @@ import { GitHubConnector } from './github.js';
 import { MessageWakeService } from './messageWakes.js';
 import { HermesPortal } from './hermesPortal.js';
 import { TaskReviewService } from './taskReviews.js';
+import { OrgSeats } from './orgSeats.js';
 import { createBridgeHandler, createHandler } from './routes.js';
 import { listenControl } from './controlChannel.js';
 
@@ -45,6 +46,7 @@ export async function createApp(env = process.env) {
   const seatChat = new SeatChatService({ config, store, executor: taskExecutor, logger });
   const github = new GitHubConnector({ config });
   const portal = new HermesPortal({ config, store, docker, hermes, logger });
+  const orgSeats = new OrgSeats({ config, hermes });
   const messageWakes = new MessageWakeService({ config, messaging, store, hermes, executor: taskExecutor, logger, onWakeFinished: (message) => reviews.afterWake(message) });
   if (config.hermes.autoStart) {
     void hermes.reconcileStartup()
@@ -52,7 +54,7 @@ export async function createApp(env = process.env) {
       .catch((error) => logger.warn('hermes_reconcile_skipped', { message: error.message }));
   }
 
-  const server = http.createServer(createHandler({ config, store, organization, docker, hermes, podSeats, podSeatAuth, taskRuns, messaging, seatChat, github, portal, logger }));
+  const server = http.createServer(createHandler({ config, store, organization, docker, hermes, podSeats, podSeatAuth, taskRuns, messaging, seatChat, github, portal, orgSeats, logger }));
   const bridgeServer = http.createServer(createBridgeHandler({ config, store, docker, hermes, podSeats, taskRuns, messaging, github, reviews, logger }));
   return { config, logger, store, organization, seatChat, github, docker, hermes, podSeats, podSeatAuth, taskExecutor, taskRuns, messaging, messageWakes, portal, reviews, server, bridgeServer };
 }

@@ -38,6 +38,15 @@ Returns service health and dependency-neutral process status.
 
 Returns sanitized runtime configuration such as dry-run status, data directory, Docker image setting, and label namespace. It never returns secrets.
 
+## `GET` and `POST /org/seats`
+
+The organization's seats are Hermes profiles inside the CEO's Hermes install (`/opt/data/profiles`). `GET` returns `{ seats: [{ id, description, model, provider }] }`. `POST` hires a seat: `{ "id": "designer", "description": "UI and UX design", "cloneFrom": "builder" }`.
+- `id`: 2-31 lowercase letters, digits, or dashes. `default`, `ceo`, and `hermes` are reserved.
+- `description`: 1-200 characters, saved as the profile description.
+- `cloneFrom` (optional): an existing seat to copy (config, skills, persona). Without it, the seat starts fresh with the CEO's model and a short persona built from the description.
+
+Duplicates return `409`, and dry-run mode refuses. The CEO hires the same way, natively with `hermes profile create`.
+
 ## `GET`, `POST`, and `DELETE /hermes-portal`
 
 Opens an agent's native Hermes web dashboard. `POST` takes `{ "target": "ceo" }` or `{ "target": "pod_<uuid>/<seat-id>" }` and returns `{ open, target, url, openedAt }`. The target container must be running. Dry-run mode refuses with `409`.

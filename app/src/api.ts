@@ -161,6 +161,8 @@ export const api = {
   reviewMessageDelivery: (to: string, messageId: string) => json<{ id: string; to: string; reviewedAt: string; wakeState: string }>('/message-deliveries/review', { method: 'POST', body: JSON.stringify({ to, messageId }) }),
   createMission: (body: MissionInput) => json<Mission>('/missions', { method: 'POST', body: JSON.stringify(body) }),
   updateMission: (id: string, status: MissionStatus) => json<Mission>(`/missions/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ status }) }),
+  orgSeats: () => json<{ seats: OrgSeat[] }>('/org/seats'),
+  hireSeat: (body: { id: string; description: string; cloneFrom?: string }) => json<{ seat: OrgSeat }>('/org/seats', { method: 'POST', body: JSON.stringify(body) }),
   addSeat: (podId: string, body: { id: string; role: string; instructions?: string }) => json<{ podId: string; seat: { id: string; role: string }; podState: string; seats: unknown }>(`/pod-instances/${encodeURIComponent(podId)}/seats`, { method: 'POST', body: JSON.stringify(body) }),
   hermesPortal: () => json<HermesPortalStatus>('/hermes-portal'),
   openHermesPortal: (target: string) => json<HermesPortalStatus & { url: string }>('/hermes-portal', { method: 'POST', body: JSON.stringify({ target }) }),
@@ -265,6 +267,7 @@ export interface MessageDelivery {
 
 export interface SeatModel { provider: string; default: string; api_mode?: string; base_url?: string }
 export interface PodInstanceSeat { id: string; role: string; state?: string; copiedFiles?: string[]; model?: SeatModel }
+export interface OrgSeat { id: string; description: string; model: string; provider: string }
 export interface OrgChartPod { podId: string; name: string; state: string; seats: { seatId: string; role: string }[] }
 export interface HermesPortalStatus { open: boolean; target: string | null; url: string | null; openedAt: string | null }
 export interface PodInstance {

@@ -10,10 +10,10 @@ const folderDialog = new FolderDialog();
 
 const NOT_FOUND = { status: 404, body: { error: { code: 'not_found', message: 'Route not found' } } };
 
-export function createHandler({ config, store, organization, docker, hermes, podSeats, podSeatAuth, taskRuns, messaging, seatChat, github, portal, logger }) {
+export function createHandler({ config, store, organization, docker, hermes, podSeats, podSeatAuth, taskRuns, messaging, seatChat, github, portal, orgSeats, logger }) {
   return createJsonHandler(logger, (request, url) => {
     assertMutationSafety(request);
-    return route(request, url, { config, store, organization, docker, hermes, podSeats, podSeatAuth, taskRuns, messaging, seatChat, github, portal, logger });
+    return route(request, url, { config, store, organization, docker, hermes, podSeats, podSeatAuth, taskRuns, messaging, seatChat, github, portal, orgSeats, logger });
   });
 }
 
@@ -40,7 +40,11 @@ function createJsonHandler(logger, dispatch) {
     }
   };
 }
-async function route(request, url, { config, store, organization, docker, hermes, podSeats, podSeatAuth, taskRuns, messaging, seatChat, github, portal, logger }) {
+async function route(request, url, { config, store, organization, docker, hermes, podSeats, podSeatAuth, taskRuns, messaging, seatChat, github, portal, orgSeats, logger }) {
+  if (url.pathname === '/org/seats' && orgSeats) {
+    if (request.method === 'GET') return { body: await orgSeats.list() };
+    if (request.method === 'POST') return { status: 201, body: await orgSeats.hire(await readBody(request)) };
+  }
   if (url.pathname === '/hermes-portal' && portal) {
     if (request.method === 'GET') return { body: portal.status() };
     if (request.method === 'DELETE') return { body: await portal.close() };
