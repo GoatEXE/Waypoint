@@ -149,6 +149,8 @@ export const api = {
   pod: (name: string) => json<Pod & { tasks: BoardTask[] }>(`/pods/${encodeURIComponent(name)}`),
   podConversation: (name: string) => json<{ pod: string; entries: PodEntry[] }>(`/pods/${encodeURIComponent(name)}/conversation`),
   createPod: (body: { name: string; purpose?: string; seats: string[]; durable?: boolean }) => json<Pod>('/pods', { method: 'POST', body: JSON.stringify(body) }),
+  reviewLearning: (name: string) => json<Pod>(`/pods/${encodeURIComponent(name)}/learning`, { method: 'POST', body: '{}' }),
+  decideLearning: (name: string, id: string, decision: 'apply' | 'drop') => json<Pod>(`/pods/${encodeURIComponent(name)}/learning/${id}`, { method: 'POST', body: JSON.stringify({ decision }) }),
   closePod: (name: string) => json<Pod>(`/pods/${encodeURIComponent(name)}/close`, { method: 'POST', body: '{}' }),
   orgSeats: () => json<{ seats: OrgSeat[] }>('/org/seats'),
   hireSeat: (body: { id: string; description: string; cloneFrom?: string }) => json<{ seat: OrgSeat }>('/org/seats', { method: 'POST', body: JSON.stringify(body) }),
@@ -216,7 +218,9 @@ export interface BoardTaskDetail extends BoardTask {
 export interface Project { id: string; name: string; missionId?: string | null; repo?: string | null; createdAt: string; updatedAt: string }
 export interface GitHubStatus { connected: boolean; app: { appId: number; slug: string; name: string; htmlUrl: string; owner: string | null } | null; installUrl: string | null; installations: { id: number; account: string; selection: string; repos: string[] }[]; error?: string | null }
 export interface PodSeat { id: string; from: string; description: string }
-export interface Pod { name: string; slug: string; purpose: string; durable: boolean; status: 'active' | 'closed'; seats: PodSeat[]; createdAt: string; closedAt: string | null }
+export interface LearningItem { id: string; seat: string; from: string; kind: 'skill' | 'memory'; path: string; change: 'added' | 'modified'; text: string; decision: 'apply' | 'drop' | null }
+export interface Pod { name: string; slug: string; purpose: string; durable: boolean; status: 'active' | 'closed'; seats: PodSeat[]; createdAt: string; closedAt: string | null; seatsRemoved?: boolean; learning?: { computedAt: string; reviewedAt?: string; items: LearningItem[] } }
+export const pendingLearning = (pod: Pod) => (pod.learning?.items || []).filter(item => !item.decision).length;
 export interface PodEntry { at: string; kind: 'task' | 'comment' | 'review_requested' | 'completed' | 'blocked'; author: string | null; to?: string | null; text: string; ref: string | null; title: string }
 export interface OrgSeat { id: string; description: string; model: string; provider: string }
 export interface HermesPortalStatus { open: boolean; target: string | null; url: string | null; openedAt: string | null }

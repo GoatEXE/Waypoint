@@ -4,7 +4,7 @@ import { ACC } from '../model';
 import { activeProject, useRoute, type View } from '../routes';
 import { useStore } from '../store';
 import { NavIcon, type NavIconName } from './NavIcon';
-import { api, type HermesStatus, type OrgSeat } from '../api';
+import { api, pendingLearning, type HermesStatus, type OrgSeat } from '../api';
 import { needsYou } from '../taskQueueModel';
 import { SeatMark } from './ProviderMark';
 import { sidebarHermesSummary } from '../hermesSidebarStatus';
@@ -33,7 +33,8 @@ export function Sidebar() {
   const [hermes, setHermes] = useState<HermesStatus | null>(null);
   const [hermesChecked, setHermesChecked] = useState(false);
   const [seats, setSeats] = useState<OrgSeat[]>([]);
-  const attention = needsYou(state.board).length;
+  const shownPods = state.pods.filter(pod => pod.status === 'active' || pendingLearning(pod) > 0);
+  const attention = needsYou(state.board).length + state.pods.filter(pod => pendingLearning(pod) > 0).length;
   useEffect(() => {
     api.hermesStatus({ freshAuth: true }).then(s => { setHermes(s); setHermesChecked(true); }).catch(() => { setHermes(null); setHermesChecked(true); });
   }, []);
@@ -112,11 +113,11 @@ export function Sidebar() {
 
         <div className="sb-section">
           <div className="sb-label-row"><span className="sb-label">PODS</span><AddButton onClick={() => openModal('pod')} /></div>
-          {!state.pods.some(pod => pod.status === 'active') && <div className="sb-item" style={{ color: 'var(--faint)', cursor: 'default' }}>No pods</div>}
-          {state.pods.filter(pod => pod.status === 'active').map(pod => (
+          {!shownPods.length && <div className="sb-item" style={{ color: 'var(--faint)', cursor: 'default' }}>No pods</div>}
+          {shownPods.map(pod => (
             <div key={pod.name} className={'sb-item' + (route.v === 'pod' && route.id === pod.name ? ' active' : '')} title={pod.purpose} onClick={() => nav('/pods/' + pod.name)}>
               <span className="sb-name mono">{pod.name}</span>
-              <span className="sb-meta">{pod.seats.length}</span>
+              <span className="sb-meta">{pod.status === 'active' ? pod.seats.length : 'review'}</span>
             </div>
           ))}
         </div>

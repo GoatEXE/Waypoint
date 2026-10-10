@@ -131,7 +131,17 @@ A pod is a team for one piece of work: its own Hermes board, `pod-<name>`, and a
 - `POST /pods` takes `{ name, purpose?, seats: [seat ids], durable? }`. The name is 2-15 lowercase letters, digits, or dashes, and each `<name>-<seat>` must fit in 31 characters. Dry-run mode refuses.
 - `GET /pods/:name` adds the pod board's `tasks`.
 - `GET /pods/:name/conversation` merges the pod's tasks, comments, and handoffs (`review_requested`, `completed`, `blocked`) by time: `{ entries: [{ at, kind, author, to?, text, ref, title }] }`.
-- `POST /pods/:name/close` archives the pod board. The clones are kept for the learning review.
+- `POST /pods/:name/close` archives the pod board and runs the learning review.
+- `POST /pods/:name/learning` runs the learning review now (for example on a durable pod).
+- `POST /pods/:name/learning/:itemId` takes `{ "decision": "apply" | "drop" }`.
+
+**Learning review.** When a pod is created, Waypoint records a fingerprint of each clone's skill folders. The review compares each clone with that baseline (pods made before baselines existed are compared with the original seat). Each item is one of these, stored as `learning.items: [{ id, seat, from, kind, path, change, text, decision }]`:
+- A new or changed skill folder (Waypoint's own `waypoint-*` skills are ignored).
+- A memory entry (Hermes memory files are entries separated by `§`) that the original seat doesn't have.
+
+`apply` copies the skill folder into the original seat, or appends the memory entry under Hermes' memory-file lock. Once every item is decided:
+- A closed temporary pod's clones are deleted (`seatsRemoved: true`).
+- Otherwise the baseline is refreshed for the next review.
 
 Tasks carry the `board` they live on. `GET /tasks` covers every live board, and `POST /tasks` takes an optional `board`. Refs remember each task's board, so every task route works for pod tasks too.
 
