@@ -100,6 +100,8 @@ async function route(request, url, { config, store, organization, hermes, board,
   if (method === 'POST' && pathname === '/tasks') return { status: 201, body: await board.create({ ...await readBody(request), createdBy: 'user' }) };
   match = pathname.match(/^\/tasks\/([^/]+)$/);
   if (method === 'GET' && match) return { body: await board.show(decodeRouteParam(match[1])) };
+  match = pathname.match(/^\/tasks\/([^/]+)\/activity$/);
+  if (method === 'GET' && match) return { body: await board.activity(decodeRouteParam(match[1])) };
   match = pathname.match(/^\/tasks\/([^/]+)\/comments$/);
   if (method === 'POST' && match) return { body: await board.comment(decodeRouteParam(match[1]), await readBody(request)) };
   match = pathname.match(/^\/tasks\/([^/]+)\/actions$/);
