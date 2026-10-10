@@ -34,3 +34,16 @@ test('mission edits are validated', async () => {
   await assert.rejects(store.updateMission(mission.id, { status: 'backlog' }), /cannot move from done/);
   assert.equal((await store.updateMission(mission.id, { title: 'One' })).title, 'One');
 });
+
+test('deleting a mission moves its projects out of it', async () => {
+  const store = await tempStore();
+  const { mission } = await store.createMission({ title: 'Gone soon' });
+  const { mission: other } = await store.createMission({ title: 'Stays' });
+  const a = await store.createProject({ name: 'A', missionId: mission.id });
+  const b = await store.createProject({ name: 'B', missionId: other.id });
+  await store.deleteMission(mission.id);
+  const projects = await store.listProjects();
+  assert.equal(projects.find((p) => p.id === a.id).missionId, null);
+  assert.equal(projects.find((p) => p.id === b.id).missionId, other.id);
+  assert.equal((await store.updateProject(a.id, { missionId: other.id })).missionId, other.id);
+});

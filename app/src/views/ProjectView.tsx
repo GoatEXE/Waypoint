@@ -12,11 +12,12 @@ import type { OrgSeat } from '../api';
 function ProjectSettings({ project, github, onSaved }: { project: Project; github: GitHubStatus | null; onSaved: () => void }) {
   const { state } = useStore();
   const [name, setName] = useState(project.name);
-  const [missionId, setMissionId] = useState(project.missionId || '');
+  const savedMission = state.missions.missions.some(m => m.id === project.missionId) ? project.missionId || '' : '';
+  const [missionId, setMissionId] = useState(savedMission);
   const [repo, setRepo] = useState(project.repo || '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const dirty = name.trim() !== project.name || missionId !== (project.missionId || '') || repo !== (project.repo || '');
+  const dirty = name.trim() !== project.name || missionId !== savedMission || repo !== (project.repo || '');
 
   const save = async () => {
     setBusy(true); setError('');
@@ -33,12 +34,12 @@ function ProjectSettings({ project, github, onSaved }: { project: Project; githu
         <label className="field"><span className="field-label">Name</span>
           <input className="input" value={name} maxLength={80} onChange={e => setName(e.target.value)} />
         </label>
-        {!project.missionId && <label className="field"><span className="field-label">Mission</span>
+        <label className="field"><span className="field-label">Mission</span>
           <select className="input" value={missionId} onChange={e => setMissionId(e.target.value)}>
-            <option value="">Choose a mission</option>
+            <option value="">Not in a mission</option>
             {state.missions.missions.map(m => <option key={m.id} value={m.id}>{m.title}</option>)}
           </select>
-        </label>}
+        </label>
         <div className="field"><span className="field-label">GitHub repository</span>
           <RepoSelect value={repo} onChange={setRepo} github={github} />
         </div>
@@ -46,7 +47,7 @@ function ProjectSettings({ project, github, onSaved }: { project: Project; githu
       {error && <div role="alert" style={{ fontSize: 12.5, color: 'var(--text)' }}>{error}</div>}
       {dirty && <div style={{ display: 'flex', gap: 8 }}>
         <button className="btn btn-primary" disabled={busy || !name.trim()} onClick={() => void save()}>{busy ? 'Saving…' : 'Save project'}</button>
-        <button className="btn btn-ghost" disabled={busy} onClick={() => { setName(project.name); setMissionId(project.missionId || ''); setRepo(project.repo || ''); }}>Discard</button>
+        <button className="btn btn-ghost" disabled={busy} onClick={() => { setName(project.name); setMissionId(savedMission); setRepo(project.repo || ''); }}>Discard</button>
       </div>}
     </section>
   );

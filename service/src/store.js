@@ -220,6 +220,12 @@ export class OrgStore {
     return this.#serialize('missions', async () => {
       const mission = await this.getMission(missionId);
       await fs.unlink(this.missionPath(mission.id));
+      await this.#serialize('projects', async () => {
+        const projects = await this.readProjects();
+        if (!projects.some((project) => project.missionId === mission.id)) return;
+        const now = new Date().toISOString();
+        await writeJson(this.projectsPath(), { projects: projects.map((project) => (project.missionId === mission.id ? { ...project, missionId: null, updatedAt: now } : project)) });
+      });
       return { deleted: true, missionId: mission.id };
     });
   }
