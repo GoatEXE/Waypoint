@@ -165,6 +165,10 @@ button, input, textarea { font-family: inherit; }
 .filter.on { background: var(--raised); border-color: var(--border-5); color: var(--text); }
 .icon-btn { width: 28px; height: 28px; border-radius: 6px; border: none; background: transparent; color: var(--faint); cursor: pointer; font-size: 17px; line-height: 1; }
 .icon-btn:hover { color: var(--text); background: var(--hover); }
+.danger-zone { padding: 16px; border: 1px solid oklch(0.65 0.16 25 / .35); border-radius: 10px; }
+.btn-ghost.danger { border-color: oklch(0.65 0.16 25 / .5); color: oklch(0.8 0.1 25); }
+.btn-ghost.danger:hover { border-color: oklch(0.65 0.16 25 / .8); }
+.form-error { padding: 8px 10px; border: 1px solid oklch(0.65 0.16 25 / .5); border-radius: 7px; background: oklch(0.65 0.16 25 / .12); color: var(--text); font-size: 12.5px; line-height: 1.45; }
 .group-head { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
 .group-head .name { font: 500 12.5px var(--mono); cursor: pointer; color: var(--text); white-space: nowrap; }
 .group-head .name:hover { color: var(--acc-text); }
