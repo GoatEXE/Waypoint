@@ -51,9 +51,11 @@ for name in sorted(os.listdir(root)) if os.path.isdir(root) else []:
         continue
     if skill:
         sync_skill(home)
-    model = load(os.path.join(home, 'config.yaml')).get('model')
-    model = model if isinstance(model, dict) else {}
-    seats.append({'id': name, 'description': text(load(os.path.join(home, 'profile.yaml')).get('description')), 'model': text(model.get('default')), 'provider': text(model.get('provider'))})
+    settings = load(os.path.join(home, 'config.yaml'))
+    model = settings.get('model') if isinstance(settings.get('model'), dict) else {}
+    skills = settings.get('skills') if isinstance(settings.get('skills'), dict) else {}
+    auto_load = [entry for entry in skills.get('auto_load') if isinstance(entry, str)] if isinstance(skills.get('auto_load'), list) else []
+    seats.append({'id': name, 'description': text(load(os.path.join(home, 'profile.yaml')).get('description')), 'model': text(model.get('default')), 'provider': text(model.get('provider')), 'autoLoad': auto_load})
 print(json.dumps({'seats': seats}))
 `;
 
@@ -76,7 +78,12 @@ export class OrgSeats {
   async list() {
     const result = await this.hermes.execPython(LIST_SEATS_SCRIPT, JSON.stringify({ skill: SEAT_SKILL }), { timeoutMs: 20000, outputLimitBytes: 256 * 1024 });
     const parsed = JSON.parse(String(result.stdout).trim().split('\n').pop());
-    return { seats: (parsed.seats || []).filter((seat) => SEAT_ID_RE.test(seat.id)) };
+    const seats = (parsed.seats || []).filter((seat) => SEAT_ID_RE.test(seat.id));
+    for (const seat of seats) {
+      const autoLoad = Array.isArray(seat.autoLoad) ? seat.autoLoad : [];
+      if (!autoLoad.includes('waypoint-seat')) await this.#hermes(['-p', seat.id, 'config', 'set', 'skills.auto_load', JSON.stringify([...autoLoad, 'waypoint-seat'])]);
+    }
+    return { seats: seats.map(({ autoLoad, ...seat }) => seat) };
   }
 
   async hire(input = {}) {
