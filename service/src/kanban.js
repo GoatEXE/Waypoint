@@ -160,7 +160,11 @@ export class KanbanBoard {
     return boards.filter((board) => !board.archived).map((board) => board.slug || DEFAULT_BOARD);
   }
 
-  summary(task, numbers, prefix, board = DEFAULT_BOARD) {
+  async projectMap() {
+    return this.projects ? this.projects.byHermesId().catch(() => ({})) : {};
+  }
+
+  summary(task, numbers, prefix, board = DEFAULT_BOARD, projects = {}) {
     const number = numbers[task.id] || null;
     return {
       id: task.id,
@@ -176,17 +180,19 @@ export class KanbanBoard {
       startedAt: toIso(task.started_at),
       completedAt: toIso(task.completed_at),
       lastError: task.last_failure_error || null,
+      projectId: (task.project_id && projects[task.project_id]) || null,
     };
   }
 
   async list({ board } = {}) {
     const slugs = board ? [boardSlug(board)] : await this.boards();
+    const projects = await this.projectMap();
     const prefix = await this.prefix();
     const tasks = [];
     for (const slug of slugs) {
       const rows = await this.run(['list'], { board: slug });
       const numbers = await this.numberAll(rows.map((task) => task.id).sort(), slug);
-      tasks.push(...rows.map((task) => this.summary(task, numbers, prefix, slug)));
+      tasks.push(...rows.map((task) => this.summary(task, numbers, prefix, slug, projects)));
     }
     return { tasks: tasks.sort((a, b) => (b.number || 0) - (a.number || 0)) };
   }
@@ -202,7 +208,7 @@ export class KanbanBoard {
       return { id: taskId, ref: numbers[taskId] ? `${prefix}-${numbers[taskId]}` : null, title: task?.title || '', status: task?.status || null, assignee: task?.assignee || null };
     };
     return {
-      ...this.summary(detail.task, numbers, prefix, board),
+      ...this.summary(detail.task, numbers, prefix, board, await this.projectMap()),
       latestSummary: detail.latest_summary || '',
       parents: (detail.parents || []).map(link),
       children: (detail.children || []).map(link),
@@ -222,7 +228,7 @@ export class KanbanBoard {
 
   async create(input = {}) {
     if (!input || typeof input !== 'object' || Array.isArray(input)) throw badRequest('body must be an object');
-    const extra = Object.keys(input).filter((key) => !['title', 'body', 'assignee', 'parents', 'createdBy', 'board'].includes(key));
+    const extra = Object.keys(input).filter((key) => !['title', 'body', 'assignee', 'parents', 'createdBy', 'board', 'project'].includes(key));
     if (extra.length) throw badRequest('unsupported task fields', { fields: extra.slice(0, 10) });
     const board = input.board ? boardSlug(input.board) : DEFAULT_BOARD;
     const args = ['create', text(input.title, 'title', TITLE_MAX)];
@@ -231,6 +237,12 @@ export class KanbanBoard {
     if (input.assignee) args.push('--assignee', profile(input.assignee, 'assignee'));
     for (const parent of Array.isArray(input.parents) ? input.parents : []) args.push('--parent', await this.resolveId(parent));
     args.push('--created-by', input.createdBy === 'ceo' ? 'ceo' : 'user');
+    if (input.project) {
+      if (!this.projects || !this.store) throw badRequest('projects are not available');
+      const project = await this.store.getProject(input.project);
+      if (!project.repo) throw badRequest('this project has no GitHub repository yet');
+      args.push('--project', (await this.projects.ensure(project)).slug);
+    }
     const created = await this.run(args, { board });
     const id = (created.task || created).id;
     await this.numberAll([id], board);

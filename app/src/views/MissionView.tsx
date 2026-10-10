@@ -5,6 +5,8 @@ import { currentMission, MISSION_STATUSES, missionStatusLabel, shortDate } from 
 import { useStore } from '../store';
 import { needsYou, statusLabel, taskLabel } from '../taskQueueModel';
 import { errorText } from '../runtimeHealth';
+import { ProjectTaskList, StatusCounts } from '../components/ProjectTasks';
+import { projectTasks } from '../projectProgress';
 
 function ProjectsSection({ mission }: { mission: Mission }) {
   const { state, addProject } = useStore();
@@ -185,6 +187,7 @@ export function MissionView() {
   }
 
   const others = missions.missions.slice(1);
+  const missionTasks = projectTasks(state.board, state.projects.filter(p => p.missionId === mission.id).map(p => p.id));
 
   return (
     <div className="page" style={{ maxWidth: 920, paddingTop: 48, gap: 44 }}>
@@ -222,6 +225,14 @@ export function MissionView() {
           </div>
         </div>
       )}
+
+      <div className="stack" style={{ gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <div className="section-title">Progress</div>
+          <StatusCounts tasks={missionTasks} />
+        </div>
+        {missionTasks.length ? <ProjectTaskList tasks={missionTasks} limit={8} /> : <div className="empty">No project tasks yet. Tasks created in a project show up here.</div>}
+      </div>
 
       <MissionWork mission={mission} />
 

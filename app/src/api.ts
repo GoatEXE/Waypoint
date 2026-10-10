@@ -162,7 +162,7 @@ export const api = {
   sendSeatFeedback: (seat: string, task: string, message: string) => json<SeatFeedbackConversation>(`/seats/${encodeURIComponent(seat)}/feedback`, { method: 'POST', body: JSON.stringify({ task, message }) }),
   task: (ref: string) => json<BoardTaskDetail>(`/tasks/${encodeURIComponent(ref)}`),
   taskActivity: (ref: string) => json<TaskActivity>(`/tasks/${encodeURIComponent(ref)}/activity`),
-  createTask: (body: { title: string; body?: string; assignee?: string | null; parents?: string[]; board?: string }) => json<BoardTaskDetail>('/tasks', { method: 'POST', body: JSON.stringify(body) }),
+  createTask: (body: { title: string; body?: string; assignee?: string | null; parents?: string[]; board?: string; project?: string }) => json<BoardTaskDetail>('/tasks', { method: 'POST', body: JSON.stringify(body) }),
   commentTask: (ref: string, text: string) => json<BoardTaskDetail>(`/tasks/${encodeURIComponent(ref)}/comments`, { method: 'POST', body: JSON.stringify({ text }) }),
   taskAction: (ref: string, body: { action: 'complete' | 'archive' | 'block' | 'unblock' | 'assign'; assignee?: string | null; reason?: string; summary?: string }) => json<BoardTaskDetail>(`/tasks/${encodeURIComponent(ref)}/actions`, { method: 'POST', body: JSON.stringify(body) }),
   projects: () => json<{ projects: Project[] }>('/projects'),
@@ -207,6 +207,7 @@ export interface BoardTask {
   startedAt: string | null;
   completedAt: string | null;
   lastError: string | null;
+  projectId?: string | null;
 }
 export interface BoardTaskLink { id: string; ref: string | null; title: string; status: BoardStatus | null; assignee: string | null }
 export interface BoardComment { author: string; body: string; at: string | null }

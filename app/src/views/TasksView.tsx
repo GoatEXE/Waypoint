@@ -114,12 +114,15 @@ export function TasksView() {
   );
 }
 
-export function NewTaskDialog({ tasks, seats, board, initial, onClose, onCreated }: {
+export function NewTaskDialog({ tasks, seats, board, initial, initialProject = '', onClose, onCreated }: {
   tasks: BoardTask[]; seats: OrgSeat[]; board?: string;
-  initial?: Partial<TaskDraft>;
+  initial?: Partial<TaskDraft>; initialProject?: string;
   onClose: () => void; onCreated: (task: BoardTask) => void;
 }) {
   const [draft, setDraft] = useState<TaskDraft>({ ...emptyDraft, ...initial });
+  const { state } = useStore();
+  const repoProjects = state.projects.filter(p => p.repo);
+  const [project, setProject] = useState(initialProject);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -132,7 +135,7 @@ export function NewTaskDialog({ tasks, seats, board, initial, onClose, onCreated
   const submit = async () => {
     if (!draft.title.trim() || busy) return;
     setBusy(true); setError('');
-    try { onCreated(await api.createTask({ title: draft.title.trim(), body: draft.body.trim(), assignee: draft.assignee || null, parents: draft.parents, ...(board ? { board } : {}) })); }
+    try { onCreated(await api.createTask({ title: draft.title.trim(), body: draft.body.trim(), assignee: draft.assignee || null, parents: draft.parents, ...(board ? { board } : {}), ...(project ? { project } : {}) })); }
     catch (e) { setError(errorText(e)); setBusy(false); }
   };
 
@@ -145,6 +148,13 @@ export function NewTaskDialog({ tasks, seats, board, initial, onClose, onCreated
           <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Goes straight onto the board{board ? ` of pod ${board}` : ''}. If you assign a seat, it picks the task up once any parent tasks are done.</div>
         </div>
         <TaskFields draft={draft} onChange={setDraft} tasks={tasks} seats={seats} disabled={busy} />
+        {!board && <label className="field"><span className="field-label">Project</span>
+          <select className="input" value={project} disabled={busy} onChange={e => setProject(e.target.value)}>
+            <option value="">No project</option>
+            {repoProjects.map(p => <option key={p.id} value={p.id}>{p.name} · {p.repo}</option>)}
+          </select>
+          {project && <span className="field-hint">The seat works in its own branch of {repoProjects.find(p => p.id === project)?.repo}.</span>}
+        </label>}
         {error && <div role="alert" className="form-error">{error}</div>}
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
           <button type="button" className="btn btn-ghost" disabled={busy} onClick={onClose}>Cancel</button>

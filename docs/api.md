@@ -167,3 +167,7 @@ Errors are structured and omit stack traces and secrets:
 
 - `GET /seats/:seatId/feedback?task=<ref>` returns `{ seat, task, messages, live }` for the feedback chat between the user and the seat assigned to that task.
 - `POST /seats/:seatId/feedback` takes `{ task, message }`. It runs a Hermes chat on that seat's own profile (`hermes -p <seat> chat`, session `waypoint-feedback-<taskId>`). The first message carries the task and its handoff summary and asks the seat to save what it learns with its memory tool or a skill. Only the task's assignee can receive feedback; one reply runs at a time per seat and task.
+
+### Projects on the board
+
+A Waypoint project with a GitHub repo gets a matching Hermes project (slug `wp-<id>`). Waypoint clones the repo into the CEO container at `/opt/data/repos/<owner>/<name>` and runs `hermes project create`. It does this when the project is created or its repo changes, and for existing projects when the CEO starts. `POST /tasks` accepts `project` (a Waypoint project id) and creates the task with `--project <slug>`, so the seat works in its own git worktree and branch of that repo. Tasks report `projectId` (the Waypoint project). The CEO's `list_projects` bridge tool returns `hermesProject` so it can pass `project` to `kanban_create`.

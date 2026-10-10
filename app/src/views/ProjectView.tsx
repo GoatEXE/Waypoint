@@ -4,6 +4,10 @@ import { api, type GitHubStatus, type Project } from '../api';
 import { useStore } from '../store';
 import { RepoSelect } from '../components/RepoSelect';
 import { errorText } from '../runtimeHealth';
+import { ProjectTaskList, StatusCounts } from '../components/ProjectTasks';
+import { projectTasks } from '../projectProgress';
+import { NewTaskDialog } from './TasksView';
+import type { OrgSeat } from '../api';
 
 function ProjectSettings({ project, github, onSaved }: { project: Project; github: GitHubStatus | null; onSaved: () => void }) {
   const { state } = useStore();
@@ -49,17 +53,20 @@ function ProjectSettings({ project, github, onSaved }: { project: Project; githu
 }
 
 export function ProjectView({ id }: { id: string }) {
-  const { state, loadProjects, flash } = useStore();
+  const { state, loadProjects, loadBoard, flash } = useStore();
+  const [adding, setAdding] = useState(false);
+  const [seats, setSeats] = useState<OrgSeat[]>([]);
   const nav = useNavigate();
   const [github, setGithub] = useState<GitHubStatus | null>(null);
   const project = state.projects.find(p => p.id === id);
 
-  useEffect(() => { api.githubStatus().then(setGithub).catch(() => undefined); }, [id]);
+  useEffect(() => { api.githubStatus().then(setGithub).catch(() => undefined); api.orgSeats().then(r => setSeats(r.seats)).catch(() => undefined); void loadBoard(); }, [id, loadBoard]);
 
   if (!project) {
     return <div className="page" style={{ maxWidth: 920, gap: 12 }}><div className="eyebrow">PROJECT</div><h1 className="h1">{state.projects.length ? 'Project not found' : 'Loading project…'}</h1></div>;
   }
   const mission = state.missions.missions.find(m => m.id === project.missionId);
+  const tasks = projectTasks(state.board, [project.id]);
   const remove = async () => {
     if (!window.confirm(`Delete project ${project.name}? The repository itself is not touched.`)) return;
     try { await api.deleteProject(project.id); await loadProjects(); flash(`Deleted ${project.name}`); nav('/'); }
@@ -80,6 +87,17 @@ export function ProjectView({ id }: { id: string }) {
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: -12 }}>
         <button className="btn btn-ghost sm" onClick={() => void remove()}>Delete project</button>
       </div>
+
+      <section className="stack" style={{ gap: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div className="section-title">Tasks</div>
+          <StatusCounts tasks={tasks} />
+          <button className="btn btn-ghost sm" style={{ marginLeft: 'auto' }} disabled={!project.repo} title={project.repo ? undefined : 'Add a GitHub repository first'} onClick={() => setAdding(true)}>Add task</button>
+        </div>
+        <ProjectTaskList tasks={tasks} limit={50} />
+      </section>
+      {adding && <NewTaskDialog tasks={state.board} seats={seats} initialProject={project.id} onClose={() => setAdding(false)}
+        onCreated={async () => { setAdding(false); flash(`Added a task to ${project.name}`); await loadBoard(); }} />}
 
       <ProjectSettings key={project.updatedAt} project={project} github={github} onSaved={() => { void loadProjects(); flash('Project saved'); }} />
     </div>

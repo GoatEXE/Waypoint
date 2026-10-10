@@ -36,7 +36,7 @@ function createJsonHandler(logger, dispatch) {
   };
 }
 
-async function route(request, url, { config, store, organization, hermes, board, pods, github, portal, orgSeats, seatFeedback, logger }) {
+async function route(request, url, { config, store, organization, hermes, board, pods, github, portal, orgSeats, seatFeedback, projectSync, logger }) {
   const { pathname } = url;
   const method = request.method;
   const feedbackMatch = pathname.match(/^\/seats\/([^/]+)\/feedback$/);
@@ -138,22 +138,30 @@ async function route(request, url, { config, store, organization, hermes, board,
   if (method === 'POST' && match) return { body: await store.linkMission(match[1], await readBody(request)) };
 
   if (method === 'GET' && pathname === '/projects') return { body: { projects: await store.listProjects() } };
-  if (method === 'POST' && pathname === '/projects') return { status: 201, body: await store.createProject(await readBody(request)) };
+  if (method === 'POST' && pathname === '/projects') {
+    const project = await store.createProject(await readBody(request));
+    projectSync?.sync(project);
+    return { status: 201, body: project };
+  }
   match = pathname.match(/^\/projects\/([^/]+)$/);
   if (method === 'GET' && match) return { body: await store.getProject(decodeRouteParam(match[1])) };
   if (method === 'DELETE' && match) return { body: await store.deleteProject(decodeRouteParam(match[1])) };
-  if (method === 'PATCH' && match) return { body: await store.updateProject(decodeRouteParam(match[1]), await readBody(request)) };
+  if (method === 'PATCH' && match) {
+    const project = await store.updateProject(decodeRouteParam(match[1]), await readBody(request));
+    projectSync?.sync(project);
+    return { body: project };
+  }
   return NOT_FOUND;
 }
 
-async function bridgeTool(request, { config, store, hermes, github, board, pods }) {
+async function bridgeTool(request, { config, store, hermes, github, board, pods, projectSync }) {
   const body = await readBody(request);
   const tool = String(body.tool || '');
   const args = body.args || {};
   if (!bearerMatches(request.headers.authorization, config.bridge.token)) throw forbidden('Waypoint bridge token is required');
   if (!args || typeof args !== 'object' || Array.isArray(args)) throw badRequest('args must be an object');
   let result;
-  try { result = await ceoControlTool(tool, args, { config, store, github, board, pods }); }
+  try { result = await ceoControlTool(tool, args, { config, store, github, board, pods, projectSync }); }
   catch (error) {
     if (tool !== 'health') hermes.recordCeoAction?.(tool, String(error.message || 'failed'), 'error');
     throw error;
@@ -162,7 +170,7 @@ async function bridgeTool(request, { config, store, hermes, github, board, pods 
   return result;
 }
 
-async function ceoControlTool(tool, args, { config, store, github, board, pods }) {
+async function ceoControlTool(tool, args, { config, store, github, board, pods, projectSync }) {
   if (tool === 'health') return { ok: true, service: config.serviceName };
   if (tool === 'list_pods') { assertFields(args, []); return pods.list(); }
   if (tool === 'create_pod') return pods.create(args);
@@ -173,8 +181,17 @@ async function ceoControlTool(tool, args, { config, store, github, board, pods }
     return { tasks: tasks.map(({ id, ref, board: slug, title, status, assignee }) => ({ id, ref, board: slug, title, status, assignee })) };
   }
   if (tool === 'github_token') return githubToken(args, { store, github });
-  if (tool === 'list_projects') return { projects: await store.listProjects() };
-  if (tool === 'create_project') return store.createProject(args);
+  if (tool === 'list_projects') {
+    const projects = await store.listProjects();
+    const slugs = projectSync ? await projectSync.slugs() : {};
+    for (const project of projects) if (project.repo && !slugs[project.id]) projectSync?.sync(project);
+    return { projects: projects.map((project) => ({ ...project, hermesProject: slugs[project.id] || null })) };
+  }
+  if (tool === 'create_project') {
+    const project = await store.createProject(args);
+    projectSync?.sync(project);
+    return project;
+  }
   if (tool === 'list_missions') return { missions: await store.listMissions() };
   if (tool === 'create_mission') return (await store.createMission(args, { source: 'ceo' }));
   if (tool === 'link_mission') {
