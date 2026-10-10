@@ -20,6 +20,7 @@ function loadPrefs(): ViewPrefs {
 function TaskMeta({ task }: { task: BoardTask }) {
   return (
     <span className="task-meta">
+      {task.board !== 'default' && <span className="task-pill mono">{task.board.replace(/^pod-/, '')}</span>}
       {task.lastError && <span className="task-pill warn">error</span>}
       <span className="task-owner">{task.assignee || 'Unassigned'}</span>
     </span>
@@ -112,8 +113,8 @@ export function TasksView() {
   );
 }
 
-export function NewTaskDialog({ tasks, seats, initial, onClose, onCreated }: {
-  tasks: BoardTask[]; seats: OrgSeat[];
+export function NewTaskDialog({ tasks, seats, board, initial, onClose, onCreated }: {
+  tasks: BoardTask[]; seats: OrgSeat[]; board?: string;
   initial?: Partial<TaskDraft>;
   onClose: () => void; onCreated: (task: BoardTask) => void;
 }) {
@@ -130,7 +131,7 @@ export function NewTaskDialog({ tasks, seats, initial, onClose, onCreated }: {
   const submit = async () => {
     if (!draft.title.trim() || busy) return;
     setBusy(true); setError('');
-    try { onCreated(await api.createTask({ title: draft.title.trim(), body: draft.body.trim(), assignee: draft.assignee || null, parents: draft.parents })); }
+    try { onCreated(await api.createTask({ title: draft.title.trim(), body: draft.body.trim(), assignee: draft.assignee || null, parents: draft.parents, ...(board ? { board } : {}) })); }
     catch (e) { setError(e instanceof Error ? e.message : String(e)); setBusy(false); }
   };
 

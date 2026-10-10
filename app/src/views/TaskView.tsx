@@ -71,6 +71,7 @@ function Comment({ author, at, body }: { author: string; at: string; body: strin
 }
 
 export function TaskView({ id }: { id: string }) {
+  const nav = useNavigate();
   const splitCols = useSplitCols();
   const { state: appState, setCeoThread, setPane, flash, loadBoard } = useStore();
   const [load, setLoad] = useState<LoadState>({ status: 'loading' });
@@ -138,7 +139,7 @@ export function TaskView({ id }: { id: string }) {
     <div className="page" style={{ maxWidth: 1040, gap: 28 }}>
       <div style={{ display: 'flex', alignItems: 'flex-end', gap: 20, flexWrap: 'wrap' }}>
         <div className="page-head">
-          <div className="eyebrow-row"><span>TASK</span><span className="sep">·</span><span>{ref}</span><span className="sep">·</span><span>{statusLabel(task.status).toUpperCase()}</span></div>
+          <div className="eyebrow-row"><span>TASK</span><span className="sep">·</span><span>{ref}</span><span className="sep">·</span><span>{statusLabel(task.status).toUpperCase()}</span>{task.board !== 'default' && <><span className="sep">·</span><button type="button" className="ref-link" onClick={() => nav('/pods/' + task.board.replace(/^pod-/, ''))}>POD {task.board.replace(/^pod-/, '').toUpperCase()}</button></>}</div>
           <h1 className="h1">{task.title}</h1>
         </div>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 10, flexWrap: 'wrap' }}>

@@ -111,6 +111,17 @@ export function Sidebar() {
         </div>
 
         <div className="sb-section">
+          <div className="sb-label-row"><span className="sb-label">PODS</span><AddButton onClick={() => openModal('pod')} /></div>
+          {!state.pods.some(pod => pod.status === 'active') && <div className="sb-item" style={{ color: 'var(--faint)', cursor: 'default' }}>No pods</div>}
+          {state.pods.filter(pod => pod.status === 'active').map(pod => (
+            <div key={pod.name} className={'sb-item' + (route.v === 'pod' && route.id === pod.name ? ' active' : '')} title={pod.purpose} onClick={() => nav('/pods/' + pod.name)}>
+              <span className="sb-name mono">{pod.name}</span>
+              <span className="sb-meta">{pod.seats.length}</span>
+            </div>
+          ))}
+        </div>
+
+        <div className="sb-section">
           <div className="sb-label-row"><span className="sb-label">SEATS</span><AddButton onClick={() => openModal('seat')} /></div>
           {!seats.length && <div className="sb-item" style={{ color: 'var(--faint)', cursor: 'default' }}>No seats</div>}
           {seats.map(seat => (

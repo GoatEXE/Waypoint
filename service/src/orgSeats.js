@@ -73,6 +73,7 @@ export class OrgSeats {
   constructor({ config, hermes }) {
     this.config = config;
     this.hermes = hermes;
+    this.excluded = async () => new Set();
   }
 
   async list() {
@@ -83,7 +84,8 @@ export class OrgSeats {
       const autoLoad = Array.isArray(seat.autoLoad) ? seat.autoLoad : [];
       if (!autoLoad.includes('waypoint-seat')) await this.#hermes(['-p', seat.id, 'config', 'set', 'skills.auto_load', JSON.stringify([...autoLoad, 'waypoint-seat'])]);
     }
-    return { seats: seats.map(({ autoLoad, ...seat }) => seat) };
+    const excluded = await this.excluded();
+    return { seats: seats.filter((seat) => !excluded.has(seat.id)).map(({ autoLoad, ...seat }) => seat) };
   }
 
   async hire(input = {}) {

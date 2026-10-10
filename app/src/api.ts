@@ -145,6 +145,11 @@ export const api = {
   tasks: () => json<{ tasks: BoardTask[] }>('/tasks'),
   createMission: (body: MissionInput) => json<Mission>('/missions', { method: 'POST', body: JSON.stringify(body) }),
   updateMission: (id: string, status: MissionStatus) => json<Mission>(`/missions/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ status }) }),
+  pods: () => json<{ pods: Pod[] }>('/pods'),
+  pod: (name: string) => json<Pod & { tasks: BoardTask[] }>(`/pods/${encodeURIComponent(name)}`),
+  podConversation: (name: string) => json<{ pod: string; entries: PodEntry[] }>(`/pods/${encodeURIComponent(name)}/conversation`),
+  createPod: (body: { name: string; purpose?: string; seats: string[]; durable?: boolean }) => json<Pod>('/pods', { method: 'POST', body: JSON.stringify(body) }),
+  closePod: (name: string) => json<Pod>(`/pods/${encodeURIComponent(name)}/close`, { method: 'POST', body: '{}' }),
   orgSeats: () => json<{ seats: OrgSeat[] }>('/org/seats'),
   hireSeat: (body: { id: string; description: string; cloneFrom?: string }) => json<{ seat: OrgSeat }>('/org/seats', { method: 'POST', body: JSON.stringify(body) }),
   hermesPortal: () => json<HermesPortalStatus>('/hermes-portal'),
@@ -152,7 +157,7 @@ export const api = {
   closeHermesPortal: () => json<HermesPortalStatus>('/hermes-portal', { method: 'DELETE', body: '{}' }),
   deleteMission: (id: string) => json<{ deleted: true; missionId: string }>(`/missions/${encodeURIComponent(id)}`, { method: 'DELETE', body: '{}' }),
   task: (ref: string) => json<BoardTaskDetail>(`/tasks/${encodeURIComponent(ref)}`),
-  createTask: (body: { title: string; body?: string; assignee?: string | null; parents?: string[] }) => json<BoardTaskDetail>('/tasks', { method: 'POST', body: JSON.stringify(body) }),
+  createTask: (body: { title: string; body?: string; assignee?: string | null; parents?: string[]; board?: string }) => json<BoardTaskDetail>('/tasks', { method: 'POST', body: JSON.stringify(body) }),
   commentTask: (ref: string, text: string) => json<BoardTaskDetail>(`/tasks/${encodeURIComponent(ref)}/comments`, { method: 'POST', body: JSON.stringify({ text }) }),
   taskAction: (ref: string, body: { action: 'complete' | 'archive' | 'block' | 'unblock' | 'assign'; assignee?: string | null; reason?: string; summary?: string }) => json<BoardTaskDetail>(`/tasks/${encodeURIComponent(ref)}/actions`, { method: 'POST', body: JSON.stringify(body) }),
   projects: () => json<{ projects: Project[] }>('/projects'),
@@ -185,6 +190,7 @@ export interface MissionInput { title: string; outcome?: string; target?: string
 export type BoardStatus = 'triage' | 'todo' | 'ready' | 'running' | 'blocked' | 'review' | 'done' | 'archived';
 export interface BoardTask {
   id: string;
+  board: string;
   number: number | null;
   ref: string | null;
   title: string;
@@ -209,5 +215,8 @@ export interface BoardTaskDetail extends BoardTask {
 }
 export interface Project { id: string; name: string; missionId?: string | null; repo?: string | null; createdAt: string; updatedAt: string }
 export interface GitHubStatus { connected: boolean; app: { appId: number; slug: string; name: string; htmlUrl: string; owner: string | null } | null; installUrl: string | null; installations: { id: number; account: string; selection: string; repos: string[] }[]; error?: string | null }
+export interface PodSeat { id: string; from: string; description: string }
+export interface Pod { name: string; slug: string; purpose: string; durable: boolean; status: 'active' | 'closed'; seats: PodSeat[]; createdAt: string; closedAt: string | null }
+export interface PodEntry { at: string; kind: 'task' | 'comment' | 'review_requested' | 'completed' | 'blocked'; author: string | null; to?: string | null; text: string; ref: string | null; title: string }
 export interface OrgSeat { id: string; description: string; model: string; provider: string }
 export interface HermesPortalStatus { open: boolean; target: string | null; url: string | null; openedAt: string | null }

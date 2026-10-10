@@ -16,6 +16,8 @@ import { ConnectorsView } from './views/ConnectorsView';
 import { SettingsView } from './views/SettingsView';
 import { TasksView } from './views/TasksView';
 import { ProjectDialog } from './components/ProjectDialog';
+import { PodDialog } from './components/PodDialog';
+import { PodView } from './views/PodView';
 import { OrgChartView } from './views/OrgChartView';
 import { GitHubCallbackView } from './views/GitHubCallbackView';
 import { OrgSetupView } from './views/OrgSetupView';
@@ -29,6 +31,7 @@ function View() {
     case 'org': return <OrgChartView />;
     case 'github': return <GitHubCallbackView step={r.id!} />;
     case 'task': return <TaskView id={r.id!} />;
+    case 'pod': return <PodView name={r.id!} />;
     case 'inbox': return <MessageInboxView />;
     case 'routines': return <RoutinesView />;
     case 'artifacts': return <ArtifactsView />;
@@ -65,7 +68,7 @@ export function App() {
         </main>
       </div>
       {state.pane.open && <RightPane />}
-      {state.modal === 'project' ? <ProjectDialog /> : state.modal && <Modal kind={state.modal} />}
+      {state.modal === 'project' ? <ProjectDialog /> : state.modal === 'pod' ? <PodDialog /> : state.modal && <Modal kind={state.modal} />}
       {state.toast && (
         <div className="toast" role="status"><div style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--acc)' }} />{state.toast}</div>
       )}

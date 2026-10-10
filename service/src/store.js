@@ -50,7 +50,7 @@ function projectName(value) {
 }
 function sameTitle(a, b) { return String(a).trim().toLocaleLowerCase() === String(b).trim().toLocaleLowerCase(); }
 
-async function writeJson(filePath, value) {
+export async function writeJson(filePath, value) {
   await fs.mkdir(path.dirname(filePath), { recursive: true });
   const tmp = `${filePath}.${randomUUID()}.tmp`;
   await fs.writeFile(tmp, JSON.stringify(value, null, 2));
@@ -62,7 +62,7 @@ async function writeJson(filePath, value) {
     }
   }
 }
-async function readJson(filePath) {
+export async function readJson(filePath) {
   for (let attempt = 0; ; attempt += 1) {
     try { return JSON.parse(await fs.readFile(filePath, 'utf8')); }
     catch (error) {
