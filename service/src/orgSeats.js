@@ -1,4 +1,4 @@
-import { badRequest, conflict, lifecycleError } from './errors.js';
+import { badRequest, conflict, lifecycleError, runtimeFailure } from './errors.js';
 
 const SEAT_ID_RE = /^[a-z][a-z0-9-]{1,30}$/;
 const RESERVED = new Set(['default', 'ceo', 'hermes']);
@@ -14,7 +14,10 @@ description: How work moves through the user's approval in this Waypoint organiz
 Review is the user's approval gate, and you own the handoff into it.
 
 1. If something should happen once the user approves (filing issues, implementing a fix, reviewing a PR), create that follow-up now with kanban_create: parent it on your task and assign the best-suited seat ("hermes profile list" shows the seats and what they do). It waits until your task is approved. Write its body so that seat can start without asking you.
-2. Hand your task in with kanban_request_review. The summary is what the user reads: the result, then "On approval:" and what happens next and who does it. If your work is a pull request, also pass metadata {"published_pr": "<full PR URL>"} so approval can verify it.
+2. Hand your task in with kanban_request_review. The summary is what the user reads, so write it for a person, not a log:
+   - Lead with the answer or outcome in one or two plain sentences. Use a short list only for several separate findings. Leave out commit hashes, file counts, and process details unless the user asked for them.
+   - "To test:" gives steps the user can do themselves, in the app or on GitHub (for example "Archive any task; it should ask first."). Give shell commands only when there is no other way to check. If there is nothing to try, leave this out.
+   - "On approval:" says what happens next and who does it. Leave it out when nothing follows. If your work is a pull request, also pass metadata {"published_pr": "<full PR URL>"} so approval can verify it.
 
 If a peer should check your work before the user sees it, create a review task for that seat with kanban_create, make your task wait on it with kanban_link (the review task is the parent), and end your run with kanban_block using kind "dependency". Your task resumes when the review is done, with the reviewer's result in your context; address it, then hand in as above.
 
@@ -112,7 +115,7 @@ export class OrgSeats {
 
   async #hermes(args) {
     const result = await this.hermes.runner('docker', ['exec', '--user', 'hermes', this.hermes.containerName, 'hermes', ...args], { timeoutMs: 60000, outputLimitBytes: 16 * 1024 });
-    if (result.code !== 0) throw lifecycleError(`hermes ${args.filter((arg) => !arg.includes(' ')).slice(0, 3).join(' ')} failed`, { code: result.code });
+    if (result.code !== 0) throw runtimeFailure(result) || lifecycleError(`hermes ${args.filter((arg) => !arg.includes(' ')).slice(0, 3).join(' ')} failed`, { code: result.code });
     return result;
   }
 }

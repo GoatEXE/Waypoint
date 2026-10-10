@@ -185,11 +185,33 @@ export class OrgStore {
     });
   }
   updateMissionStatus(missionId, status) {
+    return this.updateMission(missionId, { status });
+  }
+  updateMission(missionId, input) {
     return this.#serialize('missions', async () => {
-      if (!MISSION_STATUSES.includes(status)) throw badRequest(`status must be one of ${MISSION_STATUSES.join(', ')}`);
+      assertPlainObject(input, 'body');
+      const fields = Object.keys(input);
+      const extra = fields.filter((key) => !['title', 'outcome', 'target', 'status'].includes(key));
+      if (extra.length) throw badRequest('unsupported mission fields', { fields: extra.slice(0, 10) });
+      if (!fields.length) throw badRequest('nothing to update');
       const mission = await this.getMission(missionId);
-      if (mission.status !== status && !MISSION_TRANSITIONS[mission.status]?.includes(status)) throw badRequest(`status cannot move from ${mission.status} to ${status}`);
-      const updated = { ...mission, status, updatedAt: new Date().toISOString() };
+      const updated = { ...mission };
+      if ('status' in input) {
+        const { status } = input;
+        if (!MISSION_STATUSES.includes(status)) throw badRequest(`status must be one of ${MISSION_STATUSES.join(', ')}`);
+        if (mission.status !== status && !MISSION_TRANSITIONS[mission.status]?.includes(status)) throw badRequest(`status cannot move from ${mission.status} to ${status}`);
+        updated.status = status;
+      }
+      if ('title' in input) {
+        const title = optionalText(input.title, 'title', MISSION_TITLE_MAX);
+        if (!title) throw badRequest('title is required');
+        const clash = (await this.readMissions()).find((other) => other.id !== mission.id && sameTitle(other.title, title));
+        if (clash) throw conflict('a mission with this title already exists', { missionId: clash.id });
+        updated.title = title;
+      }
+      if ('outcome' in input) updated.outcome = optionalText(input.outcome, 'outcome', MISSION_OUTCOME_MAX);
+      if ('target' in input) updated.target = normalizeTarget(input.target);
+      updated.updatedAt = new Date().toISOString();
       await writeJson(this.missionPath(mission.id), updated);
       return updated;
     });
@@ -198,6 +220,12 @@ export class OrgStore {
     return this.#serialize('missions', async () => {
       const mission = await this.getMission(missionId);
       await fs.unlink(this.missionPath(mission.id));
+      await this.#serialize('projects', async () => {
+        const projects = await this.readProjects();
+        if (!projects.some((project) => project.missionId === mission.id)) return;
+        const now = new Date().toISOString();
+        await writeJson(this.projectsPath(), { projects: projects.map((project) => (project.missionId === mission.id ? { ...project, missionId: null, updatedAt: now } : project)) });
+      });
       return { deleted: true, missionId: mission.id };
     });
   }

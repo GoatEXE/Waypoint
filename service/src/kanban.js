@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { badRequest, lifecycleError, notFound } from './errors.js';
+import { badRequest, lifecycleError, notFound, runtimeFailure } from './errors.js';
+import { activityDetail } from './activity.js';
 
 const TASK_ID_RE = /^t_[0-9a-f]{6,32}$/;
 const REF_RE = /^([A-Z][A-Z0-9]{1,5})-([1-9][0-9]{0,8})$/;
@@ -43,6 +44,42 @@ export function boardSlug(value) {
   return result;
 }
 
+const WORKER_LOG_TAIL = 128 * 1024;
+const ACTIVITY_MAX = 60;
+const TOOL_LINE_RE = /^\s*┊\s*(\S+)\s+(\S+)(?:\s+(.*?))?\s+(\d+(?:\.\d+)?s)\s*$/u;
+
+export function parseWorkerLog(text, secrets = []) {
+  const items = [];
+  let thought = null;
+  let finished = false;
+  for (const raw of String(text || '').split(/\r?\n/)) {
+    const line = raw.replace(/\x1b\[[0-9;]*m/g, '');
+    if (thought) {
+      if (/^\s*└─/.test(line)) {
+        const detail = activityDetail(thought.join(''), secrets);
+        if (detail) items.push({ kind: 'thought', detail });
+        thought = null;
+      } else {
+        const part = line.trim();
+        const previous = thought.at(-1) || '';
+        thought.push(previous && !(previous.length >= 70 && /^[a-z]/.test(part)) ? ` ${part}` : part);
+      }
+      continue;
+    }
+    if (/^\s*┌─ Reasoning/.test(line)) { thought = []; continue; }
+    if (/^\[kanban-worker-exit\]/.test(line)) { finished = true; continue; }
+    const tool = line.match(TOOL_LINE_RE);
+    if (!tool || tool[2] === 'preparing') continue;
+    items.push({ kind: 'tool', icon: tool[1], name: tool[2], detail: activityDetail(tool[3] || '', secrets), duration: tool[4] });
+  }
+  return { items: items.slice(-ACTIVITY_MAX), finished };
+}
+
+export function parseWorkerRuns(text, secrets = []) {
+  const parts = String(text || '').split(/^(?=Query: )/m).filter((part) => part.trim());
+  return parts.map((part) => parseWorkerLog(part, secrets));
+}
+
 function toIso(seconds) {
   return Number.isFinite(seconds) ? new Date(seconds * 1000).toISOString() : null;
 }
@@ -56,14 +93,17 @@ export class KanbanBoard {
     this.refsQueue = Promise.resolve();
   }
 
-  async run(args, { json = true, board = DEFAULT_BOARD } = {}) {
+  async run(args, { json = true, board = DEFAULT_BOARD, raw = false } = {}) {
     const scoped = board && board !== DEFAULT_BOARD ? ['--board', board, ...args] : args;
     const result = await this.hermes.runner('docker', ['exec', '--user', 'hermes', this.hermes.containerName, 'hermes', 'kanban', ...scoped, ...(json ? ['--json'] : [])], { timeoutMs: 60000, outputLimitBytes: 4 * 1024 * 1024 });
     if (result.code !== 0) {
       const detail = String(result.stderr || result.stdout || '').trim().split('\n').pop().slice(0, 200);
       if (/not found|no such task|unknown task/i.test(detail)) throw notFound('task not found');
+      const failure = runtimeFailure(result);
+      if (failure) throw failure;
       throw lifecycleError(`hermes kanban ${args[0]} failed${detail ? `: ${detail}` : ''}`, { code: result.code });
     }
+    if (raw) return String(result.stdout || '');
     if (!json) return null;
     const out = String(result.stdout || '').trim();
     try { return JSON.parse(out.slice(out.search(/[[{]/))); }
@@ -125,7 +165,11 @@ export class KanbanBoard {
     return boards.filter((board) => !board.archived).map((board) => board.slug || DEFAULT_BOARD);
   }
 
-  summary(task, numbers, prefix, board = DEFAULT_BOARD) {
+  async projectMap() {
+    return this.projects ? this.projects.byHermesId().catch(() => ({})) : {};
+  }
+
+  summary(task, numbers, prefix, board = DEFAULT_BOARD, projects = {}) {
     const number = numbers[task.id] || null;
     return {
       id: task.id,
@@ -141,24 +185,26 @@ export class KanbanBoard {
       startedAt: toIso(task.started_at),
       completedAt: toIso(task.completed_at),
       lastError: task.last_failure_error || null,
+      projectId: (task.project_id && projects[task.project_id]) || null,
     };
   }
 
   async list({ board } = {}) {
     const slugs = board ? [boardSlug(board)] : await this.boards();
+    const projects = await this.projectMap();
     const prefix = await this.prefix();
     const tasks = [];
     for (const slug of slugs) {
       const rows = await this.run(['list'], { board: slug });
       const numbers = await this.numberAll(rows.map((task) => task.id).sort(), slug);
-      tasks.push(...rows.map((task) => this.summary(task, numbers, prefix, slug)));
+      tasks.push(...rows.map((task) => this.summary(task, numbers, prefix, slug, projects)));
     }
     return { tasks: tasks.sort((a, b) => (b.number || 0) - (a.number || 0)) };
   }
 
   async show(ref) {
     const { id, board } = await this.locate(ref);
-    const [detail, rows] = await Promise.all([this.run(['show', id], { board }), this.run(['list'], { board })]);
+    const [detail, rows, runs] = await Promise.all([this.run(['show', id], { board }), this.run(['list'], { board }), this.run(['runs', id], { board }).catch(() => [])]);
     const numbers = await this.numberAll([id, ...(detail.parents || []), ...(detail.children || [])], board);
     const prefix = await this.prefix();
     const byId = new Map(rows.map((task) => [task.id, task]));
@@ -167,8 +213,9 @@ export class KanbanBoard {
       return { id: taskId, ref: numbers[taskId] ? `${prefix}-${numbers[taskId]}` : null, title: task?.title || '', status: task?.status || null, assignee: task?.assignee || null };
     };
     return {
-      ...this.summary(detail.task, numbers, prefix, board),
+      ...this.summary(detail.task, numbers, prefix, board, await this.projectMap()),
       latestSummary: detail.latest_summary || '',
+      runs: (Array.isArray(runs) ? runs : []).map((run) => ({ id: run.id, profile: run.profile || null, status: run.status || null, outcome: run.outcome || null, startedAt: toIso(run.started_at), endedAt: toIso(run.ended_at), summary: run.summary || '' })),
       parents: (detail.parents || []).map(link),
       children: (detail.children || []).map(link),
       comments: (detail.comments || []).map((comment) => ({ author: comment.author, body: comment.body, at: toIso(comment.created_at) })),
@@ -176,9 +223,20 @@ export class KanbanBoard {
     };
   }
 
+  async activity(ref) {
+    const { id, board } = await this.locate(ref);
+    const text = await this.run(['log', id, '--tail', String(WORKER_LOG_TAIL)], { json: false, board, raw: true }).catch((error) => {
+      if (error?.status === 404 || /no log for/i.test(error?.message || '')) return '';
+      throw error;
+    });
+    const runs = parseWorkerRuns(text, [this.config.bridge?.token]);
+    const last = runs.at(-1) || { items: [], finished: false };
+    return { id, items: last.items, finished: last.finished, runs };
+  }
+
   async create(input = {}) {
     if (!input || typeof input !== 'object' || Array.isArray(input)) throw badRequest('body must be an object');
-    const extra = Object.keys(input).filter((key) => !['title', 'body', 'assignee', 'parents', 'createdBy', 'board'].includes(key));
+    const extra = Object.keys(input).filter((key) => !['title', 'body', 'assignee', 'parents', 'createdBy', 'board', 'project'].includes(key));
     if (extra.length) throw badRequest('unsupported task fields', { fields: extra.slice(0, 10) });
     const board = input.board ? boardSlug(input.board) : DEFAULT_BOARD;
     const args = ['create', text(input.title, 'title', TITLE_MAX)];
@@ -187,10 +245,21 @@ export class KanbanBoard {
     if (input.assignee) args.push('--assignee', profile(input.assignee, 'assignee'));
     for (const parent of Array.isArray(input.parents) ? input.parents : []) args.push('--parent', await this.resolveId(parent));
     args.push('--created-by', input.createdBy === 'ceo' ? 'ceo' : 'user');
+    if (input.project) {
+      if (!this.projects || !this.store) throw badRequest('projects are not available');
+      const project = await this.store.getProject(input.project);
+      if (!project.repo) throw badRequest('this project has no GitHub repository yet');
+      args.push('--project', (await this.projects.ensure(project)).slug);
+    }
     const created = await this.run(args, { board });
     const id = (created.task || created).id;
     await this.numberAll([id], board);
     return this.show(id);
+  }
+
+  async note(ref, author, body) {
+    const { id, board } = await this.locate(ref);
+    await this.run(['comment', '--author', author, id, text(body, 'comment', COMMENT_MAX)], { json: false, board });
   }
 
   async comment(ref, input = {}, { author = 'user' } = {}) {
@@ -198,7 +267,13 @@ export class KanbanBoard {
     const { id, board } = await this.locate(ref);
     const body = text(input.text, 'comment', COMMENT_MAX);
     const before = await this.run(['show', id], { board });
-    if (before.task.status === 'review') await this.run(['request-changes', id, body], { json: false, board });
+    if (before.task.status === 'review') {
+      await this.run(['request-changes', id, body], { json: false, board }).catch(async (error) => {
+        if (!/not in an active review run/i.test(error?.message || '')) throw error;
+        await this.run(['comment', '--author', author, id, body], { json: false, board });
+        await this.run(['reopen-review', id], { json: false, board });
+      });
+    }
     else {
       await this.run(['comment', '--author', author, id, body], { json: false, board });
       if (before.task.status === 'blocked') await this.run(['unblock', '--reason', `${author} replied`, id], { json: false, board });

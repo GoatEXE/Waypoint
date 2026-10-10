@@ -1,28 +1,26 @@
 import { useNavigate } from 'react-router-dom';
-import * as D from '../data';
-import { projById } from '../model';
+import type { BoardTask, Project } from '../api';
+import { currentMission } from '../missionsModel';
 import { useRoute, type Route } from '../routes';
 import { useStore } from '../store';
 import { PaneGlyph } from './ui';
+import { DryRunBadge } from './DryRunBanner';
 
 interface Crumb { label: string; to: string; mono?: boolean }
 
-const WS: Partial<Record<Route['v'], string>> = { routines: 'Routines', artifacts: 'Artifacts', skills: 'Skills', connectors: 'Connectors', settings: 'Settings' };
+const WS: Partial<Record<Route['v'], string>> = { routines: 'Routines', artifacts: 'Artifacts', skills: 'Skills', connectors: 'Connectors', settings: 'Settings', help: 'Help' };
 
-function crumbsFor(r: Route, projectName?: string): Crumb[] {
-  const m: Crumb = { label: D.mission?.short || 'Workspace', to: '/' };
-  const projCrumb = (pid: D.ProjectId): Crumb => {
-    const p = projById(pid);
-    return { label: p?.name || 'Project', to: p ? '/projects/' + pid : '/', mono: true };
-  };
-  const taskCrumbs = (tid: string): Crumb[] => {
-    const t = D.tasks.find(x => x.id === tid);
-    return t ? [m, projCrumb(t.p), { label: t.id, to: '/tasks/' + t.id, mono: true }] : [m, { label: tid, to: '/tasks/' + tid, mono: true }];
+export function crumbsFor(r: Route, missionTitle: string | null, projects: Project[], board: BoardTask[]): Crumb[] {
+  const m: Crumb = { label: missionTitle || 'Workspace', to: '/' };
+  const taskCrumbs = (key: string): Crumb[] => {
+    const t = board.find(x => x.ref === key || x.id === key);
+    return [m, { label: 'Tasks', to: '/tasks' }, { label: t?.ref || key, to: '/tasks/' + encodeURIComponent(key), mono: true }];
   };
   switch (r.v) {
     case 'mission': return [m];
-    case 'project': return [m, { label: projectName || 'Project', to: '/projects/' + r.id }];
+    case 'project': return [m, { label: projects.find(p => p.id === r.id)?.name || 'Project', to: '/projects/' + r.id }];
     case 'task': return taskCrumbs(r.id!);
+    case 'seat': return [{ label: 'Organization', to: '/org' }, { label: r.id!, to: '/seats/' + r.id, mono: true }];
     case 'pod': return [{ label: 'Pods', to: '/pods/' + r.id }, { label: r.id!, to: '/pods/' + r.id, mono: true }];
     case 'inbox': return [{ label: 'Workspace', to: '/inbox' }, { label: 'Inbox', to: '/inbox' }];
     default: return WS[r.v] ? [{ label: 'Workspace', to: '/inbox' }, { label: WS[r.v]!, to: '/' + r.v }] : [m];
@@ -33,7 +31,7 @@ export function Header() {
   const { state, setPane } = useStore();
   const nav = useNavigate();
   const route = useRoute();
-  const crumbs = crumbsFor(route, route.v === 'project' ? state.projects.find(p => p.id === route.id)?.name : undefined);
+  const crumbs = crumbsFor(route, currentMission(state.missions)?.title || null, state.projects, state.board);
   return (
     <header className="topbar">
       <nav className="crumbs">
@@ -44,6 +42,7 @@ export function Header() {
           </div>
         ))}
       </nav>
+      <DryRunBadge />
       <button className={'pane-toggle' + (state.pane.open ? ' on' : '')} title="Toggle side pane" onClick={() => setPane({ open: !state.pane.open })}>
         <PaneGlyph w={14} h={11} bar={4} r={2.5} bw={1.5} />
         Side pane

@@ -1,9 +1,8 @@
 import { useLocation } from 'react-router-dom';
-import * as D from './data';
 
 export type View =
-  | 'mission' | 'project' | 'task' | 'pod'
-  | 'tasks' | 'org' | 'github' | 'inbox' | 'routines' | 'artifacts' | 'skills' | 'connectors' | 'settings' | 'notfound';
+  | 'mission' | 'project' | 'task' | 'pod' | 'seat'
+  | 'tasks' | 'org' | 'github' | 'inbox' | 'routines' | 'artifacts' | 'skills' | 'connectors' | 'settings' | 'help' | 'notfound';
 
 export interface Route { v: View; id?: string }
 
@@ -15,17 +14,12 @@ export function parseRoute(path: string): Route {
   if (a === 'connectors' && b === 'github' && (c === 'callback' || c === 'installed')) return { v: 'github', id: c };
   if (a === 'tasks' && b && !c) return { v: 'task', id: b };
   if (a === 'pods' && b && !c) return { v: 'pod', id: b };
-  if (!b && ['org', 'inbox', 'routines', 'artifacts', 'skills', 'connectors', 'settings'].includes(a)) return { v: a as View };
+  if (a === 'seats' && b && !c) return { v: 'seat', id: b };
+  if (!b && ['org', 'inbox', 'routines', 'artifacts', 'skills', 'connectors', 'settings', 'help'].includes(a)) return { v: a as View };
   return { v: 'notfound' };
 }
 
 export const useRoute = () => parseRoute(useLocation().pathname);
-
-export function chatContextFor(r: Route): string {
-  if (r.v === 'task' && r.id) return r.id;
-  if (r.v === 'project') return D.projects.find(p => p.id === r.id)?.name || 'project';
-  return D.mission?.short || 'workspace';
-}
 
 export function activeProject(r: Route): string | null {
   if (r.v === 'project') return r.id!;

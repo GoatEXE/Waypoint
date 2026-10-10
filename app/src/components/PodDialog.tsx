@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { api, type OrgSeat } from '../api';
 import { useStore } from '../store';
 import { SeatMark } from './ProviderMark';
+import { errorText } from '../runtimeHealth';
 
 export function PodDialog() {
   const { closeModal, flash, loadPods } = useStore();
@@ -33,7 +34,7 @@ export function PodDialog() {
       closeModal();
       flash(`Started pod ${pod.name}`);
       nav('/pods/' + pod.name);
-    } catch (e) { setError(e instanceof Error ? e.message : String(e)); setBusy(false); }
+    } catch (e) { setError(errorText(e)); setBusy(false); }
   };
 
   return (
@@ -63,7 +64,7 @@ export function PodDialog() {
           <input type="checkbox" checked={durable} disabled={busy} onChange={e => setDurable(e.target.checked)} />
           Durable (keep it after its work is done)
         </label>
-        {error && <div role="alert" style={{ fontSize: 12.5, color: 'var(--text)' }}>{error}</div>}
+        {error && <div role="alert" className="form-error">{error}</div>}
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
           <button type="button" className="btn btn-ghost" disabled={busy} onClick={closeModal}>Cancel</button>
           <button type="submit" className="btn btn-primary" disabled={busy || !ready}>{busy ? 'Starting…' : 'Start pod'}</button>

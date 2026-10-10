@@ -1,15 +1,17 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import * as D from '../data';
-import { byParent, projById, st } from '../model';
+import { projById, st } from '../model';
 import { api, type CeoThread } from '../api';
+import { needsYou, taskLabel } from '../taskQueueModel';
 import { ActivityBlock, ActivityList } from './Activity';
 import { TaskRefText } from './TaskRefText';
 import { useStore, useViewport, type PaneTab } from '../store';
 import { ceoNameOf } from '../orgModel';
 import { isTaskThread, threadMeta, visibleTaskThreads } from '../ceoThreads';
-import { Dot, PaneGroupHead } from './ui';
+import { Dot } from './ui';
 import { PANE_DOCK_MIN } from './layout';
+import { useRuntimeHealth } from './RuntimeBanner';
 
 function messageTime(at: string) {
   const date = new Date(at);
@@ -106,6 +108,8 @@ function TasksTab() {
 
 function CeoChat() {
   const { state, loadCeoConversation, sendCeoMessage } = useStore();
+  const nav = useNavigate();
+  const health = useRuntimeHealth();
   const [draft, setDraft] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
   const loadedRef = useRef(false);
@@ -167,6 +171,7 @@ function CeoChat() {
           <UserBubble text={ceo.failedMessage} meta="Reply not confirmed">
             <div className="stack" style={{ gap: 6, alignItems: 'flex-end' }}>
               {ceo.sendError && <div role="alert" style={{ fontSize: 11.5, color: 'var(--faint)', textAlign: 'right' }}>{ceo.sendError}</div>}
+              {ceo.sendError && !health.ready && <button className="btn sm btn-primary" onClick={() => nav(health.cause === 'setup' ? '/connectors' : '/settings')}>{health.cause === 'setup' ? 'Open Connectors' : 'Open Settings'}</button>}
               <button className="btn sm btn-ghost" onClick={refreshConversation} disabled={ceo.loading}>Refresh conversation</button>
             </div>
           </UserBubble>
@@ -194,7 +199,7 @@ function CeoChat() {
             onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
           />
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11.5, color: 'var(--fainter)' }}>
-            <button className="btn btn-primary" style={{ marginLeft: 'auto', padding: '5px 11px', borderRadius: 6, fontSize: 12, opacity: draft.trim() && !blocked ? 1 : 0.45 }} disabled={!draft.trim() || blocked} onClick={send}>{working ? 'Working…' : 'Send'}</button>
+            <button className="btn btn-primary" style={{ marginLeft: 'auto', padding: '5px 11px', borderRadius: 6, fontSize: 12}} disabled={!draft.trim() || blocked} onClick={send}>{working ? 'Working…' : 'Send'}</button>
           </div>
         </div>
       </div>
@@ -202,35 +207,20 @@ function CeoChat() {
   );
 }
 
-function ArtifactsTab() {
-  const nav = useNavigate();
-  return (
-    <div className="pane-body" style={{ padding: 16, gap: 10 }}>
-      {!D.paneArtifacts.length && <div className="empty">No artifacts yet.</div>}
-      {byParent(D.paneArtifacts, a => a.p).map(g => (
-        <div key={g.key} className="stack" style={{ gap: 8, marginBottom: 8 }}>
-          <div style={{ padding: '2px 2px 0' }}><PaneGroupHead g={g} /></div>
-          {g.items.map(a => (
-            <div key={a.name} className="pane-card link" onClick={() => nav(a.to)}>
-              {a.img && <div className="hatch" style={{ height: 120, borderBottom: '1px solid var(--border)' }}>{a.name}</div>}
-              <div className="stack" style={{ padding: '10px 12px', gap: 2 }}>
-                <div style={{ display: 'flex', gap: 8, fontSize: 11.5, color: 'var(--faint)' }}><span className="mono">{a.kind}</span><span style={{ marginLeft: 'auto' }}>{a.src}</span></div>
-                <div style={{ font: '400 12.5px var(--mono)', color: 'var(--text-3)' }}>{a.name}</div>
-              </div>
-            </div>
-          ))}
-        </div>
-      ))}
-    </div>
-  );
-}
-
 function InboxTab() {
+  const { state } = useStore();
   const nav = useNavigate();
+  const tasks = needsYou(state.board);
   return (
-    <div className="pane-body" style={{ padding: 14, gap: 10 }}>
-      <div className="empty">Tasks waiting on you are in the workspace inbox.</div>
-      <button className="btn btn-primary" onClick={() => nav('/inbox')}>Open inbox</button>
+    <div className="pane-body thread-list">
+      {!tasks.length && <div className="empty">You're all caught up.</div>}
+      {tasks.map(t => (
+        <button key={t.id} type="button" className="thread-row" onClick={() => nav('/tasks/' + encodeURIComponent(taskLabel(t)))}>
+          <span className="thread-row-title"><span className="ellipsis">{taskLabel(t)} · {t.title}</span></span>
+          <span className="thread-row-meta ellipsis">{t.status === 'review' ? 'In review' : 'Blocked'}{t.assignee ? ` · ${t.assignee}` : ''}</span>
+        </button>
+      ))}
+      <button type="button" className="thread-more" onClick={() => nav('/inbox')}>Open inbox →</button>
     </div>
   );
 }
@@ -288,7 +278,8 @@ export function RightPane() {
     if (k === 'ceo') setCeoThread('general');
     setPane({ tab: k });
   };
-  const tabs: [PaneTab, string][] = [['ceo', ceoNameOf(state.org.organization)], ['tasks', 'Tasks'], ['artifacts', 'Artifacts'], ['inbox', 'Inbox']];
+  const waiting = needsYou(state.board).length;
+  const tabs: [PaneTab, string][] = [['ceo', ceoNameOf(state.org.organization)], ['tasks', 'Tasks'], ['inbox', waiting ? `Inbox · ${waiting}` : 'Inbox']];
   if (item) tabs.push(['item', item]);
 
   return (
@@ -301,7 +292,6 @@ export function RightPane() {
       </div>
       {tab === 'ceo' && <CeoChat />}
       {tab === 'tasks' && <TasksTab />}
-      {tab === 'artifacts' && <ArtifactsTab />}
       {tab === 'inbox' && <InboxTab />}
       {tab === 'item' && item && <PinnedTask id={item} />}
     </aside>

@@ -63,3 +63,15 @@ test('a pod board task keeps its board for later reads and actions', async () =>
   assert.ok(calls.length && calls.every((call) => call[0] === '@pod-web'), 'every call for the task goes to its board');
   await assert.rejects(kanban.create({ title: 'x', board: 'Bad Board' }), /board slug/);
 });
+
+test('requesting changes on a handed-in task with no review run comments and reopens it', async () => {
+  const { kanban, calls } = await board({ t_aaaaaaaa: 'review' });
+  await kanban.list();
+  const runner = kanban.hermes.runner;
+  kanban.hermes.runner = async (command, args) => args.includes('request-changes')
+    ? { code: 1, stdout: '', stderr: 'cannot request changes for t_aaaaaaaa: task is not in an active review run' }
+    : runner(command, args);
+  calls.length = 0;
+  await kanban.comment('SUN-1', { text: 'Concisely, please' });
+  assert.deepEqual(calls.slice(1, 3), [['comment', '--author', 'user', 't_aaaaaaaa', 'Concisely, please'], ['reopen-review', 't_aaaaaaaa']]);
+});

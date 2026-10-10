@@ -1,9 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import * as D from '../data';
-import { chatContextFor, useRoute } from '../routes';
+import { activeProject, useRoute } from '../routes';
+import { currentMission } from '../missionsModel';
 import { useStore, type ModalKind } from '../store';
 import { api, type OrgSeat } from '../api';
+import { ceoNameOf } from '../orgModel';
+import { DRY_RUN_REASON } from '../dryRun';
+import { errorText } from '../runtimeHealth';
 
 interface Form { text: string; title: string; date: string; scope: string; hire: string; role: string; clone: string }
 
@@ -42,8 +45,15 @@ const Hint = ({ children }: { children: React.ReactNode }) => <div style={{ font
 export function Modal({ kind }: { kind: FormKind }) {
   const { state, closeModal, sendCeoMessage, createMission, flash } = useStore();
   const nav = useNavigate();
-  const ctx = chatContextFor(useRoute());
-  const [form, setForm] = useState<Form>({ ...BLANK, ...DEFAULTS[kind] });
+  const routeProject = activeProject(useRoute());
+  const mission = currentMission(state.missions);
+  const missionProjects = mission ? state.projects.filter(p => p.missionId === mission.id) : [];
+  const scopes: [string, string][] = [
+    mission ? ['mission', `Whole mission · ${mission.title}`] : ['workspace', 'Workspace'],
+    ...missionProjects.map((p): [string, string] => ['project:' + p.id, p.name]),
+  ];
+  const initialScope = routeProject && missionProjects.some(p => p.id === routeProject) ? 'project:' + routeProject : scopes[0][0];
+  const [form, setForm] = useState<Form>({ ...BLANK, ...DEFAULTS[kind], ...(kind === 'assignment' ? { scope: initialScope } : {}) });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const focusRef = useRef<HTMLInputElement & HTMLTextAreaElement>(null);
@@ -61,10 +71,11 @@ export function Modal({ kind }: { kind: FormKind }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [closeModal, submitting]);
 
+  const ceoName = ceoNameOf(state.org.organization);
   const meta = {
-    assignment: { eyebrow: 'NEW ASSIGNMENT · TO CEO', title: 'What needs doing?', cta: 'Send to CEO', note: 'Context: ' + ctx, ok: form.text.trim() },
+    assignment: { eyebrow: `ASK ${ceoName.toUpperCase()}`, title: 'What needs doing?', cta: `Send to ${ceoName}`, note: `${ceoName} replies in the side pane and plans the work onto the board.`, ok: form.text.trim() },
     mission: { eyebrow: 'NEW MISSION', title: 'Set a mission', cta: 'Save mission', note: 'Saves the mission. Nothing starts until the CEO puts work on the board.', ok: form.title.trim() },
-    seat: { eyebrow: 'NEW SEAT', title: 'Hire a seat', cta: 'Hire seat', note: 'Adds a Hermes profile to the organization.', ok: form.title.trim() && form.role.trim() },
+    seat: { eyebrow: 'NEW SEAT', title: 'Hire a seat', cta: 'Hire seat', note: state.config?.dryRun ? DRY_RUN_REASON : 'Adds a Hermes profile to the organization.', ok: form.title.trim() && form.role.trim() && !state.config?.dryRun },
   }[kind];
 
   const submit = async () => {
@@ -73,9 +84,11 @@ export function Modal({ kind }: { kind: FormKind }) {
       if (state.ceo.sending) { setError('The CEO is still working on the previous message. Send this when it finishes.'); return; }
       closeModal();
       const hiring = form.hire === 'auto' ? 'Hiring: you may hire seats for this without asking.' : 'Hiring: ask me before hiring any seat.';
-      void sendCeoMessage(`${form.text.trim()}
-
-${hiring}`, true, ref => nav('/tasks/' + encodeURIComponent(ref)));
+      const project = missionProjects.find(p => 'project:' + p.id === form.scope);
+      const advances = project
+        ? `Advances: project "${project.name}"${project.repo ? ` (repo ${project.repo})` : ''}${mission ? ` in mission "${mission.title}"` : ''}.`
+        : mission && form.scope === 'mission' ? `Advances: mission "${mission.title}".` : '';
+      void sendCeoMessage([form.text.trim(), advances, hiring].filter(Boolean).join('\n\n'), true, ref => nav('/tasks/' + encodeURIComponent(ref)));
     }
     if (kind === 'seat') {
       setSubmitting(true);
@@ -87,7 +100,7 @@ ${hiring}`, true, ref => nav('/tasks/' + encodeURIComponent(ref)));
         flash(`Hired ${id}`);
         nav('/org');
       } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
+        setError(errorText(err));
       } finally { setSubmitting(false); }
     }
     if (kind === 'mission') {
@@ -118,7 +131,7 @@ ${hiring}`, true, ref => nav('/tasks/' + encodeURIComponent(ref)));
             <Field label="What should the CEO do?">
               <textarea ref={focusRef} className="input" rows={4} value={form.text} onChange={e => f('text', e.target.value)} placeholder="Describe the real work you want to hand off" />
             </Field>
-            <Field label="Advances"><Chips opts={[[D.mission ? 'mission' : 'workspace', D.mission ? 'Whole mission' : 'Workspace'], ...D.projects.map(p => p.name)]} value={form.scope} onPick={v => f('scope', v)} /></Field>
+            <Field label="Advances"><Chips opts={scopes} value={form.scope} onPick={v => f('scope', v)} /></Field>
             <Field label="Hiring"><Chips opts={[['ask', 'Ask me before hiring'], ['auto', 'CEO may hire seats']]} value={form.hire} onPick={v => f('hire', v)} /></Field>
             <Hint>This sends the assignment to the CEO conversation.</Hint>
           </>}
@@ -144,10 +157,11 @@ ${hiring}`, true, ref => nav('/tasks/' + encodeURIComponent(ref)));
           </>}
         </div>
 
+        {error && <div role="alert" className="form-error" style={{ margin: '0 22px 14px' }}>{error}</div>}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '14px 22px', borderTop: '1px solid var(--border)' }}>
-          <span style={{ fontSize: 12, color: error ? 'var(--faint)' : 'var(--fainter)' }} role={error ? 'alert' : undefined}>{error || meta.note}</span>
+          <span style={{ fontSize: 12, color: 'var(--fainter)' }}>{meta.note}</span>
           <button className="btn lg btn-ghost" style={{ marginLeft: 'auto' }} onClick={closeIfIdle} disabled={submitting}>Cancel</button>
-          <button className="btn lg btn-primary" style={{ opacity: meta.ok && !submitting ? 1 : 0.45 }} disabled={!meta.ok || submitting} onClick={submit}>{submitting ? (kind === 'mission' ? 'Saving…' : kind === 'seat' ? 'Hiring…' : 'Sending…') : meta.cta}</button>
+          <button className="btn lg btn-primary" disabled={!meta.ok || submitting} onClick={submit}>{submitting ? (kind === 'mission' ? 'Saving…' : kind === 'seat' ? 'Hiring…' : 'Sending…') : meta.cta}</button>
         </div>
       </div>
     </div>

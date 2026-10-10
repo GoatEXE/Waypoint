@@ -4,12 +4,16 @@ import { ACC } from '../model';
 import { activeProject, useRoute, type View } from '../routes';
 import { useStore } from '../store';
 import { NavIcon, type NavIconName } from './NavIcon';
-import { api, type HermesStatus, type OrgSeat } from '../api';
+import { api, type OrgSeat } from '../api';
 import { needsYou } from '../taskQueueModel';
 import { SeatMark } from './ProviderMark';
-import { sidebarHermesSummary } from '../hermesSidebarStatus';
+import { DRY_RUN_REASON } from '../dryRun';
+import { runtimeHealth } from '../runtimeHealth';
+import { seatWork } from '../seatModel';
 import { sidebarMissionLabel } from '../missionsModel';
 import { ceoNameOf } from '../orgModel';
+
+const SOON = new Set<View>(['routines', 'artifacts']);
 
 const WORKSPACE: [View & NavIconName, string][] = [
   ['tasks', 'Tasks'],
@@ -21,22 +25,18 @@ const WORKSPACE: [View & NavIconName, string][] = [
   ['connectors', 'Connectors'],
 ];
 
-function AddButton({ onClick }: { onClick: () => void }) {
-  return <button className="sb-add" title="New" onClick={onClick}>+</button>;
+function AddButton({ onClick, disabledReason }: { onClick: () => void; disabledReason?: string }) {
+  return <button className="sb-add" title={disabledReason || 'New'} disabled={Boolean(disabledReason)} onClick={onClick}>+</button>;
 }
 
 export function Sidebar() {
   const { state, set, openModal, loadBoard } = useStore();
   const nav = useNavigate();
+  const dryRun = state.config?.dryRun ? DRY_RUN_REASON : undefined;
   const route = useRoute();
   const activeProj = activeProject(route);
-  const [hermes, setHermes] = useState<HermesStatus | null>(null);
-  const [hermesChecked, setHermesChecked] = useState(false);
   const [seats, setSeats] = useState<OrgSeat[]>([]);
   const attention = needsYou(state.board).length;
-  useEffect(() => {
-    api.hermesStatus({ freshAuth: true }).then(s => { setHermes(s); setHermesChecked(true); }).catch(() => { setHermes(null); setHermesChecked(true); });
-  }, []);
   useEffect(() => {
     let active = true;
     const refresh = async () => {
@@ -50,7 +50,7 @@ export function Sidebar() {
     const timer = window.setInterval(() => void refresh(), 30000);
     return () => { active = false; window.clearInterval(timer); };
   }, [state.missions.missions, loadBoard]);
-  const { label: hermesLabel, ready: hermesReady } = sidebarHermesSummary(hermes, hermesChecked);
+  const { label: hermesLabel, ready: hermesReady } = runtimeHealth(state.runtime.status, state.runtime.error, state.runtime.checked);
   const missionLabel = sidebarMissionLabel(state.missions);
   const currentMissionId = state.missions.missions[0]?.id;
   const missionProjects = state.projects.filter(p => currentMissionId && p.missionId === currentMissionId);
@@ -64,8 +64,7 @@ export function Sidebar() {
       </div>
       <div className="new-assign-wrap">
         <button className="new-assign" onClick={() => openModal('assignment')}>
-          <span className="plus">+</span>New task
-          <span className="tag">{ceoNameOf(state.org.organization)}</span>
+          <span className="plus">+</span>Ask {ceoNameOf(state.org.organization)}
         </button>
       </div>
 
@@ -73,10 +72,11 @@ export function Sidebar() {
         <div className="sb-section">
           <div className="sb-label sb-label-pad">WORKSPACE</div>
           {WORKSPACE.map(([v, label]) => (
-            <div key={v} className={'sb-item' + (route.v === v ? ' active' : '')} onClick={() => nav('/' + v)}>
+            <div key={v} className={'sb-item' + (route.v === v ? ' active' : '') + (SOON.has(v) ? ' soon' : '')} title={SOON.has(v) ? 'Coming soon' : undefined} onClick={() => nav('/' + v)}>
               <div className="sb-icon"><NavIcon name={v} /></div>
               <span>{label}</span>
               {v === 'inbox' && attention > 0 && <span className="sb-count">{attention}</span>}
+              {SOON.has(v) && <span className="soon-tag">Soon</span>}
             </div>
           ))}
         </div>
@@ -111,7 +111,7 @@ export function Sidebar() {
         </div>
 
         <div className="sb-section">
-          <div className="sb-label-row"><span className="sb-label">PODS</span><AddButton onClick={() => openModal('pod')} /></div>
+          <div className="sb-label-row"><span className="sb-label">PODS</span><AddButton onClick={() => openModal('pod')} disabledReason={dryRun} /></div>
           {!state.pods.some(pod => pod.status === 'active') && <div className="sb-item" style={{ color: 'var(--faint)', cursor: 'default' }}>No pods</div>}
           {state.pods.filter(pod => pod.status === 'active').map(pod => (
             <div key={pod.name} className={'sb-item' + (route.v === 'pod' && route.id === pod.name ? ' active' : '')} title={pod.purpose} onClick={() => nav('/pods/' + pod.name)}>
@@ -122,12 +122,13 @@ export function Sidebar() {
         </div>
 
         <div className="sb-section">
-          <div className="sb-label-row"><span className="sb-label">SEATS</span><AddButton onClick={() => openModal('seat')} /></div>
+          <div className="sb-label-row"><span className="sb-label">SEATS</span><AddButton onClick={() => openModal('seat')} disabledReason={dryRun} /></div>
           {!seats.length && <div className="sb-item" style={{ color: 'var(--faint)', cursor: 'default' }}>No seats</div>}
           {seats.map(seat => (
-            <div key={seat.id} className="sb-item" title={seat.description} onClick={() => nav('/org')}>
+            <div key={seat.id} className={'sb-item' + (route.v === 'seat' && route.id === seat.id ? ' active' : '')} title={seat.description} onClick={() => nav('/seats/' + encodeURIComponent(seat.id))}>
               <SeatMark provider={seat.provider} />
               <span className="sb-name">{seat.id}</span>
+              {seatWork(seat.id, state.board).state === 'running' && <span className="thread-row-busy" title="Working" style={{ marginLeft: 'auto' }} />}
             </div>
           ))}
         </div>
@@ -135,6 +136,10 @@ export function Sidebar() {
 
       <div className="sb-footer">
         <div><div style={{ width: 6, height: 6, borderRadius: '50%', background: hermesReady ? ACC : 'transparent', border: hermesReady ? 'none' : '1.5px solid var(--fainter)' }} />{hermesLabel}</div>
+        <div className={'sb-item' + (route.v === 'help' ? ' active' : '')} onClick={() => nav('/help')}>
+          <div className="sb-icon"><NavIcon name="help" /></div>
+          <span>Help</span>
+        </div>
         <div className={'sb-item' + (route.v === 'settings' ? ' active' : '')} onClick={() => nav('/settings')}>
           <div className="sb-icon"><NavIcon name="settings" /></div>
           <span>Settings</span>

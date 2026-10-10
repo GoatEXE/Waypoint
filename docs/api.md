@@ -33,7 +33,7 @@ Statuses are the board's: `triage`, `todo`, `ready`, `running`, `blocked`, `revi
 - `POST /tasks/:ref/comments` takes `{ text }`. On a task in `review` it requests changes, which sends the task back to its seat. On a blocked task it adds the comment and unblocks it. Otherwise it adds a comment the seat sees on its next pass.
 - `POST /tasks/:ref/actions` takes `{ action }`: `complete` (optional `summary`), `archive` (also archives follow-ups still waiting on the task, so archiving never starts them), `block` (optional `reason`), `unblock`, or `assign` (`assignee`, or `null` to unassign).
 
-Review is the user's approval gate. Waypoint sets the CEO's `kanban.review_dispatch` to `false`, so no agent picks up a task in `review`. Every seat gets a `waypoint-seat` skill, synced into its profile and added to its `skills.auto_load` whenever seats are listed, so every session starts with it. It tells the seat to own the handoff: create the step that should follow approval as a child task assigned to the best seat, then hand in with `kanban_request_review` and a summary ending in "On approval: ...". The child stays in `todo` until its parent is done. For a peer check before the user sees it, the seat creates a review task for that peer, links its own task to wait on it, and blocks with kind `dependency`. That puts its task in `todo` (not the inbox) until the review is done, then the seat resumes with the review result and hands in.
+Review is the user's approval gate. Waypoint sets the CEO's `kanban.review_dispatch` to `false`, so no agent picks up a task in `review`. Every seat gets a `waypoint-seat` skill, synced into its profile and added to its `skills.auto_load` whenever seats are listed, so every session starts with it. It tells the seat to own the handoff: create the step that should follow approval as a child task assigned to the best seat, then hand in with `kanban_request_review` and a plain-language summary: the outcome first, then "To test: ..." with steps the user can try in the app, and "On approval: ..." when something follows. The child stays in `todo` until its parent is done. For a peer check before the user sees it, the seat creates a review task for that peer, links its own task to wait on it, and blocks with kind `dependency`. That puts its task in `todo` (not the inbox) until the review is done, then the seat resumes with the review result and hands in.
 
 The inbox lists tasks in `review` (with the handoff summary and the follow-ups that start on approval) and in `blocked` (with the block reason). Approve completes the task, which releases its follow-ups to the dispatcher. Request changes sends it back to the seat.
 
@@ -141,7 +141,7 @@ Missions have a workflow `status`: `backlog`, `todo`, `in_progress`, `in_review`
 
 - `GET /missions` returns `{ "missions": [...] }`, newest first. `GET /missions/:missionId` reads one.
 - `POST /missions` takes `title` (required, max 120 characters), optional `outcome` (max 1000), `target` (`YYYY-MM-DD`), and `taskId`. It is idempotent by title (case-insensitive): repeating a title with the same link returns the existing mission with `200`; a new mission returns `201`; the same title with a different link returns `409`.
-- `PATCH /missions/:missionId` takes `{ "status": "in_review" }` and validates the transition.
+- `PATCH /missions/:missionId` takes any of `title`, `outcome`, `target`, and `status` (for example `{ "status": "in_review" }`). It validates the status transition, and a title already used by another mission returns `409`.
 - `POST /missions/:missionId/links` takes `{ taskId }`. Replacing a different existing link returns `409`.
 - `DELETE /missions/:missionId` removes only the mission; its task stays on the board.
 
@@ -162,3 +162,12 @@ Errors are structured and omit stack traces and secrets:
   }
 }
 ```
+
+### Seat feedback
+
+- `GET /seats/:seatId/feedback?task=<ref>` returns `{ seat, task, messages, live }` for the feedback chat between the user and the seat assigned to that task.
+- `POST /seats/:seatId/feedback` takes `{ task, message }`. It runs a Hermes chat on that seat's own profile (`hermes -p <seat> chat`, session `waypoint-feedback-<taskId>`). The first message carries the task and its handoff summary and asks the seat to save what it learns with its memory tool or a skill. Only the task's assignee can receive feedback; one reply runs at a time per seat and task.
+
+### Projects on the board
+
+A Waypoint project with a GitHub repo gets a matching Hermes project (slug `wp-<id>`). Waypoint clones the repo into the CEO container at `/opt/data/repos/<owner>/<name>` and runs `hermes project create`. It does this when the project is created or its repo changes, and for existing projects when the CEO starts. `POST /tasks` accepts `project` (a Waypoint project id) and creates the task with `--project <slug>`, so the seat works in its own git worktree and branch of that repo. Tasks report `projectId` (the Waypoint project). The CEO's `list_projects` bridge tool returns `hermesProject` so it can pass `project` to `kanban_create`.

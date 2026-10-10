@@ -5,6 +5,9 @@ import { providerReadiness } from '../providerConfig';
 import type { Provider } from '../settingsModel';
 import { Reveal } from './Reveal';
 import { ProviderMark } from './ProviderMark';
+import { errorText, runtimeHealth } from '../runtimeHealth';
+import { StartCeoButton } from './RuntimeBanner';
+import { useStore } from '../store';
 
 export type ProviderChoice = 'codex' | 'claude';
 
@@ -36,7 +39,7 @@ export function ProviderConnect({ onChange }: { onChange: (provider: Provider | 
     try {
       const next = await api.hermesStatus({ freshAuth: fresh });
       if (request === statusRequest.current) setStatus(next);
-    } catch (e) { if (request === statusRequest.current) setError(e instanceof Error ? e.message : String(e)); }
+    } catch (e) { if (request === statusRequest.current) setError(errorText(e)); }
   };
 
   useEffect(() => { void loadStatus(true); }, []);
@@ -60,6 +63,8 @@ export function ProviderConnect({ onChange }: { onChange: (provider: Provider | 
   const provider = option ? (apiKeyMode ? option.apiKey : option.subscription) : null;
   const ready = provider ? providerReadiness(status, provider).on : false;
   const running = Boolean(status?.runtime.running);
+  const { state } = useStore();
+  const downHealth = runtimeHealth(status, null, true);
 
   const applyLogin = (next: HermesLogin) => {
     if (shouldClearLoginPrompt(next)) { setLogin(null); setCode(''); void loadStatus(true); return; }
@@ -67,7 +72,7 @@ export function ProviderConnect({ onChange }: { onChange: (provider: Provider | 
   };
   const run = async (label: string, fn: () => Promise<void>) => {
     setBusy(label); setError('');
-    try { await fn(); } catch (e) { setError(e instanceof Error ? e.message : String(e)); } finally { setBusy(''); }
+    try { await fn(); } catch (e) { setError(errorText(e)); } finally { setBusy(''); }
   };
   const pick = (id: ProviderChoice) => {
     if (id === choice) return;
@@ -94,8 +99,15 @@ export function ProviderConnect({ onChange }: { onChange: (provider: Provider | 
 
       <Reveal show={Boolean(option && !ready)}>
         <div className="stack">
-          <Reveal show={!apiKeyMode && !login}>
-            <button type="button" className="btn btn-primary" style={{ width: '100%' }} disabled={!running || !!busy} onClick={() => void signIn()}>{!running ? 'Starting…' : busy === 'login' ? 'Opening…' : `Sign in to ${option?.name}`}</button>
+          <Reveal show={!running && Boolean(status)}>
+            <div className="stack" style={{ gap: 8 }}>
+              <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>{downHealth.message} {state.runtime.starting ? 'Starting the CEO. This can take a minute the first time.' : downHealth.next}</div>
+              {downHealth.canStart && <StartCeoButton className="btn btn-primary" />}
+              {state.runtime.startError && <div role="alert" className="form-error">{state.runtime.startError}</div>}
+            </div>
+          </Reveal>
+          <Reveal show={!apiKeyMode && !login && running}>
+            <button type="button" className="btn btn-primary" style={{ width: '100%' }} disabled={!!busy} onClick={() => void signIn()}>{busy === 'login' ? 'Opening…' : `Sign in to ${option?.name}`}</button>
           </Reveal>
           <Reveal show={!apiKeyMode && Boolean(login?.authUrl)}>
             <a className="btn btn-ghost" style={{ display: 'block', textAlign: 'center' }} href={login?.authUrl || '#'} target="_blank" rel="noreferrer">Open {option?.name} sign-in</a>

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, type GitHubStatus } from '../api';
+import { errorText } from '../runtimeHealth';
 
 function submitManifest(url: string, manifest: object) {
   const form = document.createElement('form');
@@ -28,7 +29,7 @@ export function githubReadiness(status: GitHubStatus | null) {
 export function useGitHubStatus() {
   const [status, setStatus] = useState<GitHubStatus | null>(null);
   const [error, setError] = useState('');
-  const reload = useCallback((fresh = false) => api.githubStatus(fresh).then(next => { setStatus(next); setError(''); }).catch(e => setError(e instanceof Error ? e.message : String(e))), []);
+  const reload = useCallback((fresh = false) => api.githubStatus(fresh).then(next => { setStatus(next); setError(''); }).catch(e => setError(errorText(e))), []);
   useEffect(() => { void reload(); }, [reload]);
   return { status, setStatus, error, reload };
 }
@@ -44,7 +45,7 @@ export function GitHubSetup({ status, setStatus, reload, loadError }: { status: 
     try {
       const { url, manifest } = await api.githubManifest(window.location.origin, owner.trim());
       submitManifest(url, manifest);
-    } catch (e) { setError(e instanceof Error ? e.message : String(e)); setBusy(false); }
+    } catch (e) { setError(errorText(e)); setBusy(false); }
   };
   const disconnect = async () => {
     if (!window.confirm('Disconnect GitHub? Seats lose GitHub access. Delete the app on GitHub too if you no longer need it.')) return;

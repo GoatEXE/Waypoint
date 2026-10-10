@@ -46,8 +46,6 @@ export function missionPct(tasks: Task[]) {
   return Math.round(D.projects.reduce((a, p) => a + projStats(p, tasks).pct, 0) / D.projects.length);
 }
 
-export const pendingInbox = (resolved: Resolved) => D.inbox.filter(i => !resolved[i.id]);
-
 export const inboxParent = (i: InboxItem): ProjectId | undefined =>
   i.task ? D.tasks.find(t => t.id === i.task)?.p : undefined;
 

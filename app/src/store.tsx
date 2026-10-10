@@ -1,11 +1,12 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { api, type BoardTask, type Pod, type MissionInput, type OrganizationInput, type OrganizationState, type Project } from './api';
+import { api, type AppConfig, type HermesStatus, type BoardTask, type Pod, type MissionInput, type OrganizationInput, type OrganizationState, type Project } from './api';
 import { createdBoardTask, ceoLiveUpdated, ceoLoadFailed, ceoLoadStarted, ceoLoadSucceeded, ceoSendFailed, ceoSendStarted, ceoSendSucceeded, cleanCeoMessage, emptyCeoState, type CeoState } from './ceoConversation';
 import type { LessonPick } from './data';
-import { liveTasks, pendingInbox, type Resolved } from './model';
+import { liveTasks, type Resolved } from './model';
+import { mergeStatus, START_TIMEOUT_MS, startFailureText, errorText } from './runtimeHealth';
 import { initialMissionsState, missionsLoadFailed, missionsLoadStarted, missionsLoadSucceeded, type MissionsState } from './missionsModel';
 
-export type PaneTab = 'ceo' | 'tasks' | 'artifacts' | 'inbox' | 'item';
+export type PaneTab = 'ceo' | 'tasks' | 'inbox' | 'item';
 export type ModalKind = 'assignment' | 'mission' | 'seat' | 'project' | 'pod';
 
 export interface AppState {
@@ -15,8 +16,6 @@ export interface AppState {
   seat: string;
   podStopped: boolean;
   missionOpen: boolean;
-  routinesOff: Record<string, boolean>;
-  connected: Record<string, boolean>;
   ceo: CeoState;
   ceoThread: string;
   missions: MissionsState;
@@ -25,17 +24,20 @@ export interface AppState {
   board: BoardTask[];
   projectMission: string | null;
   org: OrganizationState & { loaded: boolean; error?: string };
+  config: AppConfig | null;
+  dryRunDismissed: boolean;
+  runtime: { status: HermesStatus | null; error: unknown; checked: boolean; starting: boolean; startError: string };
   modal: ModalKind | null;
   toast: string | null;
 }
 
 const STORAGE_KEY = 'waypoint-web';
-const PERSISTED = ['pane', 'missionOpen', 'ceoThread'] as const;
+const PERSISTED = ['pane', 'missionOpen', 'ceoThread', 'dryRunDismissed'] as const;
 
 function cleanPane(saved: Partial<AppState>): AppState['pane'] {
   const fallback: AppState['pane'] = { open: window.innerWidth >= 1280, tab: 'ceo', item: null };
   const pane = saved.pane && typeof saved.pane === 'object' ? saved.pane : fallback;
-  const tab = pane.tab === 'item' ? 'ceo' : (pane.tab || fallback.tab);
+  const tab = pane.tab === 'tasks' || pane.tab === 'inbox' ? pane.tab : fallback.tab;
   return { open: typeof pane.open === 'boolean' ? pane.open : fallback.open, tab, item: null };
 }
 
@@ -44,8 +46,8 @@ function initialState(): AppState {
   try { saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'); } catch {   }
   return {
     pane: cleanPane(saved),
-    resolved: {}, picks: {}, seat: '', podStopped: false, missionOpen: Boolean(saved.missionOpen), routinesOff: {}, connected: {},
-    ceo: emptyCeoState, ceoThread: typeof saved.ceoThread === 'string' && saved.ceoThread ? saved.ceoThread : 'general', missions: initialMissionsState, projects: [], pods: [], board: [], projectMission: null, org: { loaded: false, configured: false, organization: null }, modal: null, toast: null,
+    resolved: {}, picks: {}, seat: '', podStopped: false, missionOpen: Boolean(saved.missionOpen),
+    ceo: emptyCeoState, ceoThread: typeof saved.ceoThread === 'string' && saved.ceoThread ? saved.ceoThread : 'general', missions: initialMissionsState, projects: [], pods: [], board: [], projectMission: null, org: { loaded: false, configured: false, organization: null }, runtime: { status: null, error: null, checked: false, starting: false, startError: '' }, config: null, dryRunDismissed: saved.dryRunDismissed === true, modal: null, toast: null,
   };
 }
 
@@ -83,13 +85,41 @@ function useAppStore() {
         const org = await api.organization();
         set({ org: { ...org, loaded: true } });
       } catch (err) {
-        set(s => ({ org: { ...s.org, loaded: true, error: err instanceof Error ? err.message : String(err) } }));
+        set(s => ({ org: { ...s.org, loaded: true, error: errorText(err) } }));
       }
     },
     saveOrganization: async (input: OrganizationInput) => {
       const org = await api.saveOrganization(input);
       set({ org: { ...org, loaded: true } });
       return org;
+    },
+    loadConfig: async () => {
+      try { set({ config: await api.config() }); } catch {   }
+    },
+    refreshRuntime: async (fresh = false) => {
+      try {
+        const next = await api.hermesStatus({ freshAuth: fresh });
+        set(s => ({ runtime: { ...s.runtime, status: mergeStatus(s.runtime.status, next), error: null, checked: true } }));
+        return next;
+      } catch (error) {
+        set(s => ({ runtime: { ...s.runtime, status: null, error, checked: true } }));
+        return null;
+      }
+    },
+    startCeo: async () => {
+      set(s => ({ runtime: { ...s.runtime, starting: true, startError: '' } }));
+      let timer = 0;
+      const timedOut = new Promise<'timeout'>(resolve => { timer = window.setTimeout(() => resolve('timeout'), START_TIMEOUT_MS); });
+      try {
+        const result = await Promise.race([api.hermesLifecycle('start'), timedOut]);
+        if (result === 'timeout') set(s => ({ runtime: { ...s.runtime, startError: startFailureText(null, true) } }));
+      } catch (error) {
+        set(s => ({ runtime: { ...s.runtime, startError: startFailureText(error, false) } }));
+      } finally {
+        window.clearTimeout(timer);
+        const next = await api.hermesStatus({ freshAuth: true }).catch(() => null);
+        set(s => ({ runtime: { ...s.runtime, starting: false, ...(next ? { status: next, error: null, checked: true } : {}) } }));
+      }
     },
     loadBoard: async () => {
       try {
@@ -110,7 +140,7 @@ function useAppStore() {
         const { missions } = await api.missions();
         set({ missions: missionsLoadSucceeded(missions) });
       } catch (err) {
-        set(s => ({ missions: missionsLoadFailed(s.missions, err instanceof Error ? err.message : String(err)) }));
+        set(s => ({ missions: missionsLoadFailed(s.missions, errorText(err)) }));
       }
     },
 
@@ -118,13 +148,13 @@ function useAppStore() {
       try {
         await api.createMission(input);
       } catch (err) {
-        return { ok: false, error: err instanceof Error ? err.message : String(err) };
+        return { ok: false, error: errorText(err) };
       }
       try {
         const { missions } = await api.missions();
         set({ missions: missionsLoadSucceeded(missions) });
       } catch (err) {
-        set(s => ({ missions: missionsLoadFailed(s.missions, err instanceof Error ? err.message : String(err)) }));
+        set(s => ({ missions: missionsLoadFailed(s.missions, errorText(err)) }));
       }
       return { ok: true };
     },
@@ -136,7 +166,7 @@ function useAppStore() {
         const conversation = await api.ceoConversation(thread);
         set(s => ceoSendVersionRef.current === sendVersion && s.ceoThread === thread ? { ceo: ceoLoadSucceeded(s.ceo, conversation) } : {});
       } catch (err) {
-        set(s => ceoSendVersionRef.current === sendVersion && s.ceoThread === thread ? { ceo: ceoLoadFailed(s.ceo, err instanceof Error ? err.message : String(err)) } : {});
+        set(s => ceoSendVersionRef.current === sendVersion && s.ceoThread === thread ? { ceo: ceoLoadFailed(s.ceo, errorText(err)) } : {});
       }
     },
     setCeoThread: (thread: string) => {
@@ -146,7 +176,7 @@ function useAppStore() {
       set({ ceoThread: thread, ceo: { ...emptyCeoState, loading: true } });
       void api.ceoConversation(thread)
         .then(conversation => set(s => s.ceoThread === thread ? { ceo: ceoLoadSucceeded(s.ceo, conversation) } : {}))
-        .catch(err => set(s => s.ceoThread === thread ? { ceo: ceoLoadFailed(s.ceo, err instanceof Error ? err.message : String(err)) } : {}));
+        .catch(err => set(s => s.ceoThread === thread ? { ceo: ceoLoadFailed(s.ceo, errorText(err)) } : {}));
       return true;
     },
     sendCeoMessage: async (message: string, openPane = false, onTaskCreated?: (ref: string) => void) => {
@@ -186,7 +216,7 @@ function useAppStore() {
         set(s => ({ ceo: s.ceoThread === thread ? ceoSendSucceeded(s.ceo, response) : { ...s.ceo, busyThreadId: null }, ...(openPane ? { pane: { ...s.pane, open: true, tab: 'ceo' as const } } : {}) }));
         return { ok: true };
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
+        const message = errorText(err);
         set(s => ({ ceo: s.ceoThread === thread ? ceoSendFailed(s.ceo, message) : { ...s.ceo, busyThreadId: null } }));
         return { ok: false, error: message };
       } finally {
@@ -196,11 +226,14 @@ function useAppStore() {
     },
   }), [set]);
 
-  useEffect(() => { void actions.loadMissions(); void actions.loadOrganization(); void actions.loadProjects(); void actions.loadPods(); }, [actions]);
+  useEffect(() => { void actions.loadMissions(); void actions.loadOrganization(); void actions.loadProjects(); void actions.loadPods(); void actions.refreshRuntime(true); void actions.loadConfig(); }, [actions]);
+  useEffect(() => {
+    const timer = window.setInterval(() => void actions.refreshRuntime(), 15000);
+    return () => window.clearInterval(timer);
+  }, [actions]);
 
   const derived = useMemo(() => ({
     tasks: liveTasks(state.resolved),
-    pending: pendingInbox(state.resolved),
   }), [state.resolved]);
 
   return { state, ...derived, ...actions };
