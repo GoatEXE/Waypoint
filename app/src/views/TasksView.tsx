@@ -144,7 +144,7 @@ export function NewTaskDialog({ tasks, seats, board, initial, onClose, onCreated
           <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Goes straight onto the board{board ? ` of pod ${board}` : ''}. If you assign a seat, it picks the task up once any parent tasks are done.</div>
         </div>
         <TaskFields draft={draft} onChange={setDraft} tasks={tasks} seats={seats} disabled={busy} />
-        {error && <div role="alert" style={{ fontSize: 12.5, color: 'var(--text)' }}>{error}</div>}
+        {error && <div role="alert" className="form-error">{error}</div>}
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
           <button type="button" className="btn btn-ghost" disabled={busy} onClick={onClose}>Cancel</button>
           <button type="submit" className="btn btn-primary" disabled={busy || !draft.title.trim()}>{busy ? 'Adding…' : 'Add task'}</button>

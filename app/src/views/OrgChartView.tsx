@@ -6,6 +6,7 @@ import { ceoNameOf } from '../orgModel';
 import { ONBOARDING_KICKOFF } from './OrgSetupView';
 import { HermesPortalLink } from '../components/HermesPortalLink';
 import { SeatMark } from '../components/ProviderMark';
+import { DRY_RUN_REASON } from '../dryRun';
 
 export function OrgChartView() {
   const { state, setCeoThread, setPane, sendCeoMessage, openModal } = useStore();
@@ -26,13 +27,14 @@ export function OrgChartView() {
   }, [state.modal]);
 
   const org = state.org.organization;
+  const dryRun = Boolean(state.config?.dryRun);
   const ceoName = ceoNameOf(org);
 
   return (
     <div className="page" style={{ maxWidth: 1280, gap: 24 }}>
       <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12 }}>
         <WorkspaceHead title="Organization" />
-        <button className="btn btn-ghost" style={{ marginLeft: 'auto' }} onClick={() => openModal('seat')}>Hire a seat</button>
+        <button className="btn btn-ghost" style={{ marginLeft: 'auto' }} disabled={dryRun} title={dryRun ? DRY_RUN_REASON : undefined} onClick={() => openModal('seat')}>Hire a seat</button>
         <button className="btn btn-primary" disabled={state.ceo.sending} onClick={() => { setCeoThread('general'); void sendCeoMessage(ONBOARDING_KICKOFF, true); }}>Onboard with {ceoName}</button>
       </div>
       {error && <div className="card" role="alert" style={{ padding: 12 }}>{error}</div>}

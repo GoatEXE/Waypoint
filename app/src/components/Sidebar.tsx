@@ -7,6 +7,7 @@ import { NavIcon, type NavIconName } from './NavIcon';
 import { api, type HermesStatus, type OrgSeat } from '../api';
 import { needsYou } from '../taskQueueModel';
 import { SeatMark } from './ProviderMark';
+import { DRY_RUN_REASON } from '../dryRun';
 import { sidebarHermesSummary } from '../hermesSidebarStatus';
 import { sidebarMissionLabel } from '../missionsModel';
 import { ceoNameOf } from '../orgModel';
@@ -23,13 +24,14 @@ const WORKSPACE: [View & NavIconName, string][] = [
   ['connectors', 'Connectors'],
 ];
 
-function AddButton({ onClick }: { onClick: () => void }) {
-  return <button className="sb-add" title="New" onClick={onClick}>+</button>;
+function AddButton({ onClick, disabledReason }: { onClick: () => void; disabledReason?: string }) {
+  return <button className="sb-add" title={disabledReason || 'New'} disabled={Boolean(disabledReason)} onClick={onClick}>+</button>;
 }
 
 export function Sidebar() {
   const { state, set, openModal, loadBoard } = useStore();
   const nav = useNavigate();
+  const dryRun = state.config?.dryRun ? DRY_RUN_REASON : undefined;
   const route = useRoute();
   const activeProj = activeProject(route);
   const [hermes, setHermes] = useState<HermesStatus | null>(null);
@@ -113,7 +115,7 @@ export function Sidebar() {
         </div>
 
         <div className="sb-section">
-          <div className="sb-label-row"><span className="sb-label">PODS</span><AddButton onClick={() => openModal('pod')} /></div>
+          <div className="sb-label-row"><span className="sb-label">PODS</span><AddButton onClick={() => openModal('pod')} disabledReason={dryRun} /></div>
           {!state.pods.some(pod => pod.status === 'active') && <div className="sb-item" style={{ color: 'var(--faint)', cursor: 'default' }}>No pods</div>}
           {state.pods.filter(pod => pod.status === 'active').map(pod => (
             <div key={pod.name} className={'sb-item' + (route.v === 'pod' && route.id === pod.name ? ' active' : '')} title={pod.purpose} onClick={() => nav('/pods/' + pod.name)}>
@@ -124,7 +126,7 @@ export function Sidebar() {
         </div>
 
         <div className="sb-section">
-          <div className="sb-label-row"><span className="sb-label">SEATS</span><AddButton onClick={() => openModal('seat')} /></div>
+          <div className="sb-label-row"><span className="sb-label">SEATS</span><AddButton onClick={() => openModal('seat')} disabledReason={dryRun} /></div>
           {!seats.length && <div className="sb-item" style={{ color: 'var(--faint)', cursor: 'default' }}>No seats</div>}
           {seats.map(seat => (
             <div key={seat.id} className="sb-item" title={seat.description} onClick={() => nav('/org')}>

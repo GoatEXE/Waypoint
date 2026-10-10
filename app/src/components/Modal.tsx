@@ -5,6 +5,7 @@ import { currentMission } from '../missionsModel';
 import { useStore, type ModalKind } from '../store';
 import { api, type OrgSeat } from '../api';
 import { ceoNameOf } from '../orgModel';
+import { DRY_RUN_REASON } from '../dryRun';
 
 interface Form { text: string; title: string; date: string; scope: string; hire: string; role: string; clone: string }
 
@@ -73,7 +74,7 @@ export function Modal({ kind }: { kind: FormKind }) {
   const meta = {
     assignment: { eyebrow: `ASK ${ceoName.toUpperCase()}`, title: 'What needs doing?', cta: `Send to ${ceoName}`, note: `${ceoName} replies in the side pane and plans the work onto the board.`, ok: form.text.trim() },
     mission: { eyebrow: 'NEW MISSION', title: 'Set a mission', cta: 'Save mission', note: 'Saves the mission. Nothing starts until the CEO puts work on the board.', ok: form.title.trim() },
-    seat: { eyebrow: 'NEW SEAT', title: 'Hire a seat', cta: 'Hire seat', note: 'Adds a Hermes profile to the organization.', ok: form.title.trim() && form.role.trim() },
+    seat: { eyebrow: 'NEW SEAT', title: 'Hire a seat', cta: 'Hire seat', note: state.config?.dryRun ? DRY_RUN_REASON : 'Adds a Hermes profile to the organization.', ok: form.title.trim() && form.role.trim() && !state.config?.dryRun },
   }[kind];
 
   const submit = async () => {
@@ -155,8 +156,9 @@ export function Modal({ kind }: { kind: FormKind }) {
           </>}
         </div>
 
+        {error && <div role="alert" className="form-error" style={{ margin: '0 22px 14px' }}>{error}</div>}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '14px 22px', borderTop: '1px solid var(--border)' }}>
-          <span style={{ fontSize: 12, color: error ? 'var(--faint)' : 'var(--fainter)' }} role={error ? 'alert' : undefined}>{error || meta.note}</span>
+          <span style={{ fontSize: 12, color: 'var(--fainter)' }}>{meta.note}</span>
           <button className="btn lg btn-ghost" style={{ marginLeft: 'auto' }} onClick={closeIfIdle} disabled={submitting}>Cancel</button>
           <button className="btn lg btn-primary" disabled={!meta.ok || submitting} onClick={submit}>{submitting ? (kind === 'mission' ? 'Saving…' : kind === 'seat' ? 'Hiring…' : 'Sending…') : meta.cta}</button>
         </div>
