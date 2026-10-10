@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, type Mission, type MissionStatus } from '../api';
 import { currentMission, MISSION_STATUSES, missionStatusLabel, shortDate } from '../missionsModel';
@@ -108,6 +108,7 @@ export function MissionView() {
   const [deleteError, setDeleteError] = useState('');
   const [deleted, setDeleted] = useState(false);
   const [editing, setEditing] = useState(false);
+  useEffect(() => { if (deleted) setEditing(false); }, [deleted]);
   const waiting = needsYou(state.board);
   const needs = waiting.slice(0, 3);
   const { missions } = state;
@@ -189,11 +190,28 @@ export function MissionView() {
   const others = missions.missions.slice(1);
   const missionTasks = projectTasks(state.board, state.projects.filter(p => p.missionId === mission.id).map(p => p.id));
 
+  if (editing) {
+    return (
+      <div className="page" style={{ maxWidth: 920, paddingTop: 48, gap: 28 }}>
+        <div className="eyebrow">EDIT MISSION</div>
+        <MissionEditor key={mission.id} mission={mission} onDone={() => setEditing(false)} />
+        <div className="stack danger-zone" style={{ gap: 12 }}>
+          <div className="section-title">Danger zone</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 13, color: 'var(--muted)', flex: 1 }}>Deleting removes the mission only. Its projects and tasks stay.</span>
+            <button className="btn btn-ghost danger" type="button" onClick={() => { setConfirmDelete(mission); setDeleteError(''); }}>Delete mission</button>
+          </div>
+          {deletionControls}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="page" style={{ maxWidth: 920, paddingTop: 48, gap: 44 }}>
       <div className="stack" style={{ gap: 14 }}>
         <div className="eyebrow">MISSION</div>
-        {editing ? <MissionEditor key={mission.id} mission={mission} onDone={() => setEditing(false)} /> : <>
+        <>
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
             <h1 className="mission-h1">{mission.title}</h1>
             <button type="button" className="icon-btn" style={{ marginTop: 4 }} title="Edit mission" aria-label="Edit mission" onClick={() => setEditing(true)}>
@@ -206,7 +224,7 @@ export function MissionView() {
             {mission.target && <span>Target <span className="v">{shortDate(mission.target)}</span></span>}
             <span>Recorded <span className="v">{shortDate(mission.createdAt)}</span></span>
           </div>
-        </>}
+        </>
       </div>
 
       {needs.length > 0 && (
@@ -252,14 +270,7 @@ export function MissionView() {
           </div>
         </div>
       )}
-      <div className="stack danger-zone" style={{ gap: 12 }}>
-        <div className="section-title">Danger zone</div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 13, color: 'var(--muted)', flex: 1 }}>Deleting removes the mission only. Its projects and tasks stay.</span>
-          <button className="btn btn-ghost danger" type="button" onClick={() => { setConfirmDelete(mission); setDeleteError(''); }}>Delete mission</button>
-        </div>
-        {deletionControls}
-      </div>
+      {deletionControls}
     </div>
   );
 }
