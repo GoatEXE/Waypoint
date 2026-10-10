@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { KanbanBoard } from '../src/kanban.js';
 
-async function board(statuses) {
+async function board(statuses, children = {}) {
   const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'waypoint-kanban-'));
   const calls = [];
   const runner = async (_command, args) => {
@@ -13,7 +13,7 @@ async function board(statuses) {
     calls.push(kanban);
     const [verb, ...rest] = kanban;
     if (verb === 'list') return { code: 0, stdout: JSON.stringify(Object.keys(statuses).map((id) => ({ id, title: id, status: statuses[id] }))) };
-    if (verb === 'show') return { code: 0, stdout: JSON.stringify({ task: { id: rest[0], title: rest[0], status: statuses[rest[0]] }, comments: [], events: [], parents: [], children: [] }) };
+    if (verb === 'show') return { code: 0, stdout: JSON.stringify({ task: { id: rest[0], title: rest[0], status: statuses[rest[0]] }, comments: [], events: [], parents: [], children: children[rest[0]] || [] }) };
     if (verb === 'create') return { code: 0, stdout: JSON.stringify({ id: 't_cccccccc' }) };
     return { code: 0, stdout: '' };
   };
@@ -35,4 +35,10 @@ test('board tasks get stable refs and comments route by status', async () => {
   assert.deepEqual(calls.slice(1, 3), [['comment', '--author', 'user', 't_bbbbbbbb', 'Use the staging key.'], ['unblock', '--reason', 'user replied', 't_bbbbbbbb']], 'a reply unblocks a blocked task');
   await assert.rejects(kanban.comment('SUN-9', { text: 'x' }), /not found/);
   await assert.rejects(kanban.create({ title: 'x', assignee: 'Bad Seat' }), /seat id/);
+});
+
+test('archiving a task also archives the follow-ups waiting on it, so they never start', async () => {
+  const { kanban, calls } = await board({ t_aaaaaaaa: 'review', t_bbbbbbbb: 'todo', t_cccccccc: 'done' }, { t_aaaaaaaa: ['t_bbbbbbbb', 't_cccccccc'] });
+  await kanban.act('t_aaaaaaaa', { action: 'archive' });
+  assert.deepEqual(calls.filter((c) => c[0] === 'archive'), [['archive', 't_bbbbbbbb'], ['archive', 't_aaaaaaaa']]);
 });

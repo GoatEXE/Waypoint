@@ -119,10 +119,14 @@ export class KanbanBoard {
 
   async show(ref) {
     const id = await this.resolveId(ref);
-    const detail = await this.run(['show', id]);
+    const [detail, board] = await Promise.all([this.run(['show', id]), this.run(['list'])]);
     const numbers = await this.numberAll([id, ...(detail.parents || []), ...(detail.children || [])]);
     const prefix = await this.prefix();
-    const link = (taskId) => ({ id: taskId, ref: numbers[taskId] ? `${prefix}-${numbers[taskId]}` : null });
+    const byId = new Map(board.map((task) => [task.id, task]));
+    const link = (taskId) => {
+      const task = byId.get(taskId);
+      return { id: taskId, ref: numbers[taskId] ? `${prefix}-${numbers[taskId]}` : null, title: task?.title || '', status: task?.status || null, assignee: task?.assignee || null };
+    };
     return {
       ...this.summary(detail.task, numbers, prefix),
       latestSummary: detail.latest_summary || '',
@@ -165,7 +169,12 @@ export class KanbanBoard {
     const id = await this.resolveId(ref);
     const action = String(input.action || '');
     if (action === 'complete') await this.run(['complete', '--summary', text(input.summary, 'summary', 500, { required: false }) || 'Marked done by the user.', id], { json: false });
-    else if (action === 'archive') await this.run(['archive', id], { json: false });
+    else if (action === 'archive') {
+      const [detail, board] = await Promise.all([this.run(['show', id]), this.run(['list'])]);
+      const waiting = new Set(board.filter((task) => ['triage', 'todo'].includes(task.status)).map((task) => task.id));
+      for (const child of detail.children || []) if (waiting.has(child)) await this.run(['archive', child], { json: false });
+      await this.run(['archive', id], { json: false });
+    }
     else if (action === 'unblock') await this.run(['unblock', id], { json: false });
     else if (action === 'block') await this.run(['block', '--kind', 'needs_input', id, text(input.reason, 'reason', 300)], { json: false });
     else if (action === 'assign') await this.run(['assign', id, input.assignee ? profile(input.assignee, 'assignee') : 'none'], { json: false });

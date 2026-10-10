@@ -137,6 +137,7 @@ button, input, textarea { font-family: inherit; }
 .row { background: var(--surface); }
 .row.link { cursor: pointer; }
 .row.link:hover { background: var(--surface-hover); }
+.inbox-handoff { white-space: pre-wrap; font-size: 13px; line-height: 1.5; color: var(--text-2); max-height: 260px; overflow: auto; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); }
 .card { border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
 .card.link { cursor: pointer; }
 .card.link:hover { border-color: var(--border-4); }

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api, type BoardTask } from '../api';
+import { api, type BoardTask, type BoardTaskDetail } from '../api';
+import { TaskRefText } from '../components/TaskRefText';
 import { needsYou, taskLabel } from '../taskQueueModel';
 import { WorkspaceHead } from '../components/ui';
 import { useStore } from '../store';
@@ -19,6 +20,11 @@ function InboxItem({ task, onDone }: { task: BoardTask; onDone: () => Promise<vo
   };
   const seat = task.assignee || 'the seat';
   const review = task.status === 'review';
+  const [detail, setDetail] = useState<BoardTaskDetail | null>(null);
+  const taskKey = JSON.stringify(task);
+  useEffect(() => { api.task(ref).then(setDetail).catch(() => setDetail(null)); }, [ref, taskKey]);
+  const handoff = review ? detail?.latestSummary : [...(detail?.events || [])].reverse().find(e => e.kind === 'blocked')?.detail;
+  const next = (detail?.children || []).filter(c => c.status === 'todo' || c.status === 'triage');
   return (
     <div className="row stack" style={{ gap: 10, padding: '14px 18px' }}>
       <div style={{ display: 'flex', gap: 10, alignItems: 'baseline', flexWrap: 'wrap' }}>
@@ -26,6 +32,15 @@ function InboxItem({ task, onDone }: { task: BoardTask; onDone: () => Promise<vo
         <strong style={{ fontWeight: 500 }}>{task.title}</strong>
         <span className="task-pill" style={{ marginLeft: 'auto' }}>{review ? 'In review' : 'Blocked'}</span>
       </div>
+      {handoff && <div className="inbox-handoff"><TaskRefText text={handoff} /></div>}
+      {review && next.length > 0 && (
+        <div className="stack" style={{ gap: 4, fontSize: 12.5 }}>
+          <span style={{ color: 'var(--faint)' }}>On approval</span>
+          {next.map(c => (
+            <span key={c.id}><button type="button" className="ref-link" onClick={() => nav('/tasks/' + encodeURIComponent(c.ref || c.id))}>{c.ref || c.id}</button> {c.title}{c.assignee ? <span style={{ color: 'var(--muted)' }}> · {c.assignee}</span> : null}</span>
+          ))}
+        </div>
+      )}
       {writing ? (
         <div className="stack" style={{ gap: 8 }}>
           <textarea className="input" rows={3} autoFocus value={text} maxLength={2000} disabled={busy} placeholder={review ? `What should ${seat} change?` : `Answer ${seat}`} onChange={e => setText(e.target.value)} />
@@ -37,7 +52,7 @@ function InboxItem({ task, onDone }: { task: BoardTask; onDone: () => Promise<vo
       ) : (
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
           <button className="btn btn-ghost sm" disabled={busy} onClick={() => setWriting(true)}>{review ? 'Request changes' : 'Reply'}</button>
-          <button className="btn btn-primary sm" disabled={busy} onClick={() => void act(() => api.taskAction(ref, { action: 'complete' }))}>Mark done</button>
+          <button className="btn btn-primary sm" disabled={busy} onClick={() => void act(() => api.taskAction(ref, review ? { action: 'complete', summary: 'Approved by the user.' } : { action: 'complete' }))}>{review ? 'Approve' : 'Mark done'}</button>
         </div>
       )}
       {error && <div role="alert" style={{ fontSize: 12.5, color: 'var(--text)' }}>{error}</div>}

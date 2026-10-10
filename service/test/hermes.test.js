@@ -67,38 +67,24 @@ test('startup reconciliation refuses unowned CEO names before creating volumes o
   assert.equal(calls.some((c) => c.args[0] === 'volume' || c.args[0] === 'run' || c.args[0] === 'start'), false);
 });
 
-test('CEO home preparation sets only single-query approval mode and preserves other config state', async () => {
+test('CEO home preparation sets unattended approvals and human-only review, preserving other config', async () => {
   const calls = [];
-  const state = { approvals: { single_query_mode: 'deny' }, model: { provider: 'anthropic', default: 'claude-opus-5-5' } };
+  const settings = { 'approvals.single_query_mode': 'deny', 'kanban.review_dispatch': 'True', 'model.default': 'claude-opus-5-5' };
   const hermes = new HermesRuntime(config(), undefined, async (command, args, options = {}) => {
     calls.push({ command, args, input: options.input });
     if (args[0] === 'inspect') return { code: 0, stdout: '{"owned":"true","id":"c1","state":"running","running":true}\n', stderr: '' };
     if (args[0] === 'exec' && args.includes('python3')) return { code: 0, stdout: '{"ok":true}\n', stderr: '' };
-    if (args[0] === 'exec' && args.includes('hermes') && args.includes('config') && args.includes('get')) return { code: 0, stdout: `${state.approvals.single_query_mode}\n`, stderr: '' };
-    if (args[0] === 'exec' && args.includes('hermes') && args.includes('config') && args.includes('set')) {
-      assert.deepEqual(args.slice(-2), ['approvals.single_query_mode', 'approve']);
-      state.approvals.single_query_mode = 'approve';
+    if (args[0] === 'exec' && args.includes('config') && args.includes('get')) return { code: 0, stdout: `${settings[args.at(-1)]}\n`, stderr: '' };
+    if (args[0] === 'exec' && args.includes('config') && args.includes('set')) {
+      settings[args.at(-2)] = args.at(-1);
       return { code: 0, stdout: 'Saved\n', stderr: '' };
     }
     return { code: 0, stdout: '', stderr: '' };
   });
   await hermes.syncRunning();
-  assert.deepEqual(state.model, { provider: 'anthropic', default: 'claude-opus-5-5' });
-  assert.equal(state.approvals.single_query_mode, 'approve');
-  assert.equal(calls.filter((c) => c.args.includes('config') && c.args.includes('set')).length, 1);
-});
-
-test('CEO home preparation leaves existing approval config untouched when already enabled', async () => {
-  const calls = [];
-  const hermes = new HermesRuntime(config(), undefined, async (_command, args, options = {}) => {
-    calls.push({ args, input: options.input });
-    if (args[0] === 'inspect') return { code: 0, stdout: '{"owned":"true","id":"c1","state":"running","running":true}\n', stderr: '' };
-    if (args[0] === 'exec' && args.includes('python3')) return { code: 0, stdout: '{"ok":true}\n', stderr: '' };
-    if (args[0] === 'exec' && args.includes('hermes') && args.includes('config') && args.includes('get')) return { code: 0, stdout: 'approve\n', stderr: '' };
-    return { code: 0, stdout: '', stderr: '' };
-  });
+  assert.deepEqual(settings, { 'approvals.single_query_mode': 'approve', 'kanban.review_dispatch': 'false', 'model.default': 'claude-opus-5-5' });
   await hermes.syncRunning();
-  assert.equal(calls.some((c) => c.args.includes('config') && c.args.includes('set')), false);
+  assert.equal(calls.filter((c) => c.args.includes('config') && c.args.includes('set')).length, 2, 'settings already in place are left alone');
 });
 
 test('model settings and API-key save return sanitized flags and survive runtime object restart', async () => {
@@ -591,6 +577,7 @@ test('CEO skill seed describes native seats, the board, and the bridge tools', a
   assert.match(skill, /^---\nname: waypoint-ceo-bridge\ndescription: .*seats, the task board, missions, and projects\.\n---\n/);
   assert.match(skill, /Seats are Hermes profiles in your own install/);
   assert.match(skill, /Delegate work as kanban tasks assigned to the best seat/);
+  assert.match(skill, /queue the next step as a child task that starts once the user approves/);
   assert.match(skill, /update_mission \{ missionId, status \}/);
   assert.doesNotMatch(skill, /pod_start|run_task|send_message|create_task/, 'no legacy pod or task tools');
   assert.doesNotMatch(script, /waypoint-github|gh (pr|issue|auth)|GitHub CLI/, 'GitHub usage is left to the model');

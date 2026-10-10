@@ -47,7 +47,10 @@ function TaskLinks({ title, links }: { title: string; links: BoardTaskLink[] }) 
     <div className="stack" style={{ gap: 6 }}>
       <div style={{ fontSize: 11.5, color: 'var(--faint)' }}>{title}</div>
       {links.map(link => (
-        <button key={link.id} type="button" className="ref-link" style={{ alignSelf: 'flex-start' }} onClick={() => nav('/tasks/' + encodeURIComponent(link.ref || link.id))}>{link.ref || link.id}</button>
+        <span key={link.id} style={{ fontSize: 12.5 }}>
+          <button type="button" className="ref-link" onClick={() => nav('/tasks/' + encodeURIComponent(link.ref || link.id))}>{link.ref || link.id}</button> {link.title}
+          {link.assignee && <span style={{ color: 'var(--muted)' }}> · {link.assignee}</span>}
+        </span>
       ))}
     </div>
   );
@@ -150,7 +153,7 @@ export function TaskView({ id }: { id: string }) {
                 placeholder={inReview ? 'What needs to change?' : task.assignee ? `Comment; ${task.assignee} sees it on the next pass` : 'Comment'} />
               <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
                 {task.status === 'blocked' && <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => void run(() => api.taskAction(ref, { action: 'unblock' }))}>Unblock</button>}
-                <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => void run(() => api.taskAction(ref, { action: 'complete' }))}>Mark done</button>
+                <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => void run(() => api.taskAction(ref, inReview ? { action: 'complete', summary: 'Approved by the user.' } : { action: 'complete' }))}>{inReview ? 'Approve' : 'Mark done'}</button>
                 <button type="submit" className="btn btn-primary" disabled={busy || !draft.trim()}>{inReview ? 'Request changes' : 'Comment'}</button>
               </div>
             </form>
@@ -172,7 +175,7 @@ export function TaskView({ id }: { id: string }) {
             ))}
           </div>
           <TaskLinks title="Waits on" links={task.parents} />
-          <TaskLinks title="Unblocks" links={task.children} />
+          <TaskLinks title="Starts after this" links={task.children} />
           {task.status !== 'archived' && <button className="btn btn-ghost" style={{ alignSelf: 'flex-start' }} disabled={busy} onClick={() => void run(() => api.taskAction(ref, { action: 'archive' }))}>Archive</button>}
         </div>
       </div>
