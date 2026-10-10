@@ -4,6 +4,7 @@ import * as D from '../data';
 import { chatContextFor, useRoute } from '../routes';
 import { useStore, type ModalKind } from '../store';
 import { api, type OrgSeat } from '../api';
+import { ceoNameOf } from '../orgModel';
 
 interface Form { text: string; title: string; date: string; scope: string; hire: string; role: string; clone: string }
 
@@ -61,8 +62,9 @@ export function Modal({ kind }: { kind: FormKind }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [closeModal, submitting]);
 
+  const ceoName = ceoNameOf(state.org.organization);
   const meta = {
-    assignment: { eyebrow: 'NEW ASSIGNMENT · TO CEO', title: 'What needs doing?', cta: 'Send to CEO', note: 'Context: ' + ctx, ok: form.text.trim() },
+    assignment: { eyebrow: `ASK ${ceoName.toUpperCase()}`, title: 'What needs doing?', cta: `Send to ${ceoName}`, note: `${ceoName} replies in the side pane and plans the work onto the board. Context: ${ctx}`, ok: form.text.trim() },
     mission: { eyebrow: 'NEW MISSION', title: 'Set a mission', cta: 'Save mission', note: 'Saves the mission. Nothing starts until the CEO puts work on the board.', ok: form.title.trim() },
     seat: { eyebrow: 'NEW SEAT', title: 'Hire a seat', cta: 'Hire seat', note: 'Adds a Hermes profile to the organization.', ok: form.title.trim() && form.role.trim() },
   }[kind];
