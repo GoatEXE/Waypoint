@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { api, type Mission, type MissionStatus } from '../api';
 import { currentMission, MISSION_STATUSES, missionStatusLabel, shortDate } from '../missionsModel';
 import { useStore } from '../store';
-import { statusLabel } from '../taskQueueModel';
+import { needsYou, statusLabel, taskLabel } from '../taskQueueModel';
 
 function ProjectsSection({ mission }: { mission: Mission }) {
   const { state, addProject } = useStore();
@@ -98,14 +98,15 @@ function MissionEditor({ mission, onDone }: { mission: Mission; onDone: () => vo
 }
 
 export function MissionView() {
-  const { state, pending, openModal, loadMissions } = useStore();
+  const { state, openModal, loadMissions } = useStore();
   const nav = useNavigate();
   const [confirmDelete, setConfirmDelete] = useState<Mission | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState('');
   const [deleted, setDeleted] = useState(false);
   const [editing, setEditing] = useState(false);
-  const needs = pending.slice(0, 3);
+  const waiting = needsYou(state.board);
+  const needs = waiting.slice(0, 3);
   const { missions } = state;
   const mission = currentMission(missions);
 
@@ -207,13 +208,13 @@ export function MissionView() {
       {needs.length > 0 && (
         <div className="stack" style={{ gap: 12 }}>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
-            <div className="section-title">Needs you</div>
+            <div className="section-title">Needs you <span className="task-count">{waiting.length}</span></div>
             <span className="crumb-link" style={{ fontSize: 12.5 }} onClick={() => nav('/inbox')}>Open inbox →</span>
           </div>
           <div className="needs-grid">
             {needs.map(n => (
-              <div key={n.id} className="need" onClick={() => nav('/inbox')}>
-                <div className="kind">{n.kind.toUpperCase()}</div>
+              <div key={n.id} className="need" onClick={() => nav('/tasks/' + encodeURIComponent(taskLabel(n)))}>
+                <div className="kind">{n.status === 'review' ? 'IN REVIEW' : 'BLOCKED'} · {taskLabel(n)}</div>
                 <div className="title">{n.title}</div>
               </div>
             ))}

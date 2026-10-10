@@ -1,5 +1,4 @@
 import { useLocation } from 'react-router-dom';
-import * as D from './data';
 
 export type View =
   | 'mission' | 'project' | 'task' | 'pod'
@@ -20,12 +19,6 @@ export function parseRoute(path: string): Route {
 }
 
 export const useRoute = () => parseRoute(useLocation().pathname);
-
-export function chatContextFor(r: Route): string {
-  if (r.v === 'task' && r.id) return r.id;
-  if (r.v === 'project') return D.projects.find(p => p.id === r.id)?.name || 'project';
-  return D.mission?.short || 'workspace';
-}
 
 export function activeProject(r: Route): string | null {
   if (r.v === 'project') return r.id!;
