@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { badRequest, lifecycleError, notFound } from './errors.js';
+import { activityDetail } from './activity.js';
 
 const TASK_ID_RE = /^t_[0-9a-f]{6,32}$/;
 const REF_RE = /^([A-Z][A-Z0-9]{1,5})-([1-9][0-9]{0,8})$/;
@@ -43,6 +44,37 @@ export function boardSlug(value) {
   return result;
 }
 
+const WORKER_LOG_TAIL = 32 * 1024;
+const ACTIVITY_MAX = 60;
+const TOOL_LINE_RE = /^\s*┊\s*(\S+)\s+(\S+)(?:\s+(.*?))?\s+(\d+(?:\.\d+)?s)\s*$/u;
+
+export function parseWorkerLog(text, secrets = []) {
+  const items = [];
+  let thought = null;
+  let finished = false;
+  for (const raw of String(text || '').split(/\r?\n/)) {
+    const line = raw.replace(/\x1b\[[0-9;]*m/g, '');
+    if (thought) {
+      if (/^\s*└─/.test(line)) {
+        const detail = activityDetail(thought.join(''), secrets);
+        if (detail) items.push({ kind: 'thought', detail });
+        thought = null;
+      } else {
+        const part = line.trim();
+        const previous = thought.at(-1) || '';
+        thought.push(previous && !(previous.length >= 70 && /^[a-z]/.test(part)) ? ` ${part}` : part);
+      }
+      continue;
+    }
+    if (/^\s*┌─ Reasoning/.test(line)) { thought = []; continue; }
+    if (/^\[kanban-worker-exit\]/.test(line)) { finished = true; continue; }
+    const tool = line.match(TOOL_LINE_RE);
+    if (!tool || tool[2] === 'preparing') continue;
+    items.push({ kind: 'tool', icon: tool[1], name: tool[2], detail: activityDetail(tool[3] || '', secrets), duration: tool[4] });
+  }
+  return { items: items.slice(-ACTIVITY_MAX), finished };
+}
+
 function toIso(seconds) {
   return Number.isFinite(seconds) ? new Date(seconds * 1000).toISOString() : null;
 }
@@ -56,7 +88,7 @@ export class KanbanBoard {
     this.refsQueue = Promise.resolve();
   }
 
-  async run(args, { json = true, board = DEFAULT_BOARD } = {}) {
+  async run(args, { json = true, board = DEFAULT_BOARD, raw = false } = {}) {
     const scoped = board && board !== DEFAULT_BOARD ? ['--board', board, ...args] : args;
     const result = await this.hermes.runner('docker', ['exec', '--user', 'hermes', this.hermes.containerName, 'hermes', 'kanban', ...scoped, ...(json ? ['--json'] : [])], { timeoutMs: 60000, outputLimitBytes: 4 * 1024 * 1024 });
     if (result.code !== 0) {
@@ -64,6 +96,7 @@ export class KanbanBoard {
       if (/not found|no such task|unknown task/i.test(detail)) throw notFound('task not found');
       throw lifecycleError(`hermes kanban ${args[0]} failed${detail ? `: ${detail}` : ''}`, { code: result.code });
     }
+    if (raw) return String(result.stdout || '');
     if (!json) return null;
     const out = String(result.stdout || '').trim();
     try { return JSON.parse(out.slice(out.search(/[[{]/))); }
@@ -174,6 +207,15 @@ export class KanbanBoard {
       comments: (detail.comments || []).map((comment) => ({ author: comment.author, body: comment.body, at: toIso(comment.created_at) })),
       events: (detail.events || []).map((event) => ({ kind: event.kind, at: toIso(event.created_at), runId: event.run_id ?? null, detail: event.payload?.summary || event.payload?.reason || '' })),
     };
+  }
+
+  async activity(ref) {
+    const { id, board } = await this.locate(ref);
+    const text = await this.run(['log', id, '--tail', String(WORKER_LOG_TAIL)], { json: false, board, raw: true }).catch((error) => {
+      if (error?.status === 404 || /no log for/i.test(error?.message || '')) return '';
+      throw error;
+    });
+    return { id, ...parseWorkerLog(text, [this.config.bridge?.token]) };
   }
 
   async create(input = {}) {

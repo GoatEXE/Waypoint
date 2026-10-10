@@ -157,6 +157,7 @@ export const api = {
   closeHermesPortal: () => json<HermesPortalStatus>('/hermes-portal', { method: 'DELETE', body: '{}' }),
   deleteMission: (id: string) => json<{ deleted: true; missionId: string }>(`/missions/${encodeURIComponent(id)}`, { method: 'DELETE', body: '{}' }),
   task: (ref: string) => json<BoardTaskDetail>(`/tasks/${encodeURIComponent(ref)}`),
+  taskActivity: (ref: string) => json<TaskActivity>(`/tasks/${encodeURIComponent(ref)}/activity`),
   createTask: (body: { title: string; body?: string; assignee?: string | null; parents?: string[]; board?: string }) => json<BoardTaskDetail>('/tasks', { method: 'POST', body: JSON.stringify(body) }),
   commentTask: (ref: string, text: string) => json<BoardTaskDetail>(`/tasks/${encodeURIComponent(ref)}/comments`, { method: 'POST', body: JSON.stringify({ text }) }),
   taskAction: (ref: string, body: { action: 'complete' | 'archive' | 'block' | 'unblock' | 'assign'; assignee?: string | null; reason?: string; summary?: string }) => json<BoardTaskDetail>(`/tasks/${encodeURIComponent(ref)}/actions`, { method: 'POST', body: JSON.stringify(body) }),
@@ -206,6 +207,8 @@ export interface BoardTask {
 export interface BoardTaskLink { id: string; ref: string | null; title: string; status: BoardStatus | null; assignee: string | null }
 export interface BoardComment { author: string; body: string; at: string | null }
 export interface BoardEvent { kind: string; at: string | null; runId: number | null; detail: string }
+export type WorkerActivityItem = { kind: 'tool'; icon: string; name: string; detail: string; duration: string } | { kind: 'thought'; detail: string };
+export interface TaskActivity { id: string; items: WorkerActivityItem[]; finished: boolean }
 export interface BoardTaskDetail extends BoardTask {
   latestSummary: string;
   parents: BoardTaskLink[];
