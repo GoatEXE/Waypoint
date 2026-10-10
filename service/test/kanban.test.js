@@ -42,3 +42,11 @@ test('archiving a task also archives the follow-ups waiting on it, so they never
   await kanban.act('t_aaaaaaaa', { action: 'archive' });
   assert.deepEqual(calls.filter((c) => c[0] === 'archive'), [['archive', 't_bbbbbbbb'], ['archive', 't_aaaaaaaa']]);
 });
+
+test('approving a task with a repo contract finds its PR in the handoff', async () => {
+  const { publishedPr } = await import('../src/kanban.js');
+  const handoff = (summary, metadata) => ({ task: { completion_contract: 'Acme/Site' }, latest_summary: '', events: [{ kind: 'review_requested', payload: { summary, ...(metadata ? { metadata } : {}) } }] });
+  assert.equal(publishedPr(handoff('See https://github.com/other/repo/pull/3 and https://github.com/acme/site/pull/12.')), 'https://github.com/acme/site/pull/12');
+  assert.equal(publishedPr(handoff('Done.', { published_pr: 'https://github.com/Acme/Site/pull/7' })), 'https://github.com/Acme/Site/pull/7');
+  assert.equal(publishedPr({ task: {}, events: [] }), null, 'no contract, no PR needed');
+});
