@@ -6,6 +6,27 @@ import { ceoNameOf } from '../orgModel';
 import { ONBOARDING_KICKOFF } from './OrgSetupView';
 import { HermesPortalLink } from '../components/HermesPortalLink';
 import { SeatMark } from '../components/ProviderMark';
+import { useNavigate } from 'react-router-dom';
+import { SEAT_STATE_LABEL, seatWork } from '../seatModel';
+import { taskLabel } from '../taskQueueModel';
+
+function SeatCard({ seat }: { seat: OrgSeat }) {
+  const { state } = useStore();
+  const nav = useNavigate();
+  const work = seatWork(seat.id, state.board);
+  return (
+    <button type="button" className={'org-node org-seat' + (work.state === 'running' ? ' busy' : '')} onClick={() => nav('/seats/' + encodeURIComponent(seat.id))}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, width: '100%' }}>
+        <SeatMark provider={seat.provider} size={14} />
+        <span className="org-name mono">{seat.id}</span>
+        <span className="org-sub">{seat.model}</span>
+        <span className="org-state"><OnDot on={work.state === 'running'} />{SEAT_STATE_LABEL[work.state]}</span>
+      </div>
+      <span className="org-sub">{seat.description || 'No description'}</span>
+      {work.current && <span className="org-sub ellipsis" style={{ maxWidth: '100%', color: 'var(--muted)' }}>{taskLabel(work.current)} · {work.current.title}</span>}
+    </button>
+  );
+}
 
 export function OrgChartView() {
   const { state, setCeoThread, setPane, sendCeoMessage, openModal } = useStore();
@@ -64,14 +85,7 @@ export function OrgChartView() {
           {seats.length === 0 && <div className="empty">No seats yet. Hire one, or ask {ceoName} to.</div>}
           <div className="org-seats org-seats-row">
             {seats.map(seat => (
-              <div key={seat.id} className="org-node org-seat">
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-                  <SeatMark provider={seat.provider} size={14} />
-                  <span className="org-name mono">{seat.id}</span>
-                  <span className="org-sub">{seat.model}</span>
-                </div>
-                <span className="org-sub">{seat.description || 'No description'}</span>
-              </div>
+              <SeatCard key={seat.id} seat={seat} />
             ))}
           </div>
         </div>
