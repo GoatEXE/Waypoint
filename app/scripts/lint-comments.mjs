@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const directories = ['app/src', 'app/test', 'app/scripts', 'app/server', 'service/src', 'service/test', 'service/scripts'];
+const directories = ['scripts', 'app/src', 'app/test', 'app/scripts', 'app/server', 'service/src', 'service/test', 'service/scripts'];
 const standalone = ['app/index.html', 'app/vite.config.ts', 'service/Dockerfile', 'service/docker/auth-image/Dockerfile', 'service/compose.yaml'];
 const sourceExtensions = new Set(['.js', '.mjs', '.ts', '.tsx', '.css', '.html']);
 

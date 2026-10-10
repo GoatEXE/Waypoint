@@ -6,7 +6,7 @@ The mission, pod, task, message inbox, CEO conversation, Settings, Connectors, a
 
 ## Run
 
-Start the host service from `service/`, then in this directory:
+From the repository root, `npm start` runs the service and this app together and signs the browser in. To run the app alone, start the host service from `service/`, then in this directory:
 
 ```sh
 npm install

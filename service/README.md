@@ -11,6 +11,8 @@ npm run check
 npm start
 ```
 
+From the repository root, `npm start` runs this service together with the app.
+
 Defaults are safe: `DRY_RUN=true` makes pod lifecycle, seat setup, and task runs return plans without touching containers. Pod start plans use a pinned Hermes image, one idle container per pod, Docker `bridge` networking, and a Waypoint-owned named Docker volume at `/opt/data`; they publish no ports and never bind-mount a host pod directory, `docker.sock`, or a Waypoint bridge token. `npm start` uses Node 22's `--env-file-if-exists=.env`; never put provider tokens in committed files. Provider secrets entered through the UI stay in private Docker volumes, not browser storage.
 
 ## Hermes CEO
