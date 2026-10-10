@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, type BoardTask, type BoardTaskDetail } from '../api';
+import { ConfirmPanel } from '../components/ConfirmPanel';
 import { TaskRefText } from '../components/TaskRefText';
+import { confirmCopy, inboxPrimary } from '../taskActionsModel';
 import { needsYou, taskLabel } from '../taskQueueModel';
 import { WorkspaceHead } from '../components/ui';
 import { useStore } from '../store';
@@ -12,6 +14,7 @@ function InboxItem({ task, onDone }: { task: BoardTask; onDone: () => Promise<vo
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [confirming, setConfirming] = useState(false);
   const ref = taskLabel(task);
   const act = async (action: () => Promise<unknown>) => {
     setBusy(true); setError('');
@@ -49,13 +52,21 @@ function InboxItem({ task, onDone }: { task: BoardTask; onDone: () => Promise<vo
             <button className="btn btn-primary sm" disabled={busy || !text.trim()} onClick={() => void act(() => api.commentTask(ref, text.trim()))}>{busy ? 'Sending…' : `Send to ${seat}`}</button>
           </div>
         </div>
+      ) : confirming ? (
+        <ConfirmPanel copy={confirmCopy('complete', { ref, status: task.status, assignee: task.assignee })} busy={busy} error={error}
+          onCancel={() => { setConfirming(false); setError(''); }} onConfirm={() => void act(() => api.taskAction(ref, { action: 'complete' }))} />
+      ) : inboxPrimary(task.status) === 'approve' ? (
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <button className="btn btn-ghost sm" disabled={busy} onClick={() => setWriting(true)}>Request changes</button>
+          <button className="btn btn-primary sm" disabled={busy} onClick={() => void act(() => api.taskAction(ref, { action: 'complete', summary: 'Approved by the user.' }))}>Approve</button>
+        </div>
       ) : (
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-          <button className="btn btn-ghost sm" disabled={busy} onClick={() => setWriting(true)}>{review ? 'Request changes' : 'Reply'}</button>
-          <button className="btn btn-primary sm" disabled={busy} onClick={() => void act(() => api.taskAction(ref, review ? { action: 'complete', summary: 'Approved by the user.' } : { action: 'complete' }))}>{review ? 'Approve' : 'Mark done'}</button>
+          <button className="btn btn-ghost sm" disabled={busy} onClick={() => setConfirming(true)}>Mark done</button>
+          <button className="btn btn-primary sm" disabled={busy} onClick={() => setWriting(true)}>Reply</button>
         </div>
       )}
-      {error && <div role="alert" style={{ fontSize: 12.5, color: 'var(--text)' }}>{error}</div>}
+      {error && !confirming && <div role="alert" style={{ fontSize: 12.5, color: 'var(--text)' }}>{error}</div>}
     </div>
   );
 }
