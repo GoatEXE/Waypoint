@@ -1,4 +1,4 @@
-import { badRequest, conflict, lifecycleError } from './errors.js';
+import { badRequest, conflict, lifecycleError, notFound, runtimeFailure } from './errors.js';
 
 const SEAT_ID_RE = /^[a-z][a-z0-9-]{1,30}$/;
 const RESERVED = new Set(['default', 'ceo', 'hermes']);
@@ -14,11 +14,50 @@ description: How work moves through the user's approval in this Waypoint organiz
 Review is the user's approval gate, and you own the handoff into it.
 
 1. If something should happen once the user approves (filing issues, implementing a fix, reviewing a PR), create that follow-up now with kanban_create: parent it on your task and assign the best-suited seat ("hermes profile list" shows the seats and what they do). It waits until your task is approved. Write its body so that seat can start without asking you.
-2. Hand your task in with kanban_request_review. The summary is what the user reads: the result, then "On approval:" and what happens next and who does it. If your work is a pull request, also pass metadata {"published_pr": "<full PR URL>"} so approval can verify it.
+2. Hand your task in with kanban_request_review. The summary is what the user reads, so write it for a person, not a log:
+   - Lead with the answer or outcome in one or two plain sentences. Use a short list only for several separate findings. Leave out commit hashes, file counts, and process details unless the user asked for them.
+   - "To test:" gives steps the user can do themselves, in the app or on GitHub (for example "Archive any task; it should ask first."). Give shell commands only when there is no other way to check. If there is nothing to try, leave this out.
+   - "On approval:" says what happens next and who does it. Leave it out when nothing follows. If your work is a pull request, also pass metadata {"published_pr": "<full PR URL>"} so approval can verify it.
 
 If a peer should check your work before the user sees it, create a review task for that seat with kanban_create, make your task wait on it with kanban_link (the review task is the parent), and end your run with kanban_block using kind "dependency". Your task resumes when the review is done, with the reviewer's result in your context; address it, then hand in as above.
 
 Complete a task directly only when it says no approval is needed. If you need a decision before you can finish, use kanban_block with the question.
+`;
+
+const TEXT_MAX = 20000;
+const MODEL_ID_RE = /^[A-Za-z0-9._:/-]{1,120}$/;
+const SEAT_PROVIDERS = { 'openai-codex': 'codex_responses', anthropic: 'anthropic_messages', 'openai-api': 'codex_responses' };
+const FILES = { soul: 'SOUL.md', memory: 'memories/MEMORY.md', user: 'memories/USER.md' };
+
+export const SEAT_PROFILE_SCRIPT = String.raw`
+import json, os, sys, yaml
+p = json.loads(sys.stdin.read() or '{}')
+home = os.path.join('/opt/data/profiles', p['id'])
+if not os.path.isdir(home):
+    print(json.dumps({'ok': False, 'error': 'not_found'})); sys.exit(0)
+files = p.get('files', {})
+for key, rel in files.items():
+    if key in p.get('write', {}):
+        path = os.path.join(home, rel)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        tmp = path + '.waypoint.tmp'
+        with open(tmp, 'w', encoding='utf-8') as handle:
+            handle.write(p['write'][key])
+        os.replace(tmp, path)
+out = {'ok': True}
+for key, rel in files.items():
+    try:
+        with open(os.path.join(home, rel), encoding='utf-8') as handle:
+            out[key] = handle.read()
+    except OSError:
+        out[key] = ''
+try:
+    with open(os.path.join(home, 'config.yaml'), encoding='utf-8') as handle:
+        model = (yaml.safe_load(handle) or {}).get('model') or {}
+except OSError:
+    model = {}
+out['model'] = {'provider': str(model.get('provider') or ''), 'default': str(model.get('default') or '')}
+print(json.dumps(out))
 `;
 
 export const LIST_SEATS_SCRIPT = String.raw`
@@ -88,6 +127,49 @@ export class OrgSeats {
     return { seats: seats.filter((seat) => !excluded.has(seat.id)).map(({ autoLoad, ...seat }) => seat) };
   }
 
+  async #profile(id, write = {}) {
+    if (!SEAT_ID_RE.test(String(id || ''))) throw badRequest('seat must be a seat id');
+    const result = await this.hermes.execPython(SEAT_PROFILE_SCRIPT, JSON.stringify({ id, files: FILES, write }), { timeoutMs: 20000, outputLimitBytes: 512 * 1024 });
+    const parsed = JSON.parse(String(result.stdout).trim().split('\n').pop());
+    if (!parsed.ok) throw notFound('seat not found', { seat: id });
+    return parsed;
+  }
+
+  async profile(id) {
+    const [files, seats] = await Promise.all([this.#profile(id), this.list()]);
+    const seat = seats.seats.find((item) => item.id === id);
+    return { id, description: seat?.description || '', soul: files.soul, memory: files.memory, user: files.user, model: files.model };
+  }
+
+  async updateProfile(id, input = {}) {
+    if (!input || typeof input !== 'object' || Array.isArray(input)) throw badRequest('body must be an object');
+    const extra = Object.keys(input).filter((key) => !['description', 'soul', 'memory', 'user', 'model'].includes(key));
+    if (extra.length) throw badRequest('unsupported seat fields', { fields: extra.slice(0, 10) });
+    if (!SEAT_ID_RE.test(String(id || ''))) throw badRequest('seat must be a seat id');
+    const write = {};
+    for (const key of ['soul', 'memory', 'user']) {
+      if (!(key in input)) continue;
+      if (typeof input[key] !== 'string' || input[key].length > TEXT_MAX) throw badRequest(`${key} must be text of at most ${TEXT_MAX} characters`);
+      write[key] = input[key];
+    }
+    if ('description' in input) {
+      const description = typeof input.description === 'string' ? input.description.trim().replace(/\s+/g, ' ') : '';
+      if (!description || description.length > DESCRIPTION_MAX) throw badRequest(`description must be 1-${DESCRIPTION_MAX} characters`);
+      await this.#hermes(['profile', 'describe', id, '--text', description]);
+    }
+    if ('model' in input) {
+      const provider = String(input.model?.provider || '');
+      const model = String(input.model?.default || '').trim();
+      if (!SEAT_PROVIDERS[provider]) throw badRequest('model provider is not supported');
+      if (!MODEL_ID_RE.test(model)) throw badRequest('model id has an invalid shape');
+      await this.#hermes(['-p', id, 'config', 'set', 'model.provider', provider]);
+      await this.#hermes(['-p', id, 'config', 'set', 'model.default', model]);
+      await this.#hermes(['-p', id, 'config', 'set', 'model.api_mode', SEAT_PROVIDERS[provider]]);
+    }
+    if (Object.keys(write).length) await this.#profile(id, write);
+    return this.profile(id);
+  }
+
   async hire(input = {}) {
     if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).some((key) => !['id', 'description', 'cloneFrom'].includes(key))) throw badRequest('body must be { id, description, cloneFrom? }');
     const id = String(input.id || '').trim();
@@ -112,7 +194,7 @@ export class OrgSeats {
 
   async #hermes(args) {
     const result = await this.hermes.runner('docker', ['exec', '--user', 'hermes', this.hermes.containerName, 'hermes', ...args], { timeoutMs: 60000, outputLimitBytes: 16 * 1024 });
-    if (result.code !== 0) throw lifecycleError(`hermes ${args.filter((arg) => !arg.includes(' ')).slice(0, 3).join(' ')} failed`, { code: result.code });
+    if (result.code !== 0) throw runtimeFailure(result) || lifecycleError(`hermes ${args.filter((arg) => !arg.includes(' ')).slice(0, 3).join(' ')} failed`, { code: result.code });
     return result;
   }
 }
