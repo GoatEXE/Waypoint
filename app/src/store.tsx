@@ -4,13 +4,15 @@ import { createdBoardTask, ceoLiveUpdated, ceoLoadFailed, ceoLoadStarted, ceoLoa
 import type { LessonPick } from './data';
 import { liveTasks, type Resolved } from './model';
 import { mergeStatus, START_TIMEOUT_MS, startFailureText, errorText } from './runtimeHealth';
+import { paneTaskView } from './ceoThreads';
 import { initialMissionsState, missionsLoadFailed, missionsLoadStarted, missionsLoadSucceeded, type MissionsState } from './missionsModel';
 
 export type PaneTab = 'ceo' | 'tasks' | 'inbox' | 'item';
+export type PaneTaskView = 'thread' | 'ceo';
 export type ModalKind = 'assignment' | 'mission' | 'seat' | 'project' | 'pod';
 
 export interface AppState {
-  pane: { open: boolean; tab: PaneTab; item: string | null };
+  pane: { open: boolean; tab: PaneTab; item: string | null; taskView: PaneTaskView };
   resolved: Resolved;
   picks: Record<string, LessonPick>;
   seat: string;
@@ -35,10 +37,10 @@ const STORAGE_KEY = 'waypoint-web';
 const PERSISTED = ['pane', 'missionOpen', 'ceoThread', 'dryRunDismissed'] as const;
 
 function cleanPane(saved: Partial<AppState>): AppState['pane'] {
-  const fallback: AppState['pane'] = { open: window.innerWidth >= 1280, tab: 'ceo', item: null };
+  const fallback: AppState['pane'] = { open: window.innerWidth >= 1280, tab: 'ceo', item: null, taskView: 'thread' };
   const pane = saved.pane && typeof saved.pane === 'object' ? saved.pane : fallback;
   const tab = pane.tab === 'tasks' || pane.tab === 'inbox' ? pane.tab : fallback.tab;
-  return { open: typeof pane.open === 'boolean' ? pane.open : fallback.open, tab, item: null };
+  return { open: typeof pane.open === 'boolean' ? pane.open : fallback.open, tab, item: null, taskView: paneTaskView(pane.taskView) };
 }
 
 function initialState(): AppState {

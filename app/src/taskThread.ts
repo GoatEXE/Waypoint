@@ -54,6 +54,10 @@ export function groupUpdates(entries: ThreadEntry[]): ThreadBlock[] {
   return out;
 }
 
+export function runActivityItems<T>(runCount: number, activityRuns: { items: T[] }[], index: number): T[] | null {
+  return activityRuns[activityRuns.length - (runCount - index)]?.items || null;
+}
+
 export function isUserAuthor(author: string | null | undefined) {
   return !author || author === 'user';
 }

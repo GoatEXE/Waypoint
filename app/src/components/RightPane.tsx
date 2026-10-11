@@ -12,6 +12,7 @@ import { isTaskThread, threadMeta, visibleTaskThreads } from '../ceoThreads';
 import { Dot } from './ui';
 import { PANE_DOCK_MIN } from './layout';
 import { useRuntimeHealth } from './RuntimeBanner';
+import { TaskThread, useTaskActions, useTaskDetail } from './TaskThread';
 
 function messageTime(at: string) {
   const date = new Date(at);
@@ -87,13 +88,41 @@ function TaskThreadList({ threads, busy, onPick }: { threads: CeoThread[]; busy:
   );
 }
 
+function PaneTaskConversation({ id }: { id: string }) {
+  const { load, setLoad, activity } = useTaskDetail(id);
+  const actions = useTaskActions(load.status === 'ready' ? load.task : null, setLoad);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const pinnedRef = useRef(true);
+  const task = load.status === 'ready' ? load.task : null;
+  const size = task ? `${task.id}:${task.comments.length}:${task.events.length}:${task.runs?.length || 0}:${task.status}:${activity?.items.length || 0}` : '';
+  useEffect(() => { pinnedRef.current = true; }, [id]);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el && pinnedRef.current) el.scrollTop = el.scrollHeight;
+  }, [size]);
+  const onScroll = () => {
+    const el = scrollRef.current;
+    if (el) pinnedRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+  };
+  return (
+    <div ref={scrollRef} className="pane-body pane-task-thread" onScroll={onScroll} aria-live="polite">
+      {load.status === 'loading' && <div className="empty" role="status">Loading conversation…</div>}
+      {load.status === 'notfound' && <div className="empty">This task is no longer available.</div>}
+      {load.status === 'error' && <div className="empty" role="alert">{load.error}</div>}
+      {task && <TaskThread task={task} activity={activity} actions={actions} compact />}
+    </div>
+  );
+}
+
 function TasksTab() {
-  const { state, setCeoThread } = useStore();
+  const { state, setCeoThread, setPane } = useStore();
   const nav = useNavigate();
   const { threads, busyThreadId } = useCeoThreads(state.ceo.sending);
   const current = state.ceoThread;
-  if (!isTaskThread(current)) return <TaskThreadList threads={threads} busy={busyThreadId} onPick={id => setCeoThread(id)} />;
+  if (!isTaskThread(current)) return <TaskThreadList threads={threads} busy={busyThreadId} onPick={id => { setPane({ taskView: 'thread' }); setCeoThread(id); }} />;
   const thread = threads.find(t => t.threadId === current);
+  const view = state.pane.taskView;
+  const ceoName = ceoNameOf(state.org.organization);
   return (
     <>
       <div className="thread-head">
@@ -101,7 +130,11 @@ function TasksTab() {
         <span className="thread-head-title ellipsis">{threadName(thread, current)}</span>
         <button type="button" className="icon-btn" title="Open task" onClick={() => nav('/tasks/' + encodeURIComponent(thread?.ref || current))}>↗</button>
       </div>
-      <CeoChat />
+      <div className="pane-seg" role="tablist" aria-label="Task view">
+        <button type="button" role="tab" aria-selected={view === 'thread'} className={'pane-seg-btn' + (view === 'thread' ? ' on' : '')} onClick={() => setPane({ taskView: 'thread' })}>Conversation</button>
+        <button type="button" role="tab" aria-selected={view === 'ceo'} className={'pane-seg-btn' + (view === 'ceo' ? ' on' : '')} onClick={() => setPane({ taskView: 'ceo' })}>Ask {ceoName}</button>
+      </div>
+      {view === 'thread' ? <PaneTaskConversation key={current} id={current} /> : <CeoChat />}
     </>
   );
 }
