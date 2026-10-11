@@ -3,15 +3,14 @@ import { useNavigate } from 'react-router-dom';
 import { api, type Mission, type MissionStatus } from '../api';
 import { currentMission, MISSION_STATUSES, missionStatusLabel, shortDate } from '../missionsModel';
 import { useStore } from '../store';
-import { needsYou, statusLabel, taskLabel } from '../taskQueueModel';
+import { needsYou, taskLabel } from '../taskQueueModel';
 import { errorText } from '../runtimeHealth';
-import { ProjectTaskList, StatusCounts } from '../components/ProjectTasks';
-import { projectTasks } from '../projectProgress';
+import { missionProjects } from '../projectProgress';
 
 function ProjectsSection({ mission }: { mission: Mission }) {
   const { state, addProject } = useStore();
   const nav = useNavigate();
-  const projects = state.projects.filter(p => p.missionId === mission.id);
+  const projects = missionProjects(state.projects, mission.id);
   return (
     <div className="stack" style={{ gap: 12 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -27,26 +26,6 @@ function ProjectsSection({ mission }: { mission: Mission }) {
             <span style={{ marginLeft: 'auto', color: 'var(--quiet)' }}>→</span>
           </div>
         ))}
-      </div>}
-    </div>
-  );
-}
-
-function MissionWork({ mission }: { mission: Mission }) {
-  const nav = useNavigate();
-  const { state } = useStore();
-  const task = state.board.find(t => t.id === mission.taskId);
-  return (
-    <div className="stack" style={{ gap: 12 }}>
-      <div className="section-title">Linked task</div>
-      {!mission.taskId && <div className="empty">No task is linked yet.</div>}
-      {mission.taskId && <div className="list">
-        <div className="row link" style={{ display: 'flex', gap: 10, alignItems: 'baseline', padding: '14px 16px' }} onClick={() => nav('/tasks/' + encodeURIComponent(task?.ref || mission.taskId!))}>
-          <span className="task-ref">{task?.ref || mission.taskId}</span>
-          <span className="ellipsis" style={{ flex: 1 }}>{task?.title || ''}</span>
-          {task && <span className="task-pill">{statusLabel(task.status)}</span>}
-          <span style={{ color: 'var(--quiet)' }}>→</span>
-        </div>
       </div>}
     </div>
   );
@@ -187,9 +166,6 @@ export function MissionView() {
     );
   }
 
-  const others = missions.missions.slice(1);
-  const missionTasks = projectTasks(state.board, state.projects.filter(p => p.missionId === mission.id).map(p => p.id));
-
   if (editing) {
     return (
       <div className="page" style={{ maxWidth: 920, paddingTop: 48, gap: 28 }}>
@@ -211,20 +187,18 @@ export function MissionView() {
     <div className="page" style={{ maxWidth: 920, paddingTop: 48, gap: 44 }}>
       <div className="stack" style={{ gap: 14 }}>
         <div className="eyebrow">MISSION</div>
-        <>
-          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-            <h1 className="mission-h1">{mission.title}</h1>
-            <button type="button" className="icon-btn" style={{ marginTop: 4 }} title="Edit mission" aria-label="Edit mission" onClick={() => setEditing(true)}>
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" /></svg>
-            </button>
-          </div>
-          {mission.outcome && <p className="mission-lede">{mission.outcome}</p>}
-          <div className="meta-row" style={{ gap: '8px 22px', marginTop: 4 }}>
-            <span>Status <span className="v">{missionStatusLabel(mission)}</span></span>
-            {mission.target && <span>Target <span className="v">{shortDate(mission.target)}</span></span>}
-            <span>Recorded <span className="v">{shortDate(mission.createdAt)}</span></span>
-          </div>
-        </>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+          <h1 className="mission-h1">{mission.title}</h1>
+          <button type="button" className="icon-btn" style={{ marginTop: 4 }} title="Edit mission" aria-label="Edit mission" onClick={() => setEditing(true)}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" /></svg>
+          </button>
+        </div>
+        {mission.outcome && <p className="mission-lede">{mission.outcome}</p>}
+        <div className="meta-row" style={{ gap: '8px 22px', marginTop: 4 }}>
+          <span>Status <span className="v">{missionStatusLabel(mission)}</span></span>
+          {mission.target && <span>Target <span className="v">{shortDate(mission.target)}</span></span>}
+          <span>Started <span className="v">{shortDate(mission.createdAt)}</span></span>
+        </div>
       </div>
 
       {needs.length > 0 && (
@@ -244,32 +218,8 @@ export function MissionView() {
         </div>
       )}
 
-      <div className="stack" style={{ gap: 12 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          <div className="section-title">Progress</div>
-          <StatusCounts tasks={missionTasks} />
-        </div>
-        {missionTasks.length ? <ProjectTaskList tasks={missionTasks} limit={8} /> : <div className="empty">No project tasks yet. Tasks created in a project show up here.</div>}
-      </div>
-
-      <MissionWork mission={mission} />
-
       <ProjectsSection mission={mission} />
 
-      {others.length > 0 && (
-        <div className="stack" style={{ gap: 12 }}>
-          <div className="section-title">Other missions</div>
-          <div className="list">
-            {others.map(m => (
-              <div key={m.id} className="row" style={{ display: 'flex', gap: 12, padding: '12px 16px', alignItems: 'baseline' }}>
-                <span style={{ fontSize: 13.5 }}>{m.title}</span>
-                <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--muted)' }}>{missionStatusLabel(m)}</span>
-                <button className="btn btn-ghost" type="button" onClick={() => { setConfirmDelete(m); setDeleteError(''); }}>Delete</button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
       {deletionControls}
     </div>
   );
