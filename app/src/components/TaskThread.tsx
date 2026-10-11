@@ -7,6 +7,7 @@ import { taskLabel } from '../taskQueueModel';
 import { useStore } from '../store';
 import { commentPlaceholder, confirmCopy, taskPrimary, type ConfirmKind } from '../taskActionsModel';
 import { errorText } from '../runtimeHealth';
+import { PullRequestPreview } from './PullRequestPreview';
 
 export type TaskLoadState =
   | { status: 'loading' }
@@ -212,6 +213,7 @@ export function TaskThread({ task, activity, actions, compact = false, children 
         </div>
       )}
       {task.lastError && <div role="alert" style={{ fontSize: 12.5, color: 'var(--text)', padding: '10px 12px', border: '1px dashed var(--border-6)', borderRadius: 8 }}>{task.lastError}</div>}
+      {task.pullRequest && <PullRequestPreview url={task.pullRequest} />}
       {!closed && (
         <form className="stack task-thread-composer" style={{ gap: 8 }} onSubmit={e => { e.preventDefault(); void submitComment(); }}>
           <textarea className="input" rows={compact ? 3 : 4} value={draft} disabled={busy} onChange={e => setDraft(e.target.value)}

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { api, pendingLearning, type BoardTask, type BoardTaskDetail } from '../api';
 import { ConfirmPanel } from '../components/ConfirmPanel';
 import { TaskRefText } from '../components/TaskRefText';
+import { PullRequestPreview } from '../components/PullRequestPreview';
 import { confirmCopy, inboxPrimary } from '../taskActionsModel';
 import { needsYou, taskLabel } from '../taskQueueModel';
 import { WorkspaceHead } from '../components/ui';
@@ -37,6 +38,7 @@ function InboxItem({ task, onDone }: { task: BoardTask; onDone: () => Promise<vo
         <span className="task-pill" style={{ marginLeft: 'auto' }}>{review ? 'In review' : 'Blocked'}</span>
       </div>
       {handoff && <div className="inbox-handoff"><TaskRefText text={handoff} /></div>}
+      {review && detail?.pullRequest && <PullRequestPreview url={detail.pullRequest} />}
       {review && next.length > 0 && (
         <div className="stack" style={{ gap: 4, fontSize: 12.5 }}>
           <span style={{ color: 'var(--faint)' }}>On approval</span>

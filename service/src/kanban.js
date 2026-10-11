@@ -27,6 +27,13 @@ function profile(value, field) {
 
 const PR_URL_RE = /https:\/\/github\.com\/([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)\/pull\/[1-9][0-9]*/g;
 
+export function taskPullRequest(detail) {
+  const handoffs = [...(detail?.events || [])].reverse().map((event) => event.payload || {});
+  const texts = [detail?.latest_summary, ...handoffs.map((payload) => payload.summary)].filter((value) => typeof value === 'string');
+  const urls = [...handoffs.map((payload) => payload.metadata?.published_pr).filter((url) => typeof url === 'string'), ...texts.flatMap((text) => text.match(PR_URL_RE) || [])];
+  return urls[0] || null;
+}
+
 export function publishedPr(detail) {
   const contract = detail?.task?.completion_contract;
   if (typeof contract !== 'string' || !contract || contract === 'local-only') return null;
@@ -215,6 +222,7 @@ export class KanbanBoard {
     return {
       ...this.summary(detail.task, numbers, prefix, board, await this.projectMap()),
       latestSummary: detail.latest_summary || '',
+      pullRequest: taskPullRequest(detail),
       runs: (Array.isArray(runs) ? runs : []).map((run) => ({ id: run.id, profile: run.profile || null, status: run.status || null, outcome: run.outcome || null, startedAt: toIso(run.started_at), endedAt: toIso(run.ended_at), summary: run.summary || '' })),
       parents: (detail.parents || []).map(link),
       children: (detail.children || []).map(link),

@@ -181,3 +181,11 @@ Errors are structured and omit stack traces and secrets:
 ### Projects on the board
 
 A Waypoint project with a GitHub repo gets a matching Hermes project (slug `wp-<id>`). Waypoint clones the repo into the CEO container at `/opt/data/repos/<owner>/<name>` and runs `hermes project create`. It does this when the project is created or its repo changes, and for existing projects when the CEO starts. `POST /tasks` accepts `project` (a Waypoint project id) and creates the task with `--project <slug>`, so the seat works in its own git worktree and branch of that repo. Tasks report `projectId` (the Waypoint project). The CEO's `list_projects` bridge tool returns `hermesProject` so it can pass `project` to `kanban_create`.
+
+### Developer mode
+
+For working on Waypoint itself. Off by default; turn it on in Settings.
+
+- `GET /dev` reports whether it is on, the checkout's branch and commit, new commits on `origin/main` (fetched at most once a minute, or now with `?refresh=1`), and what blocks an update: not started with `npm start`, not on `main`, or uncommitted changes. `PUT /dev` takes `{ enabled }`.
+- `POST /dev/update` asks the launcher (`npm start`) to update. The launcher stops the service and app, runs `git pull --ff-only origin main`, runs `npm ci` where a `package-lock.json` changed, and starts both again. It records the outcome in `update-result.json` in the control directory, and `GET /dev` returns it as `lastUpdate`.
+- `POST /dev/previews` takes `{ pr }` and previews that pull request: it fetches `pull/<n>/head`, checks it out under `.previews/pr-<n>`, and runs its app on `http://127.0.0.1:5174` against the live service. It reuses `app/node_modules` when the lockfile is unchanged. A PR that changes `service/` is not previewed (`state: "needs-service"`). One preview runs at a time; `DELETE /dev/previews` stops it and removes the checkout. Task detail includes `pullRequest`, the PR linked from a handoff.
