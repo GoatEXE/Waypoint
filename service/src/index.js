@@ -11,6 +11,8 @@ import { HermesPortal } from './hermesPortal.js';
 import { OrgSeats } from './orgSeats.js';
 import { KanbanBoard } from './kanban.js';
 import { Pods } from './pods.js';
+import { SeatFeedback } from './seatFeedback.js';
+import { ProjectSync } from './projectSync.js';
 import { createBridgeHandler, createHandler } from './routes.js';
 import { listenControl } from './controlChannel.js';
 
@@ -28,13 +30,17 @@ export async function createApp(env = process.env) {
   const board = new KanbanBoard({ config, hermes, organization });
   const pods = new Pods({ config, hermes, board, orgSeats });
   orgSeats.excluded = () => pods.seatIds();
+  const seatFeedback = new SeatFeedback({ config, hermes, board });
+  const projectSync = new ProjectSync({ config, hermes, store, logger });
+  board.projects = projectSync;
+  board.store = store;
   if (config.hermes.autoStart) {
     void hermes.reconcileStartup()
-      .then((result) => logger.info('hermes_reconciled', { action: result.action, executed: result.executed, state: result.status?.state, running: result.status?.running }))
+      .then((result) => { logger.info('hermes_reconciled', { action: result.action, executed: result.executed, state: result.status?.state, running: result.status?.running }); if (result.status?.running) void projectSync.syncAll(); })
       .catch((error) => logger.warn('hermes_reconcile_skipped', { message: error.message }));
   }
 
-  const context = { config, store, organization, hermes, board, pods, github, portal, orgSeats, logger };
+  const context = { config, store, organization, hermes, board, pods, github, portal, orgSeats, seatFeedback, projectSync, logger };
   const server = http.createServer(createHandler(context));
   const bridgeServer = http.createServer(createBridgeHandler(context));
   return { ...context, server, bridgeServer };

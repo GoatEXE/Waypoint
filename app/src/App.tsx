@@ -4,6 +4,8 @@ import { parseRoute } from './routes';
 import { useStore } from './store';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
+import { DryRunBanner } from './components/DryRunBanner';
+import { RuntimeBanner } from './components/RuntimeBanner';
 import { RightPane } from './components/RightPane';
 import { Modal } from './components/Modal';
 import { MissionView } from './views/MissionView';
@@ -18,6 +20,8 @@ import { TasksView } from './views/TasksView';
 import { ProjectDialog } from './components/ProjectDialog';
 import { PodDialog } from './components/PodDialog';
 import { PodView } from './views/PodView';
+import { SeatView } from './views/SeatView';
+import { HelpView } from './views/HelpView';
 import { OrgChartView } from './views/OrgChartView';
 import { GitHubCallbackView } from './views/GitHubCallbackView';
 import { OrgSetupView } from './views/OrgSetupView';
@@ -32,12 +36,14 @@ function View() {
     case 'github': return <GitHubCallbackView step={r.id!} />;
     case 'task': return <TaskView id={r.id!} />;
     case 'pod': return <PodView name={r.id!} />;
+    case 'seat': return <SeatView id={r.id!} />;
     case 'inbox': return <MessageInboxView />;
     case 'routines': return <RoutinesView />;
     case 'artifacts': return <ArtifactsView />;
     case 'skills': return <SkillsView />;
     case 'connectors': return <ConnectorsView />;
     case 'settings': return <SettingsView />;
+    case 'help': return <HelpView />;
     default: return (
       <div className="page" style={{ maxWidth: 920, gap: 12 }}>
         <div className="eyebrow">NOT FOUND</div>
@@ -62,6 +68,8 @@ export function App() {
       <Sidebar />
       <div className="main-col">
         <Header />
+        <DryRunBanner />
+        <RuntimeBanner />
         <main ref={mainRef} className="main-scroll">
 
           <div key={pathname} className="route-enter"><View /></div>

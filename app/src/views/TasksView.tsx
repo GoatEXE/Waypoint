@@ -5,6 +5,7 @@ import { WorkspaceHead } from '../components/ui';
 import { TaskFields, emptyDraft, useQueueData, type TaskDraft } from '../components/TaskFields';
 import { GROUP_BY, STATUSES, filterByStatus, groupTasks, savedStatusFilter, statusLabel, taskLabel, toggleStatusFilter, type GroupBy } from '../taskQueueModel';
 import { useStore } from '../store';
+import { errorText } from '../runtimeHealth';
 
 const PREFS_KEY = 'waypoint-task-view';
 
@@ -60,7 +61,7 @@ export function TasksView() {
             <button key={s.id} className={prefs.statuses.includes(s.id) ? 'on' : ''} aria-pressed={prefs.statuses.includes(s.id)} onClick={() => setPrefs(p => ({ ...p, statuses: toggleStatusFilter(p.statuses, s.id) }))}>{s.label}</button>
           ))}
         </div>
-        <button className="btn btn-primary" style={{ marginLeft: 'auto' }} onClick={() => setCreating(true)}>New task</button>
+        <button className="btn btn-primary" style={{ marginLeft: 'auto' }} onClick={() => setCreating(true)}>Add task</button>
       </div>
 
       {error && <div className="card" role="alert" style={{ padding: 12 }}>{error}</div>}
@@ -108,17 +109,20 @@ export function TasksView() {
 
       {creating && <NewTaskDialog tasks={tasks} seats={seats}
         onClose={() => setCreating(false)}
-        onCreated={async task => { setCreating(false); flash(`Created ${taskLabel(task)}`); await reload(); }} />}
+        onCreated={async task => { setCreating(false); flash(`Added ${taskLabel(task)} to the board`); await reload(); }} />}
     </div>
   );
 }
 
-export function NewTaskDialog({ tasks, seats, board, initial, onClose, onCreated }: {
+export function NewTaskDialog({ tasks, seats, board, initial, initialProject = '', onClose, onCreated }: {
   tasks: BoardTask[]; seats: OrgSeat[]; board?: string;
-  initial?: Partial<TaskDraft>;
+  initial?: Partial<TaskDraft>; initialProject?: string;
   onClose: () => void; onCreated: (task: BoardTask) => void;
 }) {
   const [draft, setDraft] = useState<TaskDraft>({ ...emptyDraft, ...initial });
+  const { state } = useStore();
+  const repoProjects = state.projects.filter(p => p.repo);
+  const [project, setProject] = useState(initialProject);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -131,22 +135,30 @@ export function NewTaskDialog({ tasks, seats, board, initial, onClose, onCreated
   const submit = async () => {
     if (!draft.title.trim() || busy) return;
     setBusy(true); setError('');
-    try { onCreated(await api.createTask({ title: draft.title.trim(), body: draft.body.trim(), assignee: draft.assignee || null, parents: draft.parents, ...(board ? { board } : {}) })); }
-    catch (e) { setError(e instanceof Error ? e.message : String(e)); setBusy(false); }
+    try { onCreated(await api.createTask({ title: draft.title.trim(), body: draft.body.trim(), assignee: draft.assignee || null, parents: draft.parents, ...(board ? { board } : {}), ...(project ? { project } : {}) })); }
+    catch (e) { setError(errorText(e)); setBusy(false); }
   };
 
   return (
     <div className="scrim" onMouseDown={e => { if (e.target === e.currentTarget && !busy) onClose(); }}>
       <form className="modal" style={{ width: 640, padding: 22, gap: 18 }} onSubmit={e => { e.preventDefault(); void submit(); }}>
         <div className="stack" style={{ gap: 6 }}>
-          <div className="eyebrow">NEW TASK</div>
-          <h2 className="h1" style={{ fontSize: 20 }}>Create a task</h2>
+          <div className="eyebrow">ADD TO BOARD</div>
+          <h2 className="h1" style={{ fontSize: 20 }}>Add a task</h2>
+          <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Goes straight onto the board{board ? ` of pod ${board}` : ''}. If you assign a seat, it picks the task up once any parent tasks are done.</div>
         </div>
         <TaskFields draft={draft} onChange={setDraft} tasks={tasks} seats={seats} disabled={busy} />
-        {error && <div role="alert" style={{ fontSize: 12.5, color: 'var(--text)' }}>{error}</div>}
+        {!board && <label className="field"><span className="field-label">Project</span>
+          <select className="input" value={project} disabled={busy} onChange={e => setProject(e.target.value)}>
+            <option value="">No project</option>
+            {repoProjects.map(p => <option key={p.id} value={p.id}>{p.name} · {p.repo}</option>)}
+          </select>
+          {project && <span className="field-hint">The seat works in its own branch of {repoProjects.find(p => p.id === project)?.repo}.</span>}
+        </label>}
+        {error && <div role="alert" className="form-error">{error}</div>}
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
           <button type="button" className="btn btn-ghost" disabled={busy} onClick={onClose}>Cancel</button>
-          <button type="submit" className="btn btn-primary" disabled={busy || !draft.title.trim()}>{busy ? 'Creating…' : 'Create task'}</button>
+          <button type="submit" className="btn btn-primary" disabled={busy || !draft.title.trim()}>{busy ? 'Adding…' : 'Add task'}</button>
         </div>
       </form>
     </div>

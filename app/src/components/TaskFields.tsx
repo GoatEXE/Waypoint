@@ -26,14 +26,15 @@ export function AssigneeSelect({ value, seats, disabled, onChange }: { value: st
   return (
     <select className="input" value={value} disabled={disabled} onChange={e => onChange(e.target.value)}>
       <option value="">Unassigned</option>
-      {seats.map(seat => <option key={seat.id} value={seat.id}>{seat.id}{seat.description ? ` · ${seat.description}` : ''}</option>)}
+      {seats.map(seat => <option key={seat.id} value={seat.id} title={seat.description || undefined}>{seat.id}</option>)}
     </select>
   );
 }
 
 export function TaskFields({ draft, onChange, tasks, seats, disabled }: { draft: TaskDraft; onChange: (draft: TaskDraft) => void; tasks: BoardTask[]; seats: OrgSeat[]; disabled?: boolean }) {
   const set = <K extends keyof TaskDraft>(key: K, value: TaskDraft[K]) => onChange({ ...draft, [key]: value });
-  const parentOptions = tasks.filter(t => t.status !== 'archived' && !draft.parents.includes(t.id));
+  const parentOptions = tasks.filter(t => t.status !== 'archived' && t.status !== 'done' && !draft.parents.includes(t.id));
+  const [showParents, setShowParents] = useState(draft.parents.length > 0);
   return (
     <div className="stack" style={{ gap: 14 }}>
       <label className="field"><span className="field-label">Title</span>
@@ -42,13 +43,15 @@ export function TaskFields({ draft, onChange, tasks, seats, disabled }: { draft:
       <label className="field"><span className="field-label">Description</span>
         <textarea className="input" rows={5} value={draft.body} maxLength={8000} disabled={disabled} onChange={e => set('body', e.target.value)} placeholder="Details and acceptance criteria" />
       </label>
-      <div className="task-field-grid">
-        <label className="field"><span className="field-label">Assignee</span>
-          <AssigneeSelect value={draft.assignee} seats={seats} disabled={disabled} onChange={v => set('assignee', v)} />
-        </label>
-        <div className="field"><span className="field-label">Waits on</span>
+      <label className="field"><span className="field-label">Assignee</span>
+        <AssigneeSelect value={draft.assignee} seats={seats} disabled={disabled} onChange={v => set('assignee', v)} />
+      </label>
+      {!showParents && <button type="button" className="link-btn" disabled={disabled} onClick={() => setShowParents(true)}>+ Start after another task</button>}
+      {showParents && (
+        <div className="field"><span className="field-label">Start after</span>
+          <span className="field-hint">This task waits until the tasks you pick here are finished.</span>
           <select className="input" value="" disabled={disabled || !parentOptions.length} onChange={e => e.target.value && set('parents', [...draft.parents, e.target.value])}>
-            <option value="">{parentOptions.length ? 'Add a task this waits on…' : 'No other tasks'}</option>
+            <option value="">{parentOptions.length ? 'Pick a task…' : 'No unfinished tasks'}</option>
             {parentOptions.map(t => <option key={t.id} value={t.id}>{taskLabel(t)} {t.title}</option>)}
           </select>
           {draft.parents.length > 0 && <div className="chips">
@@ -58,7 +61,7 @@ export function TaskFields({ draft, onChange, tasks, seats, disabled }: { draft:
             })}
           </div>}
         </div>
-      </div>
+      )}
     </div>
   );
 }

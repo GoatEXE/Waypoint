@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { api, type GitHubStatus } from '../api';
 import { useStore } from '../store';
 import { RepoSelect } from './RepoSelect';
+import { errorText } from '../runtimeHealth';
 
 export function ProjectDialog() {
   const { state, closeModal, loadProjects, flash } = useStore();
@@ -30,7 +31,7 @@ export function ProjectDialog() {
       closeModal();
       flash(`Added ${project.name} to ${mission.title}`);
       nav('/projects/' + project.id);
-    } catch (e) { setError(e instanceof Error ? e.message : String(e)); setBusy(false); }
+    } catch (e) { setError(errorText(e)); setBusy(false); }
   };
 
   return (
@@ -40,14 +41,14 @@ export function ProjectDialog() {
           <div className="eyebrow">NEW PROJECT · {mission ? mission.title.toUpperCase() : 'NO MISSION'}</div>
           <h2 className="h1" style={{ fontSize: 20 }}>Add a project</h2>
         </div>
-        {!mission && <div role="alert" style={{ fontSize: 12.5, color: 'var(--text)' }}>Open a mission and add the project from there.</div>}
+        {!mission && <div role="alert" className="form-error">Open a mission and add the project from there.</div>}
         <label className="field"><span className="field-label">Project name</span>
           <input className="input" value={name} maxLength={80} onChange={e => setName(e.target.value)} placeholder="Goat Ops" disabled={busy} />
         </label>
         <div className="field"><span className="field-label">GitHub repository</span>
           <RepoSelect value={repo} onChange={setRepo} github={github} disabled={busy} />
         </div>
-        {error && <div role="alert" style={{ fontSize: 12.5, color: 'var(--text)' }}>{error}</div>}
+        {error && <div role="alert" className="form-error">{error}</div>}
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
           <button type="button" className="btn btn-ghost" disabled={busy} onClick={closeModal}>Cancel</button>
           <button type="submit" className="btn btn-primary" disabled={busy || !name.trim() || !repo.trim() || !mission}>{busy ? 'Adding…' : 'Add project'}</button>

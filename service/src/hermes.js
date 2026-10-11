@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { badRequest, conflict, lifecycleError, notFound, timeout as timeoutError } from './errors.js';
+import { badRequest, conflict, lifecycleError, notFound, timeout as timeoutError, runtimeFailure, ceoStopped, modelNotConnected } from './errors.js';
 import { ensureSharedAuthVolume, assertSharedAuthImage, sharedAuthMount } from './authVolume.js';
 import { guardDockerExecArgs, guardPrompt } from './hostDisconnectGuard.js';
 import { ONBOARDING_SKILL, ONBOARDING_SKILL_NAME } from './onboardingSkill.js';
@@ -67,11 +67,16 @@ export class HermesRuntime {
   get volumeName() { return this.config.hermes.volumeName; }
 
   async status(options = {}) {
-    const inspected = await this.inspect({ allowMissing: true });
-    const runtime = inspected.exists ? inspected.state : { state: 'missing', running: false };
+    let inspected;
+    try { inspected = await this.inspect({ allowMissing: true }); }
+    catch (error) {
+      if (error?.code !== 'docker_unavailable') throw error;
+      inspected = { exists: false, dockerDown: true };
+    }
+    const runtime = inspected.exists ? inspected.state : { state: inspected.dockerDown ? 'docker_unavailable' : 'missing', running: false };
     const details = inspected.exists && runtime.running
       ? await this.readSafeState().catch((error) => ({ ...defaultSafeState(), diagnostics: { configAvailable: false, message: safeMessage(error.message) } }))
-      : { ...defaultSafeState(), diagnostics: { configAvailable: false, message: 'Hermes CEO container is not running.' } };
+      : { ...defaultSafeState(), diagnostics: { configAvailable: false, message: inspected.dockerDown ? "Docker isn't running." : 'Hermes CEO container is not running.' } };
     if (inspected.exists && runtime.running) await this.attachNativeAuthStatus(details, { fresh: options.nativeAuth === 'fresh' });
     return {
       image: this.image,
@@ -239,13 +244,13 @@ export class HermesRuntime {
 
   async assertCeoTurnReady() {
     const inspected = await this.inspect({ allowMissing: true });
-    if (!inspected.exists || !inspected.state.running) throw lifecycleError('Hermes CEO container must be running before starting a CEO conversation turn.', { state: inspected.exists ? inspected.state.state : 'missing' });
+    if (!inspected.exists || !inspected.state.running) throw ceoStopped();
     await this.prepareCeoHome();
     const details = await this.status({ nativeAuth: 'fresh' });
-    if (!details.model.configured || !details.model.default) throw lifecycleError('Hermes CEO model must be configured before starting a CEO conversation turn.');
+    if (!details.model.configured || !details.model.default) throw modelNotConnected('The CEO has no model connected yet. Choose one in Settings, then retry.');
     const provider = normalizeReadyProvider(details.model.provider);
-    if (!provider) throw lifecycleError('Hermes CEO model provider must be configured before starting a CEO conversation turn.');
-    if (!details.auth?.[provider]?.ready) throw lifecycleError('Hermes CEO native auth must be ready for the configured model provider before starting a CEO conversation turn.', { provider });
+    if (!provider) throw modelNotConnected('The CEO has no model provider yet. Choose one in Settings, then retry.');
+    if (!details.auth?.[provider]?.ready) throw modelNotConnected("The CEO's model provider isn't signed in. Sign in under Connectors, then retry.", { provider });
   }
 
   ceoConversationPath(threadId = GENERAL_THREAD) {
@@ -552,6 +557,10 @@ export class HermesRuntime {
     const result = await this.runner('docker', ['inspect', '--format', format, this.containerName]);
     if (result.code !== 0) {
       if (allowMissing && /No such object|No such container/i.test(result.stderr || '')) return { exists: false };
+      if (!/No such object|No such container/i.test(result.stderr || '')) {
+        const failure = runtimeFailure(result);
+        if (failure) throw failure;
+      }
       throw lifecycleError('Hermes CEO container cannot be inspected as Waypoint-owned', { containerName: this.containerName, code: result.code });
     }
     let parsed;
@@ -603,13 +612,13 @@ export class HermesRuntime {
   async execPython(script, input, options = {}) {
     const user = options.user || 'hermes';
     const result = await this.runner('docker', ['exec', '-i', '--user', user, this.containerName, 'python3', '-c', script], { input, timeoutMs: options.timeoutMs || 30000, outputLimitBytes: options.outputLimitBytes });
-    if (result.code !== 0) throw lifecycleError('Hermes command failed', { code: result.code });
+    if (result.code !== 0) throw runtimeFailure(result) || lifecycleError('Hermes command failed', { code: result.code });
     return result;
   }
 
   async runDocker(args) {
     const result = await this.runner('docker', args, { timeoutMs: 60000 });
-    if (result.code !== 0) throw lifecycleError('docker command failed', { code: result.code });
+    if (result.code !== 0) throw runtimeFailure(result) || lifecycleError('docker command failed', { code: result.code });
     return result;
   }
 }
@@ -997,7 +1006,7 @@ function buildCeoChatArgs(containerName, sessionId, hermesConfig, conversationNa
   args.push('--source', 'tool', '--skills', 'waypoint-ceo-bridge', '--in', '/opt/data', '--run-budget', String(hermesConfig.ceoRunBudgetSeconds), '--max-turns', String(hermesConfig.ceoMaxTurns));
   return args;
 }
-function runCeoChatChild(child, message, { timeoutMs, outputLimitBytes, guardHostDisconnect = false, onEvent = undefined }) {
+export function runCeoChatChild(child, message, { timeoutMs, outputLimitBytes, guardHostDisconnect = false, onEvent = undefined }) {
   return new Promise((resolve, reject) => {
     let stdout = '';
     const emitLines = onEvent ? streamLineReader(onEvent, outputLimitBytes) : () => {};
@@ -1278,7 +1287,7 @@ if not os.path.exists(soul_path) or os.path.getsize(soul_path)==0:
  soul="# Waypoint CEO profile\n\nYou are the Waypoint CEO agent. The user directs strategy and approvals. Your role is to hire seats, delegate work to them on the task board, keep it moving, and report evidence. Seats execute implementation work; do not perform project tasks yourself unless the user explicitly asks.\n\nUse the Waypoint bridge only for mission and project records. Do not request or print provider credentials.\n"
  open(soul_path,'w',encoding='utf-8').write(soul)
 safe_chown(soul_path); safe_chmod(soul_path,0o600)
-skill="---\nname: waypoint-ceo-bridge\ndescription: Use for Waypoint organization work: seats, the task board, missions, and projects.\n---\n\n# Waypoint CEO\n\nYou run this organization. The user directs strategy and approvals; you delegate and keep work moving. Seats do the work.\n\n## Seats\nSeats are Hermes profiles in your own install (\"hermes profile list\"). To hire a seat, create a profile (--clone-from the most similar existing seat to copy its skills, or start fresh) and describe it with \"hermes profile describe <id> --text\". Ask the user before hiring unless their request says you may.\n\n## Work goes on the board\nDelegate work as kanban tasks assigned to the best seat (\"hermes kanban create ... --assignee <seat>\"). The gateway's dispatcher starts them; follow progress with \"hermes kanban show\". Keep discussion on the task's comments: the user follows the same thread in Waypoint. Quick questions you can answer yourself do not need a task. Seats hand finished work to the user for approval (review) and queue the next step as a child task that starts once the user approves; you do not need to move work along after review. The user sees tasks by ref (for example SUN-3); the bridge tool list_tasks {} maps refs to board ids. Call tasks by their ref when you talk to the user.\n\n## Pods\nA pod is a team for one piece of work: its own board (pod-<name>) and clones of the seats it needs (<name>-<seat>), each told who its podmates are so they can work together through tasks and comments. Use a pod when a piece of work needs several seats working closely together; use the main board for single-seat work. Create one with the bridge tool create_pod { name, purpose, seats: [seat ids], durable? }, give it work with \"hermes kanban --board pod-<name> create ... --assignee <name>-<seat>\", and close it with close_pod { pod } when the work is done unless it is durable. list_pods {} shows pods and their seats. Ask the user before creating a pod unless their request says you may.\n\n## Missions and projects\nThe Waypoint bridge endpoint and token are in /opt/data/waypoint/bridge.json; never print the token. POST { \"tool\": \"...\", \"args\": { ... } } with Authorization: Bearer <token>.\n- list_missions {}, create_mission { title, outcome?, target?, taskId? }, link_mission { missionId, taskId }, update_mission { missionId, status } with status backlog, todo, in_progress, in_review, done, or canceled.\n- list_projects {}, create_project { name, missionId?, repo? } where repo is owner/name on GitHub.\ntaskId is a board task id such as t_1a2b3c4d.\n"
+skill="---\nname: waypoint-ceo-bridge\ndescription: Use for Waypoint organization work: seats, the task board, missions, and projects.\n---\n\n# Waypoint CEO\n\nYou run this organization. The user directs strategy and approvals; you delegate and keep work moving. Seats do the work.\n\n## Seats\nSeats are Hermes profiles in your own install (\"hermes profile list\"). To hire a seat, create a profile (--clone-from the most similar existing seat to copy its skills, or start fresh) and describe it with \"hermes profile describe <id> --text\". Ask the user before hiring unless their request says you may.\n\n## Work goes on the board\nDelegate work as kanban tasks assigned to the best seat (\"hermes kanban create ... --assignee <seat>\"). The gateway's dispatcher starts them; follow progress with \"hermes kanban show\". Keep discussion on the task's comments: the user follows the same thread in Waypoint. Quick questions you can answer yourself do not need a task. Seats hand finished work to the user for approval (review) and queue the next step as a child task that starts once the user approves; you do not need to move work along after review. The user sees tasks by ref (for example SUN-3); the bridge tool list_tasks {} maps refs to board ids. Call tasks by their ref when you talk to the user.\n\n## Pods\nA pod is a team for one piece of work: its own board (pod-<name>) and clones of the seats it needs (<name>-<seat>), each told who its podmates are so they can work together through tasks and comments. Use a pod when a piece of work needs several seats working closely together; use the main board for single-seat work. Create one with the bridge tool create_pod { name, purpose, seats: [seat ids], durable? }, give it work with \"hermes kanban --board pod-<name> create ... --assignee <name>-<seat>\", and close it with close_pod { pod } when the work is done unless it is durable. list_pods {} shows pods and their seats. Ask the user before creating a pod unless their request says you may.\n\n## Missions and projects\nThe Waypoint bridge endpoint and token are in /opt/data/waypoint/bridge.json; never print the token. POST { \"tool\": \"...\", \"args\": { ... } } with Authorization: Bearer <token>.\n- list_missions {}, create_mission { title, outcome?, target?, taskId? }, link_mission { missionId, taskId }, update_mission { missionId, status } with status backlog, todo, in_progress, in_review, done, or canceled.\n- list_projects {}, create_project { name, missionId?, repo? } where repo is owner/name on GitHub.\nA project with a repo has a Hermes project (hermesProject in list_projects, for example wp-1a2b3c4d5e). When a task belongs to a project, create it with --project <hermesProject> (kanban_create: project). The seat then works in its own git worktree of that repo, and Waypoint shows the task under the project. hermesProject is null for a minute after the project is created while the repo is cloned.\ntaskId is a board task id such as t_1a2b3c4d.\n"
 org=p.get('organization') or {}
 if org.get('name'):
  skill += "\n## Identity\nYour name is %s. You are the CEO of the organization %s. Use this name when introducing yourself.\n" % (str(org.get('ceoName') or 'CEO'), json.dumps(str(org['name']), ensure_ascii=False))
