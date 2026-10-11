@@ -411,6 +411,17 @@ textarea.input { resize: vertical; line-height: 1.5; }
 .seat-reply { padding: 10px 12px; border-radius: 10px; background: var(--surface-2); color: var(--text-2); }
 .thread-msg.mine { margin-left: 12%; }
 .thread-msg.theirs { margin-right: 12%; }
+.thread-msg-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; font-size: 12px; min-width: 0; }
+.thread-msg-body { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.5; color: var(--text-2); }
+.task-thread-actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+.task-thread.compact .thread-msg.mine { margin-left: 6%; }
+.task-thread.compact .thread-msg.theirs { margin-right: 6%; }
+.task-thread.compact .act-toggle { text-align: left; }
+.pane-task-thread { padding: 16px 14px; }
+.pane-seg { display: flex; gap: 2px; padding: 6px 14px; border-bottom: 1px solid var(--line); flex: none; }
+.pane-seg-btn { padding: 4px 9px; border: none; border-radius: 6px; background: transparent; color: var(--dim); font-size: 12px; cursor: pointer; }
+.pane-seg-btn:hover { color: var(--text); }
+.pane-seg-btn.on { background: var(--raised); color: var(--text); }
 .thread-updates { padding: 0 4px; gap: 4px; }
 .act-toggle .act-detail { color: var(--fainter); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .act-hint { font-size: 12px; color: var(--faint); }

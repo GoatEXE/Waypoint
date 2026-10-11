@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { isTaskThread, threadAge, threadMeta, visibleTaskThreads } from '../src/ceoThreads.ts';
+import { isTaskThread, paneTaskView, threadAge, threadMeta, visibleTaskThreads } from '../src/ceoThreads.ts';
 
 const now = Date.parse('2026-10-08T12:00:00Z');
 
@@ -33,4 +33,11 @@ test('only board task ids open task threads', () => {
   assert.equal(isTaskThread('t_1a2b3c4d'), true);
   assert.equal(isTaskThread('general'), false);
   assert.equal(isTaskThread('task_00000000-0000-4000-8000-000000000001'), false);
+});
+
+test('a task opened in the side panel shows its conversation unless the CEO chat was chosen', () => {
+  assert.equal(paneTaskView(undefined), 'thread');
+  assert.equal(paneTaskView('bogus'), 'thread');
+  assert.equal(paneTaskView('thread'), 'thread');
+  assert.equal(paneTaskView('ceo'), 'ceo');
 });

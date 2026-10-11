@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { activityPollMs, threadEntries } from '../src/taskThread.ts';
+import { activityPollMs, runActivityItems, threadEntries } from '../src/taskThread.ts';
 
 const event = (kind: string, at: string, detail = '') => ({ kind, at, runId: 1, detail });
 
@@ -43,4 +43,11 @@ test('back-to-back status updates fold into one group between messages', async (
     { kind: 'event', at: '4', text: 'review reopened' },
   ]);
   assert.deepEqual(blocks.map(b => b.kind === 'updates' ? `updates ${b.entries.length}` : b.kind), ['updates 2', 'comment', 'updates 1']);
+});
+
+test('run activity lines up with the latest runs when the log holds fewer runs than the task', () => {
+  const activity = [{ items: ['b'] }, { items: ['c'] }];
+  assert.deepEqual(runActivityItems(3, activity, 2), ['c']);
+  assert.deepEqual(runActivityItems(3, activity, 1), ['b']);
+  assert.equal(runActivityItems(3, activity, 0), null);
 });
