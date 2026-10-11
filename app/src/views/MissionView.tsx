@@ -5,7 +5,7 @@ import { currentMission, MISSION_STATUSES, missionStatusLabel, shortDate } from 
 import { useStore } from '../store';
 import { needsYou, taskLabel } from '../taskQueueModel';
 import { errorText } from '../runtimeHealth';
-import { missionProjects, missionReviewTasks } from '../projectProgress';
+import { missionProjects } from '../projectProgress';
 
 function ProjectsSection({ mission }: { mission: Mission }) {
   const { state, addProject } = useStore();
@@ -24,27 +24,6 @@ function ProjectsSection({ mission }: { mission: Mission }) {
             <span style={{ font: '500 13.5px var(--mono)' }}>{p.name}</span>
             <span style={{ color: 'var(--muted)', fontSize: 13 }}>{p.repo || 'No repository yet'}</span>
             <span style={{ marginLeft: 'auto', color: 'var(--quiet)' }}>→</span>
-          </div>
-        ))}
-      </div>}
-    </div>
-  );
-}
-
-function ReviewSection({ mission }: { mission: Mission }) {
-  const { state } = useStore();
-  const nav = useNavigate();
-  const tasks = missionReviewTasks(state.board, state.projects, mission.id);
-  return (
-    <div className="stack" style={{ gap: 12 }}>
-      <div className="section-title">Waiting for your review {!!tasks.length && <span className="task-count">{tasks.length}</span>}</div>
-      {!tasks.length && <div className="empty">Nothing waiting for review.</div>}
-      {!!tasks.length && <div className="list">
-        {tasks.map(t => (
-          <div key={t.id} className="row link" style={{ display: 'flex', gap: 10, alignItems: 'baseline', padding: '12px 16px' }} onClick={() => nav('/tasks/' + encodeURIComponent(taskLabel(t)))}>
-            <span className="task-ref">{taskLabel(t)}</span>
-            <span className="ellipsis" style={{ flex: 1 }}>{t.title}</span>
-            <span style={{ color: 'var(--quiet)' }}>→</span>
           </div>
         ))}
       </div>}
@@ -240,8 +219,6 @@ export function MissionView() {
       )}
 
       <ProjectsSection mission={mission} />
-
-      <ReviewSection mission={mission} />
 
       {deletionControls}
     </div>

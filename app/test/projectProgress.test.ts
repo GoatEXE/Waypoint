@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { missionProjects, missionReviewTasks, projectTasks, statusCounts } from '../src/projectProgress.ts';
+import { missionProjects, projectTasks, statusCounts } from '../src/projectProgress.ts';
 import type { BoardTask, Project } from '../src/api.ts';
 
 const task = (id: string, status: BoardTask['status'], projectId: string | null, number: number): BoardTask => ({
@@ -19,11 +19,4 @@ test('mission page lists only projects linked to the mission', () => {
   const projects = [project('p1', 'm1'), project('p2', 'm2'), project('p3', 'm1'), project('p4', null)];
   assert.deepEqual(missionProjects(projects, 'm1').map(p => p.id), ['p1', 'p3']);
   assert.deepEqual(missionProjects(projects, 'm3'), []);
-});
-
-test('mission review tasks are in-review tasks from the mission projects', () => {
-  const projects = [project('p1', 'm1'), project('p2', 'm2'), project('p3', 'm1')];
-  const board = [task('a', 'review', 'p1', 1), task('b', 'running', 'p1', 2), task('c', 'review', 'p2', 3), task('d', 'review', 'p3', 4), task('e', 'review', null, 5), task('f', 'blocked', 'p3', 6)];
-  assert.deepEqual(missionReviewTasks(board, projects, 'm1').map(t => t.id), ['d', 'a']);
-  assert.deepEqual(missionReviewTasks(board, projects, 'm9'), []);
 });

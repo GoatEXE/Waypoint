@@ -13,7 +13,3 @@ export function projectTasks(board: BoardTask[], projectIds: string[]): BoardTas
 export function missionProjects(projects: Project[], missionId: string): Project[] {
   return projects.filter(p => p.missionId === missionId);
 }
-
-export function missionReviewTasks(board: BoardTask[], projects: Project[], missionId: string): BoardTask[] {
-  return projectTasks(board, missionProjects(projects, missionId).map(p => p.id)).filter(t => t.status === 'review');
-}
