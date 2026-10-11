@@ -1,6 +1,8 @@
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { badRequest, conflict, lifecycleError, notFound } from './errors.js';
 import { readJson, writeJson } from './store.js';
+import { APPLY_SCRIPT, LEARNING_SCRIPT, SNAPSHOT_SCRIPT } from './podLearning.js';
 
 const POD_NAME_RE = /^[a-z][a-z0-9-]{1,14}$/;
 const SEAT_ID_RE = /^[a-z][a-z0-9-]{1,30}$/;
@@ -116,6 +118,7 @@ export class Pods {
       await this.#hermes(['profile', 'describe', seat.id, '--text', `${seat.description || seat.from} (pod ${name})`.slice(0, 200)]);
     }
     await this.syncRoster(pod);
+    pod.baseline = await this.#python(SNAPSHOT_SCRIPT, { seats: members.map((seat) => seat.id) });
     await this.update((pods) => { pods.push(pod); });
     return pod;
   }
@@ -135,12 +138,68 @@ export class Pods {
     const pod = await this.get(name);
     if (pod.status === 'closed') return pod;
     await this.#hermes(['kanban', 'boards', 'rm', pod.slug]);
-    return this.update((pods) => {
+    await this.update((pods) => {
       const stored = pods.find((item) => item.name === pod.name);
       stored.status = 'closed';
       stored.closedAt = new Date().toISOString();
+    });
+    return this.learning(pod.name);
+  }
+
+  async learning(name) {
+    const pod = await this.get(name);
+    if (pod.seatsRemoved) return pod;
+    const { items } = await this.#python(LEARNING_SCRIPT, { seats: pod.seats.map((seat) => ({ id: seat.id, from: seat.from, baseline: pod.baseline?.[seat.id] || null })) });
+    const previous = new Map((pod.learning?.items || []).map((item) => [item.id, item]));
+    const fresh = items.map((item) => {
+      const id = createHash('sha256').update([item.seat, item.kind, item.path, item.text].join('\0')).digest('hex').slice(0, 16);
+      return { id, ...item, decision: previous.get(id)?.decision || null };
+    });
+    await this.update((pods) => {
+      const stored = pods.find((entry) => entry.name === pod.name);
+      stored.learning = { computedAt: new Date().toISOString(), items: fresh };
+    });
+    return this.settle(pod.name);
+  }
+
+  async decide(name, itemId, input = {}) {
+    if (!input || typeof input !== 'object' || !['apply', 'drop'].includes(input.decision)) throw badRequest('decision must be apply or drop');
+    const pod = await this.get(name);
+    const item = pod.learning?.items?.find((entry) => entry.id === itemId);
+    if (!item) throw notFound('learning item not found');
+    if (item.decision) throw conflict('this learning item is already decided', { decision: item.decision });
+    if (input.decision === 'apply') await this.#python(APPLY_SCRIPT, { kind: item.kind, seat: item.seat, from: item.from, path: item.path, text: item.text });
+    await this.update((pods) => {
+      const stored = pods.find((entry) => entry.name === pod.name).learning.items.find((entry) => entry.id === itemId);
+      stored.decision = input.decision;
+    });
+    return this.settle(pod.name);
+  }
+
+  async settle(name) {
+    const pod = await this.get(name);
+    const pending = (pod.learning?.items || []).some((item) => !item.decision);
+    if (pending || !pod.learning) return pod;
+    if (pod.status === 'closed' && !pod.durable) {
+      for (const seat of pod.seats) await this.#hermes(['profile', 'delete', '-y', seat.id]).catch(() => null);
+      return this.update((pods) => {
+        const stored = pods.find((entry) => entry.name === pod.name);
+        stored.seatsRemoved = true;
+        return stored;
+      });
+    }
+    const baseline = await this.#python(SNAPSHOT_SCRIPT, { seats: pod.seats.map((seat) => seat.id) });
+    return this.update((pods) => {
+      const stored = pods.find((entry) => entry.name === pod.name);
+      stored.baseline = baseline;
+      stored.learning = { ...stored.learning, items: [], reviewedAt: new Date().toISOString() };
       return stored;
     });
+  }
+
+  async #python(script, input) {
+    const result = await this.hermes.execPython(script, JSON.stringify(input), { timeoutMs: 60000, outputLimitBytes: 2 * 1024 * 1024 });
+    return JSON.parse(String(result.stdout).trim().split('\n').pop());
   }
 
   async #hermes(args) {

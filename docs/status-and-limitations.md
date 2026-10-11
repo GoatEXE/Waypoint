@@ -21,7 +21,7 @@ Implemented:
 
 - **Dry-run by default.** `DRY_RUN=true` is the default (see `service/.env.example`). Hiring seats and opening dashboards then refuse; live use requires `DRY_RUN=false`.
 - **One trust domain.** Seats are profiles in the CEO's container. They share its Unix user, provider credentials, and GitHub access, so any seat can reach anything the CEO can.
-- **Pods are new.** A pod is a separate board with cloned seats that know their podmates and talk through tasks and comments. Closing a pod archives its board and keeps the clones. The learning diff back to the original seats is the next phase.
+- **Pods are new.** A pod is a separate board with cloned seats that know their podmates and talk through tasks and comments. Closing a pod archives its board and opens a learning review: each new memory entry or new or changed skill in a clone can be added to the original seat or dropped. A temporary pod's clones are deleted once every item is decided. The review covers skills and memories, not session history.
 - **Hermes dashboards are unauthenticated while open.** "Hermes UI" opens the CEO's or a seat's native Hermes dashboard on one host loopback port (`HERMES_PORTAL_PORT`, default 3081). The dashboard's loopback mode needs no login: any local process on this computer can use it, including its config and keys pages, while it is open. Hermes rejects foreign `Host` headers, so other websites cannot reach it through DNS rebinding. It opens only on request, one agent at a time, and closes after `HERMES_PORTAL_IDLE_MINUTES` (default 30) without connections.
 - **Skills page is CEO-only.** There is no per-seat skill view, no install action, and no usage stats.
 - **Prototype views remain.** Routines and artifacts views still show prototype sample data.

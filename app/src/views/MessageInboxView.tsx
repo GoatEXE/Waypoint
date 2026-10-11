@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api, type BoardTask, type BoardTaskDetail } from '../api';
+import { api, pendingLearning, type BoardTask, type BoardTaskDetail } from '../api';
 import { ConfirmPanel } from '../components/ConfirmPanel';
 import { TaskRefText } from '../components/TaskRefText';
 import { confirmCopy, inboxPrimary } from '../taskActionsModel';
@@ -72,14 +72,17 @@ function InboxItem({ task, onDone }: { task: BoardTask; onDone: () => Promise<vo
 }
 
 export function MessageInboxView() {
-  const { state, loadBoard } = useStore();
+  const { state, loadBoard, loadPods } = useStore();
+  const nav = useNavigate();
   const tasks = needsYou(state.board);
+  const learning = state.pods.filter(pod => pendingLearning(pod) > 0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const refresh = useCallback(async () => {
+    void loadPods();
     setError((await loadBoard()) ? '' : 'Could not load the task board.');
     setLoading(false);
-  }, [loadBoard]);
+  }, [loadBoard, loadPods]);
   useEffect(() => { void refresh(); const timer = window.setInterval(() => void refresh(), 15000); return () => window.clearInterval(timer); }, [refresh]);
 
   return (
@@ -87,11 +90,23 @@ export function MessageInboxView() {
       <WorkspaceHead title="Inbox" />
       {error && <div role="alert">{error}</div>}
       {loading && <div role="status" className="empty">Loading…</div>}
-      {!loading && !error && !tasks.length && <div className="empty">You're all caught up.</div>}
+      {!loading && !error && !tasks.length && !learning.length && <div className="empty">You're all caught up.</div>}
       {tasks.length > 0 && (
         <section className="stack" style={{ gap: 10 }}>
           <div className="section-title">Needs you <span className="task-count">{tasks.length}</span></div>
           {tasks.map(task => <InboxItem key={task.id} task={task} onDone={refresh} />)}
+        </section>
+      )}
+      {learning.length > 0 && (
+        <section className="stack" style={{ gap: 10 }}>
+          <div className="section-title">Learning to review <span className="task-count">{learning.length}</span></div>
+          {learning.map(pod => (
+            <button key={pod.name} type="button" className="row link" style={{ display: 'flex', gap: 10, alignItems: 'baseline', padding: '14px 18px', border: 0, textAlign: 'left', color: 'inherit', font: 'inherit' }} onClick={() => nav('/pods/' + pod.name)}>
+              <span>What pod <span className="mono">{pod.name}</span> learned</span>
+              <span style={{ color: 'var(--muted)', fontSize: 12.5 }}>{pendingLearning(pod)} to decide</span>
+              <span style={{ marginLeft: 'auto', color: 'var(--quiet)' }}>→</span>
+            </button>
+          ))}
         </section>
       )}
     </div>

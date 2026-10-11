@@ -113,6 +113,10 @@ async function route(request, url, { config, store, organization, hermes, board,
   if (method === 'GET' && match) return { body: await pods.conversation(decodeRouteParam(match[1])) };
   match = pathname.match(/^\/pods\/([^/]+)\/close$/);
   if (method === 'POST' && match) return { body: await pods.close(decodeRouteParam(match[1])) };
+  match = pathname.match(/^\/pods\/([^/]+)\/learning$/);
+  if (method === 'POST' && match) return { body: await pods.learning(decodeRouteParam(match[1])) };
+  match = pathname.match(/^\/pods\/([^/]+)\/learning\/([0-9a-f]{16})$/);
+  if (method === 'POST' && match) return { body: await pods.decide(decodeRouteParam(match[1]), match[2], await readBody(request)) };
 
   if (method === 'GET' && pathname === '/missions') return { body: { missions: await store.listMissions() } };
   if (method === 'POST' && pathname === '/missions') {

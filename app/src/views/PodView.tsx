@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, isNotFoundError, type BoardTask, type Pod, type PodEntry } from '../api';
 import { TaskRefText } from '../components/TaskRefText';
+import { PodLearning } from '../components/PodLearning';
 import { useSplitCols } from '../components/layout';
 import { statusLabel, taskLabel } from '../taskQueueModel';
 import { useStore } from '../store';
@@ -78,7 +79,7 @@ export function PodView({ name }: { name: string }) {
       {confirmClose && (
         <div className="stack" style={{ gap: 10, padding: 16, border: '1px solid var(--border-3)', borderRadius: 10, background: 'var(--surface-2)' }}>
           <strong>Close pod {pod.name}?</strong>
-          <span style={{ fontSize: 13, color: 'var(--muted)' }}>Its board is archived, so nothing more runs in it. The seat clones are kept for the learning review.</span>
+          <span style={{ fontSize: 13, color: 'var(--muted)' }}>Its board is archived, so nothing more runs in it. Then you choose what its seats learned to bring back to the original seats.</span>
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
             <button className="btn btn-ghost" disabled={busy} onClick={() => setConfirmClose(false)}>Cancel</button>
             <button className="btn btn-primary" disabled={busy} onClick={() => void close()}>{busy ? 'Closing…' : 'Close pod'}</button>
@@ -87,12 +88,15 @@ export function PodView({ name }: { name: string }) {
       )}
 
       <div className="split" style={{ gridTemplateColumns: splitCols, gap: 36 }}>
+        <div className="stack" style={{ gap: 28 }}>
+        <PodLearning pod={pod} onChange={next => setPod(current => (current ? { ...current, ...next } : current))} />
         <section className="stack" style={{ gap: 10 }}>
           <div className="section-title">Conversation</div>
           {entries === null && <div className="empty" role="status">Loading…</div>}
           {entries?.length === 0 && <div className="empty">{active ? 'No work yet. Give the pod a task, and the seats talk through it here.' : 'This pod is closed.'}</div>}
           {entries?.map((entry, i) => <Entry key={i} entry={entry} />)}
         </section>
+        </div>
 
         <div className="stack" style={{ gap: 24 }}>
           <section className="stack" style={{ gap: 8 }}>
