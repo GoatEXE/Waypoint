@@ -36,7 +36,7 @@ function createJsonHandler(logger, dispatch) {
   };
 }
 
-async function route(request, url, { config, store, organization, hermes, board, pods, github, portal, orgSeats, seatFeedback, projectSync, logger }) {
+async function route(request, url, { config, store, organization, hermes, board, pods, github, portal, orgSeats, seatFeedback, projectSync, devMode, logger }) {
   const { pathname } = url;
   const method = request.method;
   const feedbackMatch = pathname.match(/^\/seats\/([^/]+)\/feedback$/);
@@ -47,6 +47,13 @@ async function route(request, url, { config, store, organization, hermes, board,
       const body = await readBody(request);
       return { body: await seatFeedback.send(seat, body?.task || '', { message: body?.message, rating: body?.rating }) };
     }
+  }
+  if (devMode && pathname.startsWith('/dev')) {
+    if (method === 'GET' && pathname === '/dev') return { body: await devMode.status({ refresh: url.searchParams.get('refresh') === '1' }) };
+    if (method === 'PUT' && pathname === '/dev') return { body: await devMode.setEnabled(await readBody(request)) };
+    if (method === 'POST' && pathname === '/dev/update') return { status: 202, body: await devMode.requestUpdate() };
+    if (method === 'POST' && pathname === '/dev/previews') return { status: 202, body: await devMode.startPreview(await readBody(request)) };
+    if (method === 'DELETE' && pathname === '/dev/previews') return { body: await devMode.stopPreview() };
   }
   const profileMatch = pathname.match(/^\/org\/seats\/([^/]+)$/);
   if (profileMatch && orgSeats) {

@@ -29,6 +29,8 @@ npm start      # service + app, then signs this browser in and opens http://127.
 
 `npm start` runs the service (bridge on 127.0.0.1:3080, control API on a host-only pipe/socket) and the app together, prefixes their logs with `[service]` / `[app]`, and stops both on Ctrl+C or when either one exits. `npm start -- --no-open` skips opening the browser. To sign in another browser or tab, open http://127.0.0.1:5173/__waypoint/pair there and run `npm --prefix app run approve -- <fingerprint shown>`.
 
+With Developer mode on (Settings), Waypoint can update itself in place from `main` and preview a pull request from an approval on port 5174. See `docs/api.md`.
+
 The pieces still run on their own: `npm start` in `service/`, `npm run dev` in `app/`, and `npm run open` in `app/` to sign in.
 
 ## Important docs

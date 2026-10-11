@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { api, type HermesModelCatalog, type HermesModelOption, type HermesModelProviderCatalog, type HermesStatus } from '../api';
 import { OnDot, WorkspaceHead } from '../components/ui';
 import { OrganizationSettings } from './OrganizationSettings';
+import { DeveloperSettings } from '../components/DeveloperSettings';
 import { PROVIDERS, RECOMMENDED_MODELS, authForProvider } from '../providerConfig';
 import { applySavedModelIfClean, DEFAULTS, defaultModelForProvider as defaultCatalogModelForProvider, type ModelState, type Provider } from '../settingsModel';
 import { errorText, runtimeHealth } from '../runtimeHealth';
@@ -131,6 +132,7 @@ export function SettingsView() {
       {error && <div className="card" role="alert" style={{ padding: 12, borderColor: 'var(--border-6)', color: 'var(--text)' }}>{error}</div>}
 
       <OrganizationSettings />
+      <DeveloperSettings />
 
       <div className="settings-grid">
         <section className="card stack" style={{ padding: 16, gap: 14 }} aria-label="CEO runtime">

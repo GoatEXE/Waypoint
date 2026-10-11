@@ -160,6 +160,11 @@ export const api = {
   openHermesPortal: (target: string) => json<HermesPortalStatus & { url: string }>('/hermes-portal', { method: 'POST', body: JSON.stringify({ target }) }),
   closeHermesPortal: () => json<HermesPortalStatus>('/hermes-portal', { method: 'DELETE', body: '{}' }),
   deleteMission: (id: string) => json<{ deleted: true; missionId: string }>(`/missions/${encodeURIComponent(id)}`, { method: 'DELETE', body: '{}' }),
+  devStatus: (refresh = false) => json<DevStatus>(`/dev${refresh ? '?refresh=1' : ''}`).then(s => ({ ...s, commits: s.commits || [], blockers: s.blockers || [] })),
+  setDevMode: (enabled: boolean) => json<DevStatus>('/dev', { method: 'PUT', body: JSON.stringify({ enabled }) }).then(s => ({ ...s, commits: s.commits || [], blockers: s.blockers || [] })),
+  requestUpdate: () => json<{ requested: true; from: string; requestedAt: string }>('/dev/update', { method: 'POST', body: '{}' }),
+  startPreview: (pr: number) => json<DevPreview>('/dev/previews', { method: 'POST', body: JSON.stringify({ pr }) }),
+  stopPreview: () => json<{ stopped: true }>('/dev/previews', { method: 'DELETE', body: '{}' }),
   seatProfile: (seat: string) => json<SeatProfile>(`/org/seats/${encodeURIComponent(seat)}`),
   updateSeatProfile: (seat: string, patch: Partial<Omit<SeatProfile, 'id'>>) => json<SeatProfile>(`/org/seats/${encodeURIComponent(seat)}`, { method: 'PATCH', body: JSON.stringify(patch) }),
   seatFeedback: (seat: string, task: string) => json<SeatFeedbackConversation>(`/seats/${encodeURIComponent(seat)}/feedback?task=${encodeURIComponent(task)}`),
@@ -221,6 +226,7 @@ export interface TaskActivity { id: string; items: WorkerActivityItem[]; finishe
 export interface TaskRun { id: number; profile: string | null; status: string | null; outcome: string | null; startedAt: string | null; endedAt: string | null; summary: string }
 export interface BoardTaskDetail extends BoardTask {
   latestSummary: string;
+  pullRequest?: string | null;
   runs?: TaskRun[];
   parents: BoardTaskLink[];
   children: BoardTaskLink[];
@@ -234,6 +240,8 @@ export interface LearningItem { id: string; seat: string; from: string; kind: 's
 export interface Pod { name: string; slug: string; purpose: string; durable: boolean; status: 'active' | 'closed'; seats: PodSeat[]; createdAt: string; closedAt: string | null; seatsRemoved?: boolean; learning?: { computedAt: string; reviewedAt?: string; items: LearningItem[] } }
 export const pendingLearning = (pod: Pod) => (pod.learning?.items || []).filter(item => !item.decision).length;
 export interface PodEntry { at: string; kind: 'task' | 'comment' | 'review_requested' | 'completed' | 'blocked'; author: string | null; to?: string | null; text: string; ref: string | null; title: string }
+export interface DevPreview { pr: number; state: 'starting' | 'running' | 'needs-service' | 'failed' | 'stopped'; url: string | null; files: string[]; error: string | null; sha: string | null }
+export interface DevStatus { enabled: boolean; launcher: boolean; repo?: string | null; branch?: string; head?: string; dirty?: boolean; commits: { sha: string; subject: string }[]; behind?: number; canUpdate?: boolean; blockers: string[]; fetchError?: string | null; lastUpdate?: { ok: boolean; at: string; from: string; to: string; error?: string } | null; preview?: DevPreview | null }
 export interface SeatProfile { id: string; description: string; soul: string; memory: string; user: string; model: { provider: string; default: string } }
 export interface OrgSeat { id: string; description: string; model: string; provider: string }
 export interface HermesPortalStatus { open: boolean; target: string | null; url: string | null; openedAt: string | null }

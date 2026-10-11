@@ -13,6 +13,7 @@ import { KanbanBoard } from './kanban.js';
 import { Pods } from './pods.js';
 import { SeatFeedback } from './seatFeedback.js';
 import { ProjectSync } from './projectSync.js';
+import { DevMode } from './devMode.js';
 import { createBridgeHandler, createHandler } from './routes.js';
 import { listenControl } from './controlChannel.js';
 
@@ -32,6 +33,7 @@ export async function createApp(env = process.env) {
   orgSeats.excluded = () => pods.seatIds();
   const seatFeedback = new SeatFeedback({ config, hermes, board });
   const projectSync = new ProjectSync({ config, hermes, store, logger });
+  const devMode = new DevMode({ config, logger });
   board.projects = projectSync;
   board.store = store;
   if (config.hermes.autoStart) {
@@ -40,14 +42,14 @@ export async function createApp(env = process.env) {
       .catch((error) => logger.warn('hermes_reconcile_skipped', { message: error.message }));
   }
 
-  const context = { config, store, organization, hermes, board, pods, github, portal, orgSeats, seatFeedback, projectSync, logger };
+  const context = { config, store, organization, hermes, board, pods, github, portal, orgSeats, seatFeedback, projectSync, devMode, logger };
   const server = http.createServer(createHandler(context));
   const bridgeServer = http.createServer(createBridgeHandler(context));
   return { ...context, server, bridgeServer };
 }
 
 export async function main() {
-  const { server, bridgeServer, config, logger, portal } = await createApp();
+  const { server, bridgeServer, config, logger, portal, devMode } = await createApp();
 
   await new Promise((resolve, reject) => {
     bridgeServer.once('error', reject);
@@ -57,6 +59,7 @@ export async function main() {
   logger.info('service_started', { bridge: { host: config.host, port: config.port }, control: { transport: config.control.transport, path: config.control.socketPath }, dryRun: config.dryRun });
   const shutdown = (signal) => {
     logger.info('shutdown_started', { signal });
+    devMode.close();
     const close = (s) => new Promise((resolve) => s.close((error) => resolve(error)));
     Promise.all([close(server), close(bridgeServer), portal.close('shutdown').then(() => null, (error) => error)]).then((errors) => {
       const error = errors.find(Boolean);

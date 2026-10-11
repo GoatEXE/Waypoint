@@ -22,3 +22,6 @@ Thumbs.db
 # Local inspection and process state
 tmp/
 .forge/
+
+# PR previews (developer mode)
+.previews/
