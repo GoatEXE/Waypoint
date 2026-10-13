@@ -5,6 +5,7 @@ import type { LessonPick } from './data';
 import { liveTasks, type Resolved } from './model';
 import { mergeStatus, START_TIMEOUT_MS, startFailureText, errorText } from './runtimeHealth';
 import { paneTaskView } from './ceoThreads';
+import { applyTheme, readTheme, type Theme } from './theme';
 import { initialMissionsState, missionsLoadFailed, missionsLoadStarted, missionsLoadSucceeded, type MissionsState } from './missionsModel';
 
 export type PaneTab = 'ceo' | 'tasks' | 'inbox' | 'item';
@@ -31,6 +32,7 @@ export interface AppState {
   dryRunDismissed: boolean;
   runtime: { status: HermesStatus | null; error: unknown; checked: boolean; starting: boolean; startError: string };
   modal: ModalKind | null;
+  theme: Theme;
   toast: string | null;
 }
 
@@ -50,7 +52,7 @@ function initialState(): AppState {
   return {
     pane: cleanPane(saved),
     resolved: {}, picks: {}, seat: '', podStopped: false, missionOpen: Boolean(saved.missionOpen),
-    ceo: emptyCeoState, ceoThread: typeof saved.ceoThread === 'string' && saved.ceoThread ? saved.ceoThread : 'general', missions: initialMissionsState, projects: [], pods: [], board: [], projectMission: null, org: { loaded: false, configured: false, organization: null }, user: { loaded: false, configured: false, user: null }, runtime: { status: null, error: null, checked: false, starting: false, startError: '' }, config: null, dryRunDismissed: saved.dryRunDismissed === true, modal: null, toast: null,
+    ceo: emptyCeoState, ceoThread: typeof saved.ceoThread === 'string' && saved.ceoThread ? saved.ceoThread : 'general', missions: initialMissionsState, projects: [], pods: [], board: [], projectMission: null, org: { loaded: false, configured: false, organization: null }, user: { loaded: false, configured: false, user: null }, runtime: { status: null, error: null, checked: false, starting: false, startError: '' }, config: null, dryRunDismissed: saved.dryRunDismissed === true, modal: null, toast: null, theme: readTheme(window.localStorage),
   };
 }
 
@@ -75,6 +77,7 @@ function useAppStore() {
     set,
     setPane: (p: Partial<AppState['pane']>) => set(s => ({ pane: { ...s.pane, ...p } })),
     resolve: (id: string, v: 'yes' | 'no') => set(s => ({ resolved: { ...s.resolved, [id]: v } })),
+    setTheme: (theme: Theme) => { applyTheme(theme); set({ theme }); },
     openModal: (m: ModalKind) => set({ modal: m }),
     closeModal: () => set({ modal: null, projectMission: null }),
     addProject: (missionId: string) => set({ modal: 'project', projectMission: missionId }),

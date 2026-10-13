@@ -145,7 +145,7 @@ export function Modal({ kind }: { kind: FormKind }) {
               <textarea className="input" rows={3} value={form.text} onChange={e => f('text', e.target.value)} placeholder="One or two sentences the CEO can measure progress against" />
             </Field>
             <Field label="Target (optional)">
-              <input type="date" className="input" style={{ width: 200, colorScheme: 'dark' }} value={form.date} onChange={e => f('date', e.target.value)} />
+              <input type="date" className="input" style={{ width: 200 }} value={form.date} onChange={e => f('date', e.target.value)} />
             </Field>
           </>}
 

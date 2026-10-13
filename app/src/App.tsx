@@ -22,6 +22,7 @@ import { PodDialog } from './components/PodDialog';
 import { PodView } from './views/PodView';
 import { SeatView } from './views/SeatView';
 import { HelpView } from './views/HelpView';
+import { ProfileView } from './views/ProfileView';
 import { OrgChartView } from './views/OrgChartView';
 import { GitHubCallbackView } from './views/GitHubCallbackView';
 import { OrgSetupView, UserSetupView } from './views/OrgSetupView';
@@ -44,6 +45,7 @@ function View() {
     case 'connectors': return <ConnectorsView />;
     case 'settings': return <SettingsView />;
     case 'help': return <HelpView />;
+    case 'profile': return <ProfileView />;
     default: return (
       <div className="page" style={{ maxWidth: 920, gap: 12 }}>
         <div className="eyebrow">NOT FOUND</div>

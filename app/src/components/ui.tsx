@@ -10,7 +10,7 @@ export function Dot({ status, size = 8, style }: { status: Status; size?: number
 }
 
 export function OnDot({ on, size = 7, style }: { on: boolean; size?: number; style?: CSSProperties }) {
-  return <div className="dot" style={{ width: size, height: size, background: on ? ACC : 'transparent', borderColor: on ? ACC : '#4a4e56', ...style }} />;
+  return <div className="dot" style={{ width: size, height: size, background: on ? ACC : 'transparent', borderColor: on ? ACC : 'var(--quiet)', ...style }} />;
 }
 
 export function PaneGlyph({ w, h, bar, r, bw }: { w: number; h: number; bar: number; r: number; bw: number }) {

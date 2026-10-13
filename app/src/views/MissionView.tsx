@@ -67,7 +67,7 @@ function MissionEditor({ mission, onDone }: { mission: Mission; onDone: () => vo
           </select>
         </label>
         <label className="field"><span className="field-label">Target</span>
-          <input type="date" className="input" style={{ colorScheme: 'dark' }} value={target} disabled={busy} onChange={e => setTarget(e.target.value)} />
+          <input type="date" className="input" value={target} disabled={busy} onChange={e => setTarget(e.target.value)} />
         </label>
       </div>
       {error && <div role="alert" className="form-error">{error}</div>}

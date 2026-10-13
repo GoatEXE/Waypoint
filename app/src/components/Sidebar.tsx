@@ -12,6 +12,7 @@ import { runtimeHealth } from '../runtimeHealth';
 import { seatWork } from '../seatModel';
 import { sidebarMissionLabel } from '../missionsModel';
 import { ceoNameOf } from '../orgModel';
+import { UserMenu } from './UserMenu';
 
 const SOON = new Set<View>(['routines', 'artifacts']);
 
@@ -137,14 +138,7 @@ export function Sidebar() {
 
       <div className="sb-footer">
         <div><div style={{ width: 6, height: 6, borderRadius: '50%', background: hermesReady ? ACC : 'transparent', border: hermesReady ? 'none' : '1.5px solid var(--fainter)' }} />{hermesLabel}</div>
-        <div className={'sb-item' + (route.v === 'help' ? ' active' : '')} onClick={() => nav('/help')}>
-          <div className="sb-icon"><NavIcon name="help" /></div>
-          <span>Help</span>
-        </div>
-        <div className={'sb-item' + (route.v === 'settings' ? ' active' : '')} onClick={() => nav('/settings')}>
-          <div className="sb-icon"><NavIcon name="settings" /></div>
-          <span>Settings</span>
-        </div>
+        <UserMenu />
       </div>
     </aside>
   );
