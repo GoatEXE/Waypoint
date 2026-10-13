@@ -24,7 +24,7 @@ import { SeatView } from './views/SeatView';
 import { HelpView } from './views/HelpView';
 import { OrgChartView } from './views/OrgChartView';
 import { GitHubCallbackView } from './views/GitHubCallbackView';
-import { OrgSetupView } from './views/OrgSetupView';
+import { OrgSetupView, UserSetupView } from './views/OrgSetupView';
 
 function View() {
   const r = parseRoute(useLocation().pathname);
@@ -60,8 +60,9 @@ export function App() {
 
   useEffect(() => { mainRef.current?.scrollTo(0, 0); }, [pathname]);
 
-  if (!state.org.loaded) return null;
+  if (!state.org.loaded || !state.user.loaded) return null;
   if (!state.org.configured && !state.org.error) return <OrgSetupView />;
+  if (!state.user.configured && !state.user.error && !state.org.error) return <UserSetupView />;
 
   return (
     <div className="app">

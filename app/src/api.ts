@@ -122,6 +122,8 @@ async function json<T>(path: string, init?: RequestInit): Promise<T> {
 export const api = {
   config: () => json<AppConfig>('/config'),
   organization: () => json<OrganizationState>('/organization'),
+  user: () => json<UserState>('/user'),
+  saveUser: (body: UserInput) => json<UserState>('/user', { method: 'PUT', body: JSON.stringify(body) }),
   saveOrganization: (body: OrganizationInput) => json<OrganizationState>('/organization', { method: 'PUT', body: JSON.stringify(body) }),
   hermesStatus: (options: { freshAuth?: boolean } = {}) => json<HermesStatus>(`/hermes/status${options.freshAuth ? '?nativeAuth=fresh' : ''}`),
   hermesModelCatalog: (provider?: string, options: { refresh?: boolean } = {}) => {
@@ -186,6 +188,9 @@ export const api = {
 
 export interface Organization { name: string; key: string; ceoName: string; logo: string | null; createdAt: string; updatedAt: string }
 export interface OrganizationState { configured: boolean; organization: Organization | null }
+export interface UserProfile { name: string; about: string; seed: { state: 'pending' | 'done' | 'failed'; at?: string; error?: string }; createdAt: string; updatedAt: string }
+export interface UserState { configured: boolean; user: UserProfile | null }
+export type UserInput = Partial<Pick<UserProfile, 'name' | 'about'>>
 export type OrganizationInput = Partial<Pick<Organization, 'name' | 'key' | 'ceoName' | 'logo'>>
 export interface AppConfig { dryRun: boolean; serviceName?: string; sharedAuth?: { enabled: boolean }; docker?: { imageConfigured?: boolean; imagePinned?: boolean }; hermes?: { imagePinned?: boolean } }
 export type MissionStatus = 'backlog' | 'todo' | 'in_progress' | 'in_review' | 'done' | 'canceled';

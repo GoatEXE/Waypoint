@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { api, type AppConfig, type HermesStatus, type BoardTask, type Pod, type MissionInput, type OrganizationInput, type OrganizationState, type Project } from './api';
+import { api, type AppConfig, type HermesStatus, type BoardTask, type Pod, type MissionInput, type OrganizationInput, type OrganizationState, type Project, type UserInput, type UserState } from './api';
 import { createdBoardTask, ceoLiveUpdated, ceoLoadFailed, ceoLoadStarted, ceoLoadSucceeded, ceoSendFailed, ceoSendStarted, ceoSendSucceeded, cleanCeoMessage, emptyCeoState, type CeoState } from './ceoConversation';
 import type { LessonPick } from './data';
 import { liveTasks, type Resolved } from './model';
@@ -26,6 +26,7 @@ export interface AppState {
   board: BoardTask[];
   projectMission: string | null;
   org: OrganizationState & { loaded: boolean; error?: string };
+  user: UserState & { loaded: boolean; error?: string };
   config: AppConfig | null;
   dryRunDismissed: boolean;
   runtime: { status: HermesStatus | null; error: unknown; checked: boolean; starting: boolean; startError: string };
@@ -49,7 +50,7 @@ function initialState(): AppState {
   return {
     pane: cleanPane(saved),
     resolved: {}, picks: {}, seat: '', podStopped: false, missionOpen: Boolean(saved.missionOpen),
-    ceo: emptyCeoState, ceoThread: typeof saved.ceoThread === 'string' && saved.ceoThread ? saved.ceoThread : 'general', missions: initialMissionsState, projects: [], pods: [], board: [], projectMission: null, org: { loaded: false, configured: false, organization: null }, runtime: { status: null, error: null, checked: false, starting: false, startError: '' }, config: null, dryRunDismissed: saved.dryRunDismissed === true, modal: null, toast: null,
+    ceo: emptyCeoState, ceoThread: typeof saved.ceoThread === 'string' && saved.ceoThread ? saved.ceoThread : 'general', missions: initialMissionsState, projects: [], pods: [], board: [], projectMission: null, org: { loaded: false, configured: false, organization: null }, user: { loaded: false, configured: false, user: null }, runtime: { status: null, error: null, checked: false, starting: false, startError: '' }, config: null, dryRunDismissed: saved.dryRunDismissed === true, modal: null, toast: null,
   };
 }
 
@@ -94,6 +95,15 @@ function useAppStore() {
       const org = await api.saveOrganization(input);
       set({ org: { ...org, loaded: true } });
       return org;
+    },
+    loadUser: async () => {
+      try { set({ user: { ...(await api.user()), loaded: true } }); }
+      catch (err) { set(s => ({ user: { ...s.user, loaded: true, error: errorText(err) } })); }
+    },
+    saveUser: async (input: UserInput) => {
+      const user = await api.saveUser(input);
+      set({ user: { ...user, loaded: true } });
+      return user;
     },
     loadConfig: async () => {
       try { set({ config: await api.config() }); } catch {   }
@@ -228,7 +238,7 @@ function useAppStore() {
     },
   }), [set]);
 
-  useEffect(() => { void actions.loadMissions(); void actions.loadOrganization(); void actions.loadProjects(); void actions.loadPods(); void actions.refreshRuntime(true); void actions.loadConfig(); }, [actions]);
+  useEffect(() => { void actions.loadMissions(); void actions.loadOrganization(); void actions.loadUser(); void actions.loadProjects(); void actions.loadPods(); void actions.refreshRuntime(true); void actions.loadConfig(); }, [actions]);
   useEffect(() => {
     const timer = window.setInterval(() => void actions.refreshRuntime(), 15000);
     return () => window.clearInterval(timer);

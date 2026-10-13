@@ -41,6 +41,10 @@ The inbox lists tasks in `review` (with the handoff summary and the follow-ups t
 
 Host-only control routes for the organization profile created during first-run setup. `GET` returns `{ "configured": false, "organization": null }` until one is saved; the app shows its setup flow in that state. `PUT` accepts any of `name` (1–80 characters), `key` (task prefix, 2–6 uppercase letters or digits starting with a letter), `ceoName` (1–40 characters), and `logo` (a base64 PNG, JPEG, WebP, or GIF data URL up to 256 KB, or `null` to remove it). Creating the organization requires `name`; `key` defaults to the first three letters of the name and `ceoName` to `CEO`. Omitted fields keep their saved values. A changed name or CEO name is written into the running CEO's bridge skill as its identity.
 
+## `GET /user` and `PUT /user`
+
+The person running Waypoint. `GET` returns `{ "configured": false, "user": null }` until saved; the app asks for a name before the workspace opens. `PUT` accepts `name` (1–60 characters, required the first time) and `about` (optional, up to 280 characters) and returns `{ configured, user: { name, about, seed, createdAt, updatedAt } }`. The first save is added to the CEO's `USER.md` through Hermes' own memory store (`tools.memory_tool.load_on_disk_store().apply_batch('user', ...)`), so its character limit and safety scan apply. `seed.state` is `pending` until the CEO is running, then `done`, or `failed` with Hermes' reason (for example a full `USER.md`). It is seeded once; later edits don't append again.
+
 ## `GET /healthz`
 
 Returns service health and dependency-neutral process status.
