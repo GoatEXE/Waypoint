@@ -43,8 +43,8 @@ export function UserSetupView() {
           <div className="stack" style={{ gap: 6 }}>
             <div className="eyebrow">ONE MORE THING</div>
             <h1 className="h1">What should we call you?</h1>
+            <p className="setup-hint" style={{ margin: 0 }}>{ceoName} keeps this in what it knows about you.</p>
           </div>
-          <p className="setup-hint">{ceoName} keeps this in what it knows about you.</p>
           <UserFields name={name} about={about} onName={setName} onAbout={setAbout} />
         </div>
         <Reveal show={Boolean(error)}><div role="alert" className="setup-hint" style={{ color: 'var(--text)' }}>{error}</div></Reveal>
