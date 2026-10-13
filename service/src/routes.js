@@ -36,7 +36,7 @@ function createJsonHandler(logger, dispatch) {
   };
 }
 
-async function route(request, url, { config, store, organization, users, hermes, board, pods, github, portal, orgSeats, seatFeedback, projectSync, devMode, logger }) {
+async function route(request, url, { config, store, organization, users, profileData, hermes, board, pods, github, portal, orgSeats, seatFeedback, projectSync, devMode, logger }) {
   const { pathname } = url;
   const method = request.method;
   const feedbackMatch = pathname.match(/^\/seats\/([^/]+)\/feedback$/);
@@ -92,6 +92,9 @@ async function route(request, url, { config, store, organization, users, hermes,
     return { body: { configured: true, organization: saved } };
   }
   if (users && method === 'GET' && pathname === '/user') return { body: await users.describe() };
+  if (profileData && method === 'GET' && pathname === '/user/usage') return { body: await profileData.usage({ tzOffsetMinutes: url.searchParams.get('tz') ?? 0 }) };
+  if (profileData && method === 'GET' && pathname === '/user/memory') return { body: await profileData.userMemory() };
+  if (profileData && method === 'PUT' && pathname === '/user/memory') return { body: await profileData.saveUserMemory(await readBody(request)) };
   if (users && method === 'PUT' && pathname === '/user') {
     const saved = await users.update(await readBody(request));
     const seeded = await hermes.seedUserProfile?.().catch((error) => { logger.warn('user_seed_failed', { message: error.message }); return null; });

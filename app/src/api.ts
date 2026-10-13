@@ -124,6 +124,9 @@ export const api = {
   organization: () => json<OrganizationState>('/organization'),
   user: () => json<UserState>('/user'),
   saveUser: (body: UserInput) => json<UserState>('/user', { method: 'PUT', body: JSON.stringify(body) }),
+  userUsage: (tzOffsetMinutes: number) => json<UsageReport>(`/user/usage?tz=${tzOffsetMinutes}`),
+  userMemory: () => json<UserMemory>('/user/memory'),
+  saveUserMemory: (entries: string[], base: string[]) => json<UserMemory>('/user/memory', { method: 'PUT', body: JSON.stringify({ entries, base }) }),
   saveOrganization: (body: OrganizationInput) => json<OrganizationState>('/organization', { method: 'PUT', body: JSON.stringify(body) }),
   hermesStatus: (options: { freshAuth?: boolean } = {}) => json<HermesStatus>(`/hermes/status${options.freshAuth ? '?nativeAuth=fresh' : ''}`),
   hermesModelCatalog: (provider?: string, options: { refresh?: boolean } = {}) => {
@@ -191,6 +194,9 @@ export interface OrganizationState { configured: boolean; organization: Organiza
 export interface UserProfile { name: string; about: string; seed: { state: 'pending' | 'done' | 'failed'; at?: string; error?: string }; createdAt: string; updatedAt: string }
 export interface UserState { configured: boolean; user: UserProfile | null }
 export type UserInput = Partial<Pick<UserProfile, 'name' | 'about'>>
+export interface UsageDay { day: number; tasks: number; sessions: number; input: number; output: number; cacheRead: number; cacheWrite: number; cost: number; costSessions: number; costUnknown: number; agents: Record<string, number> }
+export interface UsageReport { available: boolean; days: UsageDay[]; agents: string[]; billing: { apiKey: boolean; subscription: boolean; providers: string[] }; unreadable: string[] }
+export interface UserMemory { available: boolean; entries: string[]; used: number; limit: number; enabled: boolean }
 export type OrganizationInput = Partial<Pick<Organization, 'name' | 'key' | 'ceoName' | 'logo'>>
 export interface AppConfig { dryRun: boolean; serviceName?: string; sharedAuth?: { enabled: boolean }; docker?: { imageConfigured?: boolean; imagePinned?: boolean }; hermes?: { imagePinned?: boolean } }
 export type MissionStatus = 'backlog' | 'todo' | 'in_progress' | 'in_review' | 'done' | 'canceled';

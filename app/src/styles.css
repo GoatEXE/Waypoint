@@ -168,6 +168,29 @@ button, input, textarea { font-family: inherit; }
 .sb-footer > .sb-item { margin: 0 -8px; gap: 9px; font-size: 13px; color: var(--text-3); }
 .profile-head { display: flex; align-items: center; gap: 18px; }
 .profile-avatar { width: 64px; height: 64px; flex: none; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: var(--acc-wash); border: 1px solid var(--acc-line); color: var(--acc-text); font: 500 20px var(--mono); }
+.profile-fields { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(240px, 2fr); gap: 10px; }
+.usage-chart { display: flex; gap: 8px; height: 168px; }
+.usage-chart-scale { display: flex; flex-direction: column; justify-content: space-between; padding-bottom: 20px; font: 10.5px var(--mono); color: var(--faint); text-align: right; min-width: 28px; }
+.usage-chart-body { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.usage-chart-bars { flex: 1; display: flex; align-items: flex-end; gap: 2px; border-bottom: 1px solid var(--line); background-image: linear-gradient(var(--line) 1px, transparent 1px); background-size: 100% 50%; }
+.usage-chart-col { flex: 1; min-width: 0; height: 100%; display: flex; align-items: flex-end; border-radius: 3px 3px 0 0; }
+.usage-chart-col:hover { background: var(--wash); }
+.usage-chart-bar { display: block; width: 100%; max-width: 28px; margin: 0 auto; border-radius: 3px 3px 0 0; background: var(--acc); }
+.usage-chart-col:hover .usage-chart-bar { background: var(--link-hover); }
+.usage-chart-axis { height: 20px; display: flex; gap: 2px; font-size: 10.5px; color: var(--faint); }
+.usage-chart-axis > span { flex: 1; min-width: 0; white-space: nowrap; overflow: visible; padding-top: 5px; }
+.usage-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.usage-stat { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); }
+.usage-stat-value { font: 500 20px var(--mono); color: var(--text); }
+.usage-stat-label { font-size: 12px; color: var(--muted); }
+.usage-break { display: flex; gap: 14px; font: 12px var(--mono); color: var(--dim); }
+.usage-agent { display: flex; align-items: center; gap: 10px; font-size: 12.5px; color: var(--text-3); }
+.usage-bar { flex: 1; height: 6px; border-radius: 3px; background: var(--well); overflow: hidden; }
+.usage-bar > span { display: block; height: 100%; background: var(--acc); border-radius: 3px; }
+.memory-entry { display: flex; gap: 8px; align-items: flex-start; }
+.memory-entry textarea { flex: 1; font-size: 13px; line-height: 1.5; resize: vertical; }
+.field-hint.over { color: var(--danger-text); }
+@media (max-width: 720px) { .profile-fields, .usage-stats { grid-template-columns: 1fr 1fr; } }
 .user-menu { position: relative; margin: 2px -10px -4px; }
 .user-chip { width: 100%; display: flex; align-items: center; gap: 9px; padding: 6px 8px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--text-2); font-size: 13px; cursor: pointer; text-align: left; }
 .user-chip:hover, .user-chip.on { background: var(--hover); border-color: var(--border-2); color: var(--text); }
