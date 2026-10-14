@@ -178,7 +178,7 @@ export const api = {
   taskActivity: (ref: string) => json<TaskActivity>(`/tasks/${encodeURIComponent(ref)}/activity`),
   createTask: (body: { title: string; body?: string; assignee?: string | null; parents?: string[]; board?: string; project?: string }) => json<BoardTaskDetail>('/tasks', { method: 'POST', body: JSON.stringify(body) }),
   commentTask: (ref: string, text: string) => json<BoardTaskDetail>(`/tasks/${encodeURIComponent(ref)}/comments`, { method: 'POST', body: JSON.stringify({ text }) }),
-  taskAction: (ref: string, body: { action: 'complete' | 'archive' | 'block' | 'unblock' | 'assign'; assignee?: string | null; reason?: string; summary?: string }) => json<BoardTaskDetail>(`/tasks/${encodeURIComponent(ref)}/actions`, { method: 'POST', body: JSON.stringify(body) }),
+  taskAction: (ref: string, body: { action: 'complete' | 'archive' | 'block' | 'unblock' | 'assign'; assignee?: string | null; reason?: string; summary?: string; pr?: string }) => json<BoardTaskDetail>(`/tasks/${encodeURIComponent(ref)}/actions`, { method: 'POST', body: JSON.stringify(body) }),
   projects: () => json<{ projects: Project[] }>('/projects'),
   updateProject: (id: string, body: Partial<Pick<Project, 'name' | 'missionId' | 'repo'>>) => json<Project>(`/projects/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
   deleteProject: (id: string) => json<{ deleted: true; projectId: string }>(`/projects/${encodeURIComponent(id)}`, { method: 'DELETE', body: '{}' }),
@@ -238,6 +238,8 @@ export interface TaskRun { id: number; profile: string | null; status: string | 
 export interface BoardTaskDetail extends BoardTask {
   latestSummary: string;
   pullRequest?: string | null;
+  prRepo?: string | null;
+  prLinked?: string | null;
   runs?: TaskRun[];
   parents: BoardTaskLink[];
   children: BoardTaskLink[];

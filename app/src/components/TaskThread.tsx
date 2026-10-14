@@ -8,6 +8,8 @@ import { useStore } from '../store';
 import { commentPlaceholder, confirmCopy, taskPrimary, type ConfirmKind } from '../taskActionsModel';
 import { errorText } from '../runtimeHealth';
 import { PullRequestPreview } from './PullRequestPreview';
+import { PrPicker } from './PrPicker';
+import { needsPrLink, prNeededFrom, type PrNeeded } from '../prLinkModel';
 
 export type TaskLoadState =
   | { status: 'loading' }
@@ -70,13 +72,19 @@ export function useTaskActions(task: BoardTaskDetail | null, setLoad: (load: Tas
   const { flash, loadBoard } = useStore();
   const [busy, setBusy] = useState(false);
   const [confirming, setConfirming] = useState<ConfirmKind | null>(null);
+  const [prNeeded, setPrNeeded] = useState<PrNeeded | null>(null);
   const taskId = task?.id;
-  useEffect(() => { setConfirming(null); }, [taskId]);
+  useEffect(() => { setConfirming(null); setPrNeeded(null); }, [taskId]);
 
   const run = async (action: () => Promise<BoardTaskDetail>) => {
     setBusy(true);
-    try { setLoad({ status: 'ready', task: await action() }); void loadBoard(); return true; }
-    catch (e) { flash(errorText(e)); return false; }
+    try { setLoad({ status: 'ready', task: await action() }); setPrNeeded(null); void loadBoard(); return true; }
+    catch (e) {
+      const need = prNeededFrom(e);
+      if (need) setPrNeeded(need);
+      else flash(errorText(e));
+      return false;
+    }
     finally { setBusy(false); }
   };
   const confirmAction = async () => {
@@ -87,7 +95,7 @@ export function useTaskActions(task: BoardTaskDetail | null, setLoad: (load: Tas
     <ConfirmPanel copy={confirmCopy(kind, { ref: taskLabel(task), status: task.status, assignee: task.assignee, children: task.children })} busy={busy}
       onCancel={() => setConfirming(null)} onConfirm={() => void confirmAction()} />
   ) : null;
-  return { busy, run, confirming, setConfirming, confirmPanel };
+  return { busy, run, confirming, setConfirming, confirmPanel, prNeeded, setPrNeeded };
 }
 
 export type TaskActions = ReturnType<typeof useTaskActions>;
@@ -182,7 +190,7 @@ function Comment({ author, at, body }: { author: string; at: string; body: strin
 
 export function TaskThread({ task, activity, actions, compact = false, children }: { task: BoardTaskDetail; activity: TaskActivity | null; actions: TaskActions; compact?: boolean; children?: ReactNode }) {
   const [draft, setDraft] = useState('');
-  const { busy, run, setConfirming, confirmPanel } = actions;
+  const { busy, run, setConfirming, confirmPanel, prNeeded, setPrNeeded } = actions;
   const taskId = task.id;
   useEffect(() => { setDraft(''); }, [taskId]);
   const ref = taskLabel(task);
@@ -214,11 +222,12 @@ export function TaskThread({ task, activity, actions, compact = false, children 
       )}
       {task.lastError && <div role="alert" style={{ fontSize: 12.5, color: 'var(--text)', padding: '10px 12px', border: '1px dashed var(--border-6)', borderRadius: 8 }}>{task.lastError}</div>}
       {task.pullRequest && <PullRequestPreview url={task.pullRequest} />}
+      {needsPrLink(task) && !prNeeded && <div role="status" style={{ fontSize: 12.5, color: 'var(--muted)', padding: '10px 12px', border: '1px dashed var(--border-6)', borderRadius: 8 }}>{task.assignee || 'The seat'} hasn't linked a pull request for {task.prRepo}. Approving will ask you to pick or paste it.</div>}
       {!closed && (
         <form className="stack task-thread-composer" style={{ gap: 8 }} onSubmit={e => { e.preventDefault(); void submitComment(); }}>
           <textarea className="input" rows={compact ? 3 : 4} value={draft} disabled={busy} onChange={e => setDraft(e.target.value)}
             aria-label="Reply" placeholder={commentPlaceholder(task.status, task.assignee)} />
-          {confirmPanel('complete') || (
+          {prNeeded ? <PrPicker need={prNeeded} busy={busy} onCancel={() => setPrNeeded(null)} onApprove={pr => void run(() => api.taskAction(ref, { action: 'complete', summary: 'Approved by the user.', pr }))} /> : confirmPanel('complete') || (
             <div className="task-thread-actions">
               {inReview
                 ? <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => void run(() => api.taskAction(ref, { action: 'complete', summary: 'Approved by the user.' }))}>Approve</button>
