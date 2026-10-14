@@ -8,7 +8,7 @@ import { ActivityBlock, ActivityList } from './Activity';
 import { TaskRefText } from './TaskRefText';
 import { useStore, useViewport, type PaneTab } from '../store';
 import { ceoNameOf } from '../orgModel';
-import { isTaskThread, threadMeta, visibleTaskThreads } from '../ceoThreads';
+import { isTaskThread, talkedTaskThreads, threadMeta, visibleTaskThreads } from '../ceoThreads';
 import { Dot } from './ui';
 import { PANE_DOCK_MIN } from './layout';
 import { useRuntimeHealth } from './RuntimeBanner';
@@ -136,6 +136,53 @@ function TasksTab() {
       </div>
       {view === 'thread' ? <PaneTaskConversation key={current} id={current} /> : <CeoChat />}
     </>
+  );
+}
+
+function CeoThreadSwitcher() {
+  const { state, setCeoThread, setPane } = useStore();
+  const { threads, busyThreadId } = useCeoThreads(state.ceo.sending);
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const { shown, hidden } = talkedTaskThreads(threads);
+
+  useEffect(() => {
+    if (!open) return;
+    const away = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); };
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', away);
+    document.addEventListener('keydown', esc);
+    return () => { document.removeEventListener('mousedown', away); document.removeEventListener('keydown', esc); };
+  }, [open]);
+
+  const openThread = (id: string) => { setOpen(false); setPane({ tab: 'tasks', taskView: 'ceo' }); setCeoThread(id); };
+  const browseAll = () => { setOpen(false); setCeoThread('general'); setPane({ tab: 'tasks' }); };
+
+  return (
+    <div className="thread-switch" ref={ref}>
+      <button type="button" className={'thread-switch-btn' + (open ? ' on' : '')} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(o => !o)}>
+        <span className="thread-switch-label">Thread</span>
+        <span className="thread-switch-current">General</span>
+        <span className="thread-switch-caret" aria-hidden="true">▾</span>
+      </button>
+      {open && (
+        <div className="thread-switch-pop" role="menu" aria-label="Conversations">
+          <button type="button" role="menuitemradio" aria-checked="true" className="thread-switch-item on" onClick={() => setOpen(false)}>
+            <span className="thread-row-title"><span className="thread-switch-check" aria-hidden="true">✓</span><span className="ellipsis">General</span></span>
+          </button>
+          {shown.length > 0 && <div className="thread-switch-group">Task threads</div>}
+          {shown.map(t => (
+            <button key={t.threadId} type="button" role="menuitemradio" aria-checked="false" className="thread-switch-item" onClick={() => openThread(t.threadId)}>
+              <span className="thread-row-title"><span className="thread-switch-check" aria-hidden="true">{busyThreadId === t.threadId && <span className="thread-row-busy" title="Working" />}</span><span className="ellipsis">{threadName(t, t.threadId)}</span></span>
+              <span className="thread-row-meta ellipsis">{threadMeta(t)}</span>
+            </button>
+          ))}
+          {!shown.length && <div className="thread-switch-empty">No task threads yet. Use Ask {ceoNameOf(state.org.organization)} on a task to start one.</div>}
+          <div className="user-menu-sep" />
+          <button type="button" role="menuitem" className="thread-switch-item thread-switch-all" onClick={browseAll}>{hidden ? `All tasks (${hidden} more threads) →` : 'All tasks →'}</button>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -323,7 +370,7 @@ export function RightPane() {
         ))}
         <button className="icon-btn" style={{ marginLeft: 'auto' }} title="Close" onClick={() => setPane({ open: false })}>×</button>
       </div>
-      {tab === 'ceo' && <CeoChat />}
+      {tab === 'ceo' && <><CeoThreadSwitcher /><CeoChat /></>}
       {tab === 'tasks' && <TasksTab />}
       {tab === 'inbox' && <InboxTab />}
       {tab === 'item' && item && <PinnedTask id={item} />}

@@ -24,6 +24,15 @@ export const paneTaskView = (value: unknown): 'thread' | 'ceo' => value === 'ceo
 
 export const isTaskThread = (threadId: string) => /^t_[0-9a-f]{6,32}$/.test(threadId);
 
+export const SWITCHER_LIMIT = 8;
+
+export function talkedTaskThreads(threads: CeoThread[], limit = SWITCHER_LIMIT) {
+  const talked = threads
+    .filter(t => isTaskThread(t.threadId) && t.messageCount > 0)
+    .sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
+  return { shown: talked.slice(0, limit), hidden: Math.max(0, talked.length - limit) };
+}
+
 export function visibleTaskThreads(tasks: CeoThread[], showAll: boolean) {
   const shown = showAll ? tasks : tasks.filter(t => !CLOSED.has(t.status || '')).slice(0, THREAD_LIST_LIMIT);
   return { shown, hidden: tasks.length - shown.length };

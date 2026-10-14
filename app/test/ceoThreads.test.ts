@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { isTaskThread, paneTaskView, threadAge, threadMeta, visibleTaskThreads } from '../src/ceoThreads.ts';
+import { isTaskThread, paneTaskView, talkedTaskThreads, threadAge, threadMeta, visibleTaskThreads } from '../src/ceoThreads.ts';
 
 const now = Date.parse('2026-10-08T12:00:00Z');
 
@@ -27,6 +27,22 @@ test('visibleTaskThreads keeps the most recent open tasks unless showing all', (
   assert.deepEqual(limited.shown.map(t => t.threadId), Array.from({ length: 10 }, (_, i) => `t_${i + 2}`));
   assert.equal(limited.hidden, 4);
   assert.deepEqual(visibleTaskThreads(tasks, true), { shown: tasks, hidden: 0 });
+});
+
+test('talkedTaskThreads lists task threads with CEO messages, newest first', () => {
+  const thread = (id: string, messageCount: number, updatedAt: string | null) => ({ threadId: id, title: id, ref: null, status: 'todo' as const, messageCount, updatedAt, lastText: '' });
+  const threads = [
+    thread('general', 5, '2026-10-08T11:59:00Z'),
+    thread('t_aaaaaa', 2, '2026-10-08T09:00:00Z'),
+    thread('t_bbbbbb', 0, '2026-10-08T11:00:00Z'),
+    thread('t_cccccc', 4, '2026-10-08T10:00:00Z'),
+    thread('t_dddddd', 1, null),
+  ];
+  assert.deepEqual(talkedTaskThreads(threads).shown.map(t => t.threadId), ['t_cccccc', 't_aaaaaa', 't_dddddd']);
+  assert.equal(talkedTaskThreads(threads).hidden, 0);
+  const limited = talkedTaskThreads(threads, 2);
+  assert.deepEqual(limited.shown.map(t => t.threadId), ['t_cccccc', 't_aaaaaa']);
+  assert.equal(limited.hidden, 1);
 });
 
 test('only board task ids open task threads', () => {
