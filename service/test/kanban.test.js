@@ -133,12 +133,12 @@ test('approving a repo task without a PR asks the user to pick or paste one', as
   const bare = await contractKanban({ summary: 'Done.' });
   bare.kanban.prChecked = new Set(['t_aaaaaaaa']);
   await bare.kanban.list();
-  bare.kanban.github = { repoToken: async () => ({ token: 'x' }), request: async (url) => ({ ok: true, body: url.includes('head=Acme%3Awp%2Ft_aaaaaaaa-fix') ? [{ html_url: 'https://github.com/Acme/Site/pull/21' }] : [] }) };
+  bare.kanban.github = { repoToken: async () => ({ token: 'x' }), request: async (url) => ({ ok: true, body: url.includes('head=Acme%3Awp%2Ft_aaaaaaaa-fix') ? [{ html_url: 'https://github.com/Acme/Site/pull/21' }, { html_url: 'https://github.com/Acme/Site/pull/22' }] : [] }) };
   await assert.rejects(bare.kanban.act('SUN-1', { action: 'complete' }), (error) => {
     assert.equal(error.status, 409);
     assert.equal(error.code, 'pr_missing');
     assert.match(error.message, /builder didn't link a pull request/);
-    assert.deepEqual(error.details, { repo: 'Acme/Site', candidates: ['https://github.com/Acme/Site/pull/21'] });
+    assert.deepEqual(error.details, { repo: 'Acme/Site', candidates: ['https://github.com/Acme/Site/pull/21', 'https://github.com/Acme/Site/pull/22'] });
     return true;
   });
   assert.ok(!bare.calls.some((call) => call[0] === 'complete'), 'Hermes is not asked to complete without a PR');
@@ -166,4 +166,17 @@ test('when GitHub rejects the linked PR, approval asks for the PR instead of fai
   const { kanban } = await contractKanban({ metadata: { published_pr: 'https://github.com/Acme/Site/pull/7' }, failWith: 'PR acceptance missing: Supply metadata.published_pr matching the persisted completion contract.' });
   await kanban.list();
   await assert.rejects(kanban.act('SUN-1', { action: 'complete' }), (error) => error.code === 'pr_missing' && /doesn't accept https:\/\/github.com\/Acme\/Site\/pull\/7/.test(error.message));
+});
+
+test('a single PR opened from the task branch is linked automatically, with no bounce or picker', async () => {
+  const { kanban, calls } = await contractKanban();
+  kanban.github = { repoToken: async () => ({ token: 'x' }), request: async () => ({ ok: true, body: [{ html_url: 'https://github.com/Acme/Site/pull/21' }] }) };
+  assert.equal((await kanban.list()).tasks[0].status, 'review');
+  assert.ok(!calls.some((call) => call[0] === 'reopen-review'));
+  const task = await kanban.show('SUN-1');
+  assert.equal(task.pullRequest, 'https://github.com/Acme/Site/pull/21');
+  assert.equal(task.prLinked, 'https://github.com/Acme/Site/pull/21');
+  await kanban.act('SUN-1', { action: 'complete', summary: 'Approved by the user.' });
+  const complete = calls.find((call) => call[0] === 'complete');
+  assert.deepEqual(JSON.parse(complete[complete.indexOf('--metadata') + 1]), { published_pr: 'https://github.com/Acme/Site/pull/21' });
 });

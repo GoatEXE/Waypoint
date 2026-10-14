@@ -255,7 +255,7 @@ export class KanbanBoard {
       if (row.status !== 'review' || !prContract(row) || this.prChecked.has(row.id)) continue;
       try {
         const detail = await this.run(['show', row.id], { board });
-        if (needsPrBounce(detail)) {
+        if (needsPrBounce(detail) && !(await this.foundPr(detail)).pr) {
           await this.run(['comment', '--author', PR_BOUNCE_AUTHOR, row.id, PR_BOUNCE_NOTE], { json: false, board });
           await this.run(['reopen-review', row.id], { json: false, board });
           bounced = true;
@@ -281,11 +281,20 @@ export class KanbanBoard {
     return [...new Set([...prCandidates(detail), ...await this.branchPullRequests(detail)])].slice(0, 10);
   }
 
+  async foundPr(detail) {
+    if (!prContract(detail?.task)) return { pr: null, candidates: [] };
+    const linked = publishedPr(detail);
+    if (linked) return { pr: linked, candidates: [linked] };
+    const candidates = await this.prChoices(detail);
+    return { pr: candidates.length === 1 ? candidates[0] : null, candidates };
+  }
+
   async show(ref) {
     const { id, board } = await this.locate(ref);
     const [detail, rows, runs] = await Promise.all([this.run(['show', id], { board }), this.run(['list'], { board }), this.run(['runs', id], { board }).catch(() => [])]);
     const numbers = await this.numberAll([id, ...(detail.parents || []), ...(detail.children || [])], board);
     const prefix = await this.prefix();
+    const found = await this.foundPr(detail);
     const byId = new Map(rows.map((task) => [task.id, task]));
     const link = (taskId) => {
       const task = byId.get(taskId);
@@ -294,9 +303,9 @@ export class KanbanBoard {
     return {
       ...this.summary(detail.task, numbers, prefix, board, await this.projectMap()),
       latestSummary: detail.latest_summary || '',
-      pullRequest: publishedPr(detail) || taskPullRequest(detail),
+      pullRequest: found.pr || taskPullRequest(detail),
       prRepo: contractRepo(prContract(detail.task)),
-      prLinked: publishedPr(detail),
+      prLinked: found.pr,
       runs: (Array.isArray(runs) ? runs : []).map((run) => ({ id: run.id, profile: run.profile || null, status: run.status || null, outcome: run.outcome || null, startedAt: toIso(run.started_at), endedAt: toIso(run.ended_at), summary: run.summary || '' })),
       parents: (detail.parents || []).map(link),
       children: (detail.children || []).map(link),
@@ -373,8 +382,9 @@ export class KanbanBoard {
       const contract = prContract(detail.task);
       const chosen = typeof input.pr === 'string' ? input.pr.trim() : '';
       if (chosen && !matchesContract(chosen, contract)) throw badRequest(contract ? `pr must be a pull request URL in ${contractRepo(contract)}` : 'this task does not need a pull request');
-      const pr = chosen || publishedPr(detail);
-      if (contract && !pr) throw prMissing(`${detail.task.assignee || 'The seat'} didn't link a pull request. Pick or paste the PR for ${contractRepo(contract)} to approve.`, { repo: contractRepo(contract), candidates: await this.prChoices(detail) });
+      const found = chosen ? { pr: chosen, candidates: [] } : await this.foundPr(detail);
+      const pr = found.pr;
+      if (contract && !pr) throw prMissing(`${detail.task.assignee || 'The seat'} didn't link a pull request. Pick or paste the PR for ${contractRepo(contract)} to approve.`, { repo: contractRepo(contract), candidates: found.candidates });
       const args = ['complete', '--summary', text(input.summary, 'summary', 500, { required: false }) || 'Marked done by the user.'];
       if (pr) args.push('--metadata', JSON.stringify({ published_pr: pr }));
       try { await this.run([...args, id], on); }
