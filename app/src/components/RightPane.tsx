@@ -8,7 +8,9 @@ import { ActivityBlock, ActivityList } from './Activity';
 import { TaskRefText } from './TaskRefText';
 import { useStore, useViewport, type PaneTab } from '../store';
 import { ceoNameOf } from '../orgModel';
-import { isTaskThread, threadMeta, visibleTaskThreads } from '../ceoThreads';
+import { deleteThreadCopy, isTaskThread, talkedTaskThreads, threadMeta, visibleTaskThreads } from '../ceoThreads';
+import { errorText } from '../runtimeHealth';
+import { ConfirmPanel } from './ConfirmPanel';
 import { Dot } from './ui';
 import { PANE_DOCK_MIN } from './layout';
 import { useRuntimeHealth } from './RuntimeBanner';
@@ -61,14 +63,15 @@ function threadName(thread: CeoThread | undefined, id: string) {
 
 function useCeoThreads(refreshKey: unknown) {
   const [data, setData] = useState<{ threads: CeoThread[]; busyThreadId: string | null }>({ threads: [], busyThreadId: null });
+  const [version, setVersion] = useState(0);
   useEffect(() => {
     let active = true;
     const load = () => api.ceoThreads().then(result => { if (active) setData(result); }).catch(() => undefined);
     void load();
     const timer = window.setInterval(() => void load(), 15000);
     return () => { active = false; window.clearInterval(timer); };
-  }, [refreshKey]);
-  return data;
+  }, [refreshKey, version]);
+  return { ...data, reload: () => setVersion(v => v + 1) };
 }
 
 function TaskThreadList({ threads, busy, onPick }: { threads: CeoThread[]; busy: string | null; onPick: (id: string) => void }) {
@@ -137,6 +140,127 @@ function TasksTab() {
       {view === 'thread' ? <PaneTaskConversation key={current} id={current} /> : <CeoChat />}
     </>
   );
+}
+
+function ThreadMenu({ label, children }: { label: string; children: (close: () => void) => ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const away = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); };
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', away);
+    document.addEventListener('keydown', esc);
+    return () => { document.removeEventListener('mousedown', away); document.removeEventListener('keydown', esc); };
+  }, [open]);
+  return (
+    <div className="thread-menu" ref={ref}>
+      <button type="button" className={'icon-btn thread-menu-btn' + (open ? ' on' : '')} title={label} aria-label={label} aria-haspopup="menu" aria-expanded={open} onClick={e => { e.stopPropagation(); setOpen(o => !o); }}>⋯</button>
+      {open && <div className="thread-menu-pop" role="menu" onClick={e => e.stopPropagation()}>{children(() => setOpen(false))}</div>}
+    </div>
+  );
+}
+
+function useDeleteThread(onDeleted: (id: string) => void) {
+  const { state, setCeoThread, flash } = useStore();
+  const [target, setTarget] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const ask = (id: string) => { setTarget(id); setError(''); };
+  const cancel = () => { setTarget(null); setError(''); };
+  const confirm = async () => {
+    if (!target) return;
+    setBusy(true);
+    setError('');
+    try {
+      await api.deleteCeoThread(target);
+      if (state.ceoThread === target) setCeoThread('general');
+      setTarget(null);
+      flash('Thread deleted');
+      onDeleted(target);
+    } catch (err) {
+      setError(errorText(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return { target, busy, error, ask, cancel, confirm };
+}
+
+function CeoThreadList() {
+  const { state, setCeoThread, setPane } = useStore();
+  const { threads, busyThreadId, reload } = useCeoThreads(state.ceo.sending);
+  const del = useDeleteThread(() => reload());
+  const ceoName = ceoNameOf(state.org.organization);
+  const general = threads.find(t => t.threadId === 'general');
+  const talked = talkedTaskThreads(threads);
+  const current = state.ceoThread;
+  const open = (id: string) => { setCeoThread(id); setPane({ ceoList: false }); };
+  const row = (t: CeoThread | undefined, id: string, pinned = false) => (
+    <div key={id} className={'thread-item' + (current === id ? ' on' : '')}>
+      <button type="button" className="thread-row" aria-current={current === id ? 'true' : undefined} onClick={() => open(id)}>
+        <span className="thread-row-title">
+          {busyThreadId === id && <span className="thread-row-busy" title="Working" />}
+          <span className="ellipsis">{threadName(t, id)}</span>
+          {pinned && <span className="thread-pin" title="Pinned">Pinned</span>}
+        </span>
+        <span className="thread-row-meta ellipsis">{t ? (t.lastText || threadMeta(t)) : 'Loading…'}</span>
+      </button>
+      {!pinned && (
+        <ThreadMenu label="Thread actions">
+          {close => (
+            <button type="button" role="menuitem" className="user-menu-item danger" disabled={busyThreadId === id} title={busyThreadId === id ? `${ceoName} is working in this thread` : undefined} onClick={() => { close(); del.ask(id); }}>Delete thread</button>
+          )}
+        </ThreadMenu>
+      )}
+      {del.target === id && <div className="thread-confirm"><ConfirmPanel copy={deleteThreadCopy(threadName(t, id), ceoName)} busy={del.busy} error={del.error} onCancel={del.cancel} onConfirm={() => void del.confirm()} /></div>}
+    </div>
+  );
+  return (
+    <div className="pane-body thread-list">
+      {row(general, 'general', true)}
+      {talked.length > 0 && <div className="thread-group">Task threads</div>}
+      {talked.map(t => row(t, t.threadId))}
+      {!talked.length && <div className="thread-hint">Task threads show up here once you talk to {ceoName} about a task. Open a task and choose Ask {ceoName} to start one.</div>}
+    </div>
+  );
+}
+
+function CeoThreadHead() {
+  const { state, setPane } = useStore();
+  const nav = useNavigate();
+  const { threads, busyThreadId } = useCeoThreads(state.ceo.sending);
+  const current = state.ceoThread;
+  const toList = () => setPane({ ceoList: true });
+  const del = useDeleteThread(() => toList());
+  const ceoName = ceoNameOf(state.org.organization);
+  const thread = threads.find(t => t.threadId === current);
+  const task = isTaskThread(current);
+  return (
+    <>
+      <div className="thread-head">
+        <button type="button" className="thread-back" title="All threads" aria-label="All threads" onClick={toList}>←</button>
+        <span className="thread-head-title ellipsis">{threadName(thread, current)}</span>
+        {task && (
+          <ThreadMenu label="Thread actions">
+            {close => (
+              <>
+                <button type="button" role="menuitem" className="user-menu-item" onClick={() => { close(); nav('/tasks/' + encodeURIComponent(thread?.ref || current)); }}>Open task</button>
+                <button type="button" role="menuitem" className="user-menu-item danger" disabled={busyThreadId === current} title={busyThreadId === current ? `${ceoName} is working in this thread` : undefined} onClick={() => { close(); del.ask(current); }}>Delete thread</button>
+              </>
+            )}
+          </ThreadMenu>
+        )}
+      </div>
+      {del.target === current && <div className="thread-confirm head"><ConfirmPanel copy={deleteThreadCopy(threadName(thread, current), ceoName)} busy={del.busy} error={del.error} onCancel={del.cancel} onConfirm={() => void del.confirm()} /></div>}
+    </>
+  );
+}
+
+function CeoTab() {
+  const { state } = useStore();
+  if (state.pane.ceoList) return <CeoThreadList />;
+  return <><CeoThreadHead /><CeoChat /></>;
 }
 
 function CeoChat() {
@@ -305,11 +429,11 @@ export function RightPane() {
   const { state, setPane, setCeoThread } = useStore();
   const vw = useViewport();
   const { tab, item } = state.pane;
-  const taskThreadOpen = isTaskThread(state.ceoThread);
-  useEffect(() => { if (tab === 'ceo' && taskThreadOpen) setPane({ tab: 'tasks' }); }, [tab, taskThreadOpen, setPane]);
   const pick = (k: PaneTab) => {
-    if (k === 'ceo') setCeoThread('general');
-    setPane({ tab: k });
+    if (k === tab) return;
+    if (k === 'ceo') { setCeoThread('general'); setPane({ tab: k, ceoList: false }); }
+    else if (k === 'tasks' && tab === 'ceo' && isTaskThread(state.ceoThread)) setPane({ tab: k, taskView: 'ceo' });
+    else setPane({ tab: k });
   };
   const waiting = needsYou(state.board).length;
   const tabs: [PaneTab, string][] = [['ceo', ceoNameOf(state.org.organization)], ['tasks', 'Tasks'], ['inbox', waiting ? `Inbox · ${waiting}` : 'Inbox']];
@@ -323,7 +447,7 @@ export function RightPane() {
         ))}
         <button className="icon-btn" style={{ marginLeft: 'auto' }} title="Close" onClick={() => setPane({ open: false })}>×</button>
       </div>
-      {tab === 'ceo' && <CeoChat />}
+      {tab === 'ceo' && <CeoTab />}
       {tab === 'tasks' && <TasksTab />}
       {tab === 'inbox' && <InboxTab />}
       {tab === 'item' && item && <PinnedTask id={item} />}

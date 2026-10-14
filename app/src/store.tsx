@@ -4,7 +4,7 @@ import { createdBoardTask, ceoLiveUpdated, ceoLoadFailed, ceoLoadStarted, ceoLoa
 import type { LessonPick } from './data';
 import { liveTasks, type Resolved } from './model';
 import { mergeStatus, START_TIMEOUT_MS, startFailureText, errorText } from './runtimeHealth';
-import { paneTaskView } from './ceoThreads';
+import { paneCeoList, paneTaskView } from './ceoThreads';
 import { applyTheme, readTheme, type Theme } from './theme';
 import { initialMissionsState, missionsLoadFailed, missionsLoadStarted, missionsLoadSucceeded, type MissionsState } from './missionsModel';
 
@@ -13,7 +13,7 @@ export type PaneTaskView = 'thread' | 'ceo';
 export type ModalKind = 'assignment' | 'mission' | 'seat' | 'project' | 'pod';
 
 export interface AppState {
-  pane: { open: boolean; tab: PaneTab; item: string | null; taskView: PaneTaskView };
+  pane: { open: boolean; tab: PaneTab; item: string | null; taskView: PaneTaskView; ceoList: boolean };
   resolved: Resolved;
   picks: Record<string, LessonPick>;
   seat: string;
@@ -40,10 +40,10 @@ const STORAGE_KEY = 'waypoint-web';
 const PERSISTED = ['pane', 'missionOpen', 'ceoThread', 'dryRunDismissed'] as const;
 
 function cleanPane(saved: Partial<AppState>): AppState['pane'] {
-  const fallback: AppState['pane'] = { open: window.innerWidth >= 1280, tab: 'ceo', item: null, taskView: 'thread' };
+  const fallback: AppState['pane'] = { open: window.innerWidth >= 1280, tab: 'ceo', item: null, taskView: 'thread', ceoList: false };
   const pane = saved.pane && typeof saved.pane === 'object' ? saved.pane : fallback;
   const tab = pane.tab === 'tasks' || pane.tab === 'inbox' ? pane.tab : fallback.tab;
-  return { open: typeof pane.open === 'boolean' ? pane.open : fallback.open, tab, item: null, taskView: paneTaskView(pane.taskView) };
+  return { open: typeof pane.open === 'boolean' ? pane.open : fallback.open, tab, item: null, taskView: paneTaskView(pane.taskView), ceoList: paneCeoList(pane.ceoList) };
 }
 
 function initialState(): AppState {
@@ -220,7 +220,7 @@ function useAppStore() {
       }, 1500);
       set(s => ({
         ceo: ceoSendStarted(s.ceo, text),
-        ...(openPane ? { pane: { ...s.pane, open: true, tab: 'ceo' as const } } : {}),
+        ...(openPane ? { pane: { ...s.pane, open: true, tab: 'ceo' as const, ceoList: false } } : {}),
       }));
       try {
         const response = await api.sendCeoMessage(text, thread);
@@ -228,7 +228,7 @@ function useAppStore() {
         void actions.loadBoard();
         void actions.loadMissions();
         void actions.loadPods();
-        set(s => ({ ceo: s.ceoThread === thread ? ceoSendSucceeded(s.ceo, response) : { ...s.ceo, busyThreadId: null }, ...(openPane ? { pane: { ...s.pane, open: true, tab: 'ceo' as const } } : {}) }));
+        set(s => ({ ceo: s.ceoThread === thread ? ceoSendSucceeded(s.ceo, response) : { ...s.ceo, busyThreadId: null }, ...(openPane ? { pane: { ...s.pane, open: true, tab: 'ceo' as const, ceoList: false } } : {}) }));
         return { ok: true };
       } catch (err) {
         const message = errorText(err);

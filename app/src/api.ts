@@ -147,6 +147,7 @@ export const api = {
   setHermesSkillEnabled: (name: string, enabled: boolean) => json<HermesSkillUpdateResponse>(`/hermes/skills/${encodeURIComponent(name)}`, { method: 'PUT', body: JSON.stringify({ enabled }) }),
   ceoConversation: (threadId = 'general') => json<CeoConversation>(`/hermes/ceo/conversation?threadId=${encodeURIComponent(threadId)}`),
   ceoThreads: () => json<{ threads: CeoThread[]; busyThreadId: string | null }>('/hermes/ceo/threads'),
+  deleteCeoThread: (threadId: string) => json<{ deleted: true; threadId: string }>(`/hermes/ceo/threads/${encodeURIComponent(threadId)}`, { method: 'DELETE', body: '{}' }),
   sendCeoMessage: (message: string, threadId = 'general') => json<CeoSendResponse>('/hermes/ceo/messages', { method: 'POST', body: JSON.stringify({ message, threadId }) }),
   missions: () => json<{ missions: Mission[] }>('/missions'),
   tasks: () => json<{ tasks: BoardTask[] }>('/tasks'),

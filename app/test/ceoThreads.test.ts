@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { isTaskThread, paneTaskView, threadAge, threadMeta, visibleTaskThreads } from '../src/ceoThreads.ts';
+import { deleteThreadCopy, isTaskThread, paneCeoList, paneTaskView, talkedTaskThreads, threadAge, threadMeta, visibleTaskThreads } from '../src/ceoThreads.ts';
 
 const now = Date.parse('2026-10-08T12:00:00Z');
 
@@ -29,6 +29,18 @@ test('visibleTaskThreads keeps the most recent open tasks unless showing all', (
   assert.deepEqual(visibleTaskThreads(tasks, true), { shown: tasks, hidden: 0 });
 });
 
+test('talkedTaskThreads lists task threads with CEO messages, newest first', () => {
+  const thread = (id: string, messageCount: number, updatedAt: string | null) => ({ threadId: id, title: id, ref: null, status: 'todo' as const, messageCount, updatedAt, lastText: '' });
+  const threads = [
+    thread('general', 5, '2026-10-08T11:59:00Z'),
+    thread('t_aaaaaa', 2, '2026-10-08T09:00:00Z'),
+    thread('t_bbbbbb', 0, '2026-10-08T11:00:00Z'),
+    thread('t_cccccc', 4, '2026-10-08T10:00:00Z'),
+    thread('t_dddddd', 1, null),
+  ];
+  assert.deepEqual(talkedTaskThreads(threads).map(t => t.threadId), ['t_cccccc', 't_aaaaaa', 't_dddddd']);
+});
+
 test('only board task ids open task threads', () => {
   assert.equal(isTaskThread('t_1a2b3c4d'), true);
   assert.equal(isTaskThread('general'), false);
@@ -40,4 +52,17 @@ test('a task opened in the side panel shows its conversation unless the CEO chat
   assert.equal(paneTaskView('bogus'), 'thread');
   assert.equal(paneTaskView('thread'), 'thread');
   assert.equal(paneTaskView('ceo'), 'ceo');
+});
+
+test('the CEO pane opens on the chat unless the thread list was left open', () => {
+  assert.equal(paneCeoList(undefined), false);
+  assert.equal(paneCeoList('yes'), false);
+  assert.equal(paneCeoList(true), true);
+});
+
+test('deleting a thread says the task stays', () => {
+  const copy = deleteThreadCopy('SUN-3 · Fix it', 'Ava');
+  assert.equal(copy.title, 'Delete the SUN-3 · Fix it thread?');
+  assert.match(copy.body, /Ava/);
+  assert.match(copy.body, /task itself stays/);
 });

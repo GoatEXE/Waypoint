@@ -185,6 +185,36 @@ export class HermesRuntime {
     return { threads, busyThreadId: this.liveTurn?.threadId || null };
   }
 
+  async deleteCeoThread(threadId) {
+    const id = normalizeThreadId(threadId);
+    if (id === GENERAL_THREAD) throw badRequest('The General thread cannot be deleted.');
+    if (this.ceoTurnInFlight) throw conflict('The CEO is working. Wait for the reply to finish, then delete the thread.', { busyThreadId: this.liveTurn?.threadId || null });
+    this.ceoTurnInFlight = true;
+    try {
+      const conversation = await this.readCeoConversation(id);
+      if (conversation.sessionId) await this.retireCeoSession(conversation.sessionId, id);
+      await this.renewCeoThreadName(id);
+      await fs.rm(this.ceoConversationPath(id), { force: true });
+      return { deleted: true, threadId: id };
+    } finally {
+      this.ceoTurnInFlight = false;
+    }
+  }
+
+  async retireCeoSession(sessionId, threadId) {
+    const inspected = await this.inspect({ allowMissing: true });
+    if (!inspected.exists || !inspected.state.running) throw ceoStopped();
+    const title = `waypoint-ceo-${threadId}-deleted-${new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14)}-${randomUUID().slice(0, 8)}`;
+    const exec = (args) => this.runner('docker', ['exec', '--user', 'hermes', this.containerName, 'hermes', 'sessions', ...args], { timeoutMs: 30000 });
+    const renamed = await exec(['rename', sessionId, title]);
+    if (renamed.code !== 0) {
+      if (/no session/i.test(`${renamed.stdout || ''}${renamed.stderr || ''}`)) return;
+      throw lifecycleError('Hermes could not retire this thread\'s session.');
+    }
+    const archived = await exec(['archive', '--title', title, '--yes']);
+    if (archived.code !== 0) this.logger?.warn?.('ceo_thread_archive_failed', { threadId });
+  }
+
   recordCeoAction(name, detail, status = 'ok') {
     if (!this.liveTurn) return;
     pushActivity(this.liveTurn.activity, { kind: 'action', name, detail: activityDetail(detail, [this.config.bridge.token]), status });
@@ -286,24 +316,31 @@ export class HermesRuntime {
       const raw = await fs.readFile(this.ceoStatePath(), 'utf8');
       const parsed = JSON.parse(raw);
       const conversationName = CEO_CONVERSATION_NAME_RE.test(String(parsed.conversationName || '')) ? parsed.conversationName : '';
-      return { conversationName };
+      return { conversationName, threadNames: cleanThreadNames(parsed.threadNames) };
     } catch (error) {
-      if (error.code === 'ENOENT') return { conversationName: '' };
+      if (error.code === 'ENOENT') return { conversationName: '', threadNames: {} };
       throw lifecycleError('Stored Hermes CEO state could not be read.');
     }
   }
 
   async writeCeoState(state) {
     const conversationName = CEO_CONVERSATION_NAME_RE.test(String(state.conversationName || '')) ? state.conversationName : freshCeoConversationName();
-    await writePrivateJson(this.config.dataDir, this.ceoStatePath(), { conversationName });
-    return { conversationName };
+    const threadNames = cleanThreadNames(state.threadNames);
+    await writePrivateJson(this.config.dataDir, this.ceoStatePath(), { conversationName, threadNames });
+    return { conversationName, threadNames };
   }
 
   async ensureCeoConversationName(threadId = GENERAL_THREAD) {
-    if (threadId !== GENERAL_THREAD) return `waypoint-ceo-${threadId}`;
     const state = await this.readCeoState();
+    if (threadId !== GENERAL_THREAD) return state.threadNames[threadId] || `waypoint-ceo-${threadId}`;
     if (state.conversationName) return state.conversationName;
-    return (await this.writeCeoState({ conversationName: freshCeoConversationName() })).conversationName;
+    return (await this.writeCeoState({ ...state, conversationName: freshCeoConversationName() })).conversationName;
+  }
+
+  async renewCeoThreadName(threadId) {
+    const state = await this.readCeoState();
+    const stamp = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);
+    await this.writeCeoState({ ...state, threadNames: { ...state.threadNames, [threadId]: `waypoint-ceo-${threadId}-${stamp}-${randomUUID().slice(0, 8)}` } });
   }
 
   async runCeoChat(message, sessionId, threadId = GENERAL_THREAD, onEvent = undefined) {
@@ -967,6 +1004,10 @@ async function writePrivateJson(dataDir, target, value) {
   await fs.writeFile(tmp, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
   await fs.rename(tmp, target);
   try { await fs.chmod(target, 0o600); } catch {   }
+}
+function cleanThreadNames(value) {
+  if (!value || typeof value !== 'object') return {};
+  return Object.fromEntries(Object.entries(value).filter(([id, name]) => TASK_THREAD_RE.test(id) && CEO_CONVERSATION_NAME_RE.test(String(name))));
 }
 function freshCeoConversationName() {
   const stamp = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);

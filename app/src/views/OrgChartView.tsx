@@ -68,7 +68,7 @@ export function OrgChartView() {
           </div>
           <div className="org-stem" />
           <div className="org-level">
-            <button type="button" className="org-node org-ceo" onClick={() => { setCeoThread('general'); setPane({ open: true, tab: 'ceo' }); }}>
+            <button type="button" className="org-node org-ceo" onClick={() => { setCeoThread('general'); setPane({ open: true, tab: 'ceo', ceoList: false }); }}>
               <div className="ceo-mark" />
               <div className="stack" style={{ minWidth: 0, alignItems: 'flex-start' }}>
                 <span className="org-name">{ceoName}</span>
