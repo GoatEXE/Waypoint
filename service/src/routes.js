@@ -62,8 +62,15 @@ async function route(request, url, { config, store, organization, users, profile
     if (method === 'PATCH') return { body: await orgSeats.updateProfile(seat, await readBody(request)) };
   }
   if (pathname === '/org/seats' && orgSeats) {
-    if (method === 'GET') return { body: await orgSeats.list() };
-    if (method === 'POST') return { status: 201, body: await orgSeats.hire(await readBody(request)) };
+    if (method === 'GET') {
+      void projectSync?.mirror({ ifStaleMs: 60000 });
+      return { body: await orgSeats.list() };
+    }
+    if (method === 'POST') {
+      const hired = await orgSeats.hire(await readBody(request));
+      void projectSync?.mirror();
+      return { status: 201, body: hired };
+    }
   }
   if (pathname === '/hermes-portal' && portal) {
     if (method === 'GET') return { body: portal.status() };
@@ -212,7 +219,7 @@ async function ceoControlTool(tool, args, { config, store, github, board, pods, 
   if (tool === 'list_projects') {
     const projects = await store.listProjects();
     const slugs = projectSync ? await projectSync.slugs() : {};
-    for (const project of projects) if (project.repo && !slugs[project.id]) projectSync?.sync(project);
+    for (const project of projects) if (!slugs[project.id]) projectSync?.sync(project);
     return { projects: projects.map((project) => ({ ...project, hermesProject: slugs[project.id] || null })) };
   }
   if (tool === 'create_project') {

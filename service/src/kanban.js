@@ -124,6 +124,26 @@ export function parseWorkerRuns(text, secrets = []) {
   return parts.map((part) => parseWorkerLog(part, secrets));
 }
 
+const MOVE_TASK_SCRIPT = `import json, os, sys
+from hermes_cli import kanban_db as kb, projects_db as pdb
+from hermes_cli.kanban_db_connect import connect_closing, write_txn
+p = json.loads(sys.stdin.read())
+with pdb.connect_closing() as pconn:
+    project = pdb.get_project(pconn, p['project'])
+if project is None:
+    print(json.dumps({'error': 'project_missing'})); sys.exit(0)
+with connect_closing(board=None if p['board'] == 'default' else p['board']) as conn:
+    task = kb.get_task(conn, p['task'])
+    if task is None:
+        print(json.dumps({'error': 'task_missing'})); sys.exit(0)
+    fields = {'project_id': project.id}
+    if project.primary_path and task.started_at is None and task.workspace_kind == 'scratch' and task.status in ('triage', 'todo', 'ready', 'blocked'):
+        fields.update(workspace_kind='worktree', workspace_path=os.path.join(project.primary_path, '.worktrees', task.id), branch_name=pdb.branch_name_for(project, task.id, title=task.title))
+    with write_txn(conn):
+        conn.execute('UPDATE tasks SET ' + ', '.join(k + ' = ?' for k in fields) + ' WHERE id = ?', (*fields.values(), task.id))
+        kb._append_event(conn, task.id, 'edited', {'fields': sorted(fields), 'project_id': project.id})
+print(json.dumps({'ok': True, 'worktree': 'workspace_kind' in fields}))`;
+
 function toIso(seconds) {
   return Number.isFinite(seconds) ? new Date(seconds * 1000).toISOString() : null;
 }
@@ -334,18 +354,33 @@ export class KanbanBoard {
     const body = text(input.body, 'body', BODY_MAX, { required: false });
     if (body) args.push('--body', body);
     if (input.assignee) args.push('--assignee', profile(input.assignee, 'assignee'));
-    for (const parent of Array.isArray(input.parents) ? input.parents : []) args.push('--parent', await this.resolveId(parent));
+    const parents = [];
+    for (const parent of Array.isArray(input.parents) ? input.parents : []) parents.push(await this.resolveId(parent));
+    for (const parent of parents) args.push('--parent', parent);
     args.push('--created-by', input.createdBy === 'ceo' ? 'ceo' : 'user');
-    if (input.project) {
-      if (!this.projects || !this.store) throw badRequest('projects are not available');
-      const project = await this.store.getProject(input.project);
-      if (!project.repo) throw badRequest('this project has no GitHub repository yet');
-      args.push('--project', (await this.projects.ensure(project)).slug);
-    }
+    const inherited = !input.project && parents.length ? (await this.run(['show', parents[0]], { board })).task?.project_id : null;
+    args.push('--project', inherited || (await this.hermesProject(input.project)).slug);
     const created = await this.run(args, { board });
     const id = (created.task || created).id;
     await this.numberAll([id], board);
     return this.show(id);
+  }
+
+  async hermesProject(projectId) {
+    if (!projectId) throw badRequest('Pick a project for this task. Use General for work without a repository.');
+    if (!this.projects || !this.store) throw badRequest('projects are not available');
+    const entry = await this.projects.ensure(await this.store.getProject(projectId));
+    if (!entry) throw lifecycleError('Hermes could not set up this project yet. Try again in a minute.');
+    return entry;
+  }
+
+  async moveToProject(id, board, projectId) {
+    const entry = await this.hermesProject(projectId);
+    const result = await this.hermes.execPython(MOVE_TASK_SCRIPT, JSON.stringify({ task: id, board, project: entry.hermesId }));
+    const out = JSON.parse(String(result.stdout || '').trim().split('\n').pop() || '{}');
+    if (out.error === 'task_missing') throw notFound('task not found');
+    if (out.error === 'project_missing') throw lifecycleError('Hermes does not know this project yet. Try again in a minute.');
+    if (!out.ok) throw lifecycleError('Hermes could not move the task');
   }
 
   async note(ref, author, body) {
@@ -403,7 +438,8 @@ export class KanbanBoard {
     else if (action === 'unblock') await this.run(['unblock', id], on);
     else if (action === 'block') await this.run(['block', '--kind', 'needs_input', id, text(input.reason, 'reason', 300)], on);
     else if (action === 'assign') await this.run(['assign', id, input.assignee ? profile(input.assignee, 'assignee') : 'none'], on);
-    else throw badRequest('action must be complete, archive, block, unblock, or assign');
+    else if (action === 'project') await this.moveToProject(id, board, input.project);
+    else throw badRequest('action must be complete, archive, block, unblock, assign, or project');
     return this.show(id);
   }
 }

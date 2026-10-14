@@ -21,6 +21,7 @@ const BOARD_TASK_RE = /^t_[0-9a-f]{6,32}$/;
 const MISSION_TITLE_MAX = 120;
 const MISSION_OUTCOME_MAX = 1000;
 const PROJECT_NAME_MAX = 80;
+export const GENERAL_PROJECT = 'General';
 const MISSION_SOURCES = new Set(['ceo', 'app']);
 
 function safeId(prefix) { return `${prefix}_${randomUUID()}`; }
@@ -93,7 +94,19 @@ export class OrgStore {
   missionPath(missionId) { return path.join(this.dataDir, 'missions', `${assertStoredId('mission', missionId)}.json`); }
 
   async readProjects() {
-    return ((await readJson(this.projectsPath()))?.projects || []).map(({ id, name, missionId = null, repo = null, createdAt, updatedAt }) => ({ id, name, missionId, repo, createdAt, updatedAt }));
+    return ((await readJson(this.projectsPath()))?.projects || []).map(({ id, name, missionId = null, repo = null, general = false, createdAt, updatedAt }) => ({ id, name, missionId, repo, ...(general ? { general: true } : {}), createdAt, updatedAt }));
+  }
+  ensureGeneralProject() {
+    return this.#serialize('projects', async () => {
+      const projects = await this.readProjects();
+      const existing = projects.find((project) => project.general);
+      if (existing) return existing;
+      const named = projects.find((project) => project.name.toLocaleLowerCase() === GENERAL_PROJECT.toLocaleLowerCase());
+      const now = new Date().toISOString();
+      const general = named ? { ...named, general: true, updatedAt: now } : { id: safeId('project'), name: GENERAL_PROJECT, missionId: null, repo: null, general: true, createdAt: now, updatedAt: now };
+      await writeJson(this.projectsPath(), { projects: named ? projects.map((project) => (project.id === named.id ? general : project)) : [...projects, general] });
+      return general;
+    });
   }
   async listProjects() {
     return [...await this.readProjects()].sort((a, b) => a.name.localeCompare(b.name));
@@ -130,7 +143,9 @@ export class OrgStore {
     const id = assertStoredId('project', projectId);
     return this.#serialize('projects', async () => {
       const projects = await this.readProjects();
-      if (!projects.some((project) => project.id === id)) throw notFound('project not found', { projectId: id });
+      const project = projects.find((item) => item.id === id);
+      if (!project) throw notFound('project not found', { projectId: id });
+      if (project.general) throw conflict(`${project.name} holds work that has no repository, so it can't be deleted.`, { projectId: id });
       await writeJson(this.projectsPath(), { projects: projects.filter((project) => project.id !== id) });
       return { deleted: true, projectId: id };
     });

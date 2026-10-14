@@ -115,5 +115,9 @@ test('projects belong to missions and validate the mission', async () => {
   await assert.rejects(app.store.createProject({ name: 'Bad', missionId: 'mission_00000000-0000-4000-8000-000000000000' }), /does not match a stored mission/);
   await assert.rejects(app.store.createProject({ name: 'Goat ops' }), /already exists/);
   assert.deepEqual(await app.store.deleteProject(project.id), { deleted: true, projectId: project.id });
-  assert.deepEqual(await app.store.listProjects(), []);
+  const general = await app.store.ensureGeneralProject();
+  assert.deepEqual(await app.store.listProjects(), [general], 'only the General project is left');
+  assert.equal((await app.store.ensureGeneralProject()).id, general.id, 'General is created once');
+  assert.equal(general.repo, null);
+  await assert.rejects(app.store.deleteProject(general.id), /can't be deleted/);
 });

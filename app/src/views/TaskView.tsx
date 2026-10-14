@@ -2,10 +2,10 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, type BoardTaskLink, type OrgSeat } from '../api';
 import { useSplitCols } from '../components/layout';
-import { AssigneeSelect } from '../components/TaskFields';
+import { AssigneeSelect, ProjectSelect } from '../components/TaskFields';
 import { SeatFeedback } from '../components/SeatFeedback';
 import { formatDateTime, TaskThread, useTaskActions, useTaskDetail } from '../components/TaskThread';
-import { statusLabel, taskLabel } from '../taskQueueModel';
+import { NO_PROJECT, statusLabel, taskLabel } from '../taskQueueModel';
 import { useStore } from '../store';
 import { ceoNameOf } from '../orgModel';
 
@@ -51,6 +51,7 @@ export function TaskView({ id }: { id: string }) {
   const { task } = load;
   const ref = taskLabel(task);
   const closed = task.status === 'done' || task.status === 'archived';
+  const project = appState.projects.find(p => p.id === task.projectId);
 
   return (
     <div className="page" style={{ maxWidth: 1040, gap: 28 }}>
@@ -73,6 +74,11 @@ export function TaskView({ id }: { id: string }) {
         <div className="stack" style={{ gap: 20 }}>
           <label className="field"><span className="field-label">Assignee</span>
             <AssigneeSelect value={task.assignee || ''} seats={seats} disabled={busy || closed} onChange={v => void run(() => api.taskAction(ref, { action: 'assign', assignee: v || null }))} />
+          </label>
+          <label className="field"><span className="field-label">Project</span>
+            <ProjectSelect value={project ? task.projectId! : ''} projects={appState.projects} placeholder={`${NO_PROJECT}: pick a project…`} disabled={busy || task.status === 'archived'}
+              onChange={v => void run(() => api.taskAction(ref, { action: 'project', project: v }))} />
+            {!project && <span className="field-hint">This task was made before every task needed a project. Pick one to file it.</span>}
           </label>
           <div className="kv-grid" style={{ display: 'flex', flexDirection: 'column' }}>
             {([

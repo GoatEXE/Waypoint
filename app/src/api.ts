@@ -177,9 +177,9 @@ export const api = {
   sendSeatFeedback: (seat: string, task: string, message: string, rating?: 'up' | 'down' | null) => json<SeatFeedbackConversation>(`/seats/${encodeURIComponent(seat)}/feedback`, { method: 'POST', body: JSON.stringify({ task, message, ...(rating ? { rating } : {}) }) }),
   task: (ref: string) => json<BoardTaskDetail>(`/tasks/${encodeURIComponent(ref)}`),
   taskActivity: (ref: string) => json<TaskActivity>(`/tasks/${encodeURIComponent(ref)}/activity`),
-  createTask: (body: { title: string; body?: string; assignee?: string | null; parents?: string[]; board?: string; project?: string }) => json<BoardTaskDetail>('/tasks', { method: 'POST', body: JSON.stringify(body) }),
+  createTask: (body: { title: string; body?: string; assignee?: string | null; parents?: string[]; board?: string; project: string }) => json<BoardTaskDetail>('/tasks', { method: 'POST', body: JSON.stringify(body) }),
   commentTask: (ref: string, text: string) => json<BoardTaskDetail>(`/tasks/${encodeURIComponent(ref)}/comments`, { method: 'POST', body: JSON.stringify({ text }) }),
-  taskAction: (ref: string, body: { action: 'complete' | 'archive' | 'block' | 'unblock' | 'assign'; assignee?: string | null; reason?: string; summary?: string; pr?: string }) => json<BoardTaskDetail>(`/tasks/${encodeURIComponent(ref)}/actions`, { method: 'POST', body: JSON.stringify(body) }),
+  taskAction: (ref: string, body: { action: 'complete' | 'archive' | 'block' | 'unblock' | 'assign' | 'project'; assignee?: string | null; project?: string; reason?: string; summary?: string; pr?: string }) => json<BoardTaskDetail>(`/tasks/${encodeURIComponent(ref)}/actions`, { method: 'POST', body: JSON.stringify(body) }),
   projects: () => json<{ projects: Project[] }>('/projects'),
   updateProject: (id: string, body: Partial<Pick<Project, 'name' | 'missionId' | 'repo'>>) => json<Project>(`/projects/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
   deleteProject: (id: string) => json<{ deleted: true; projectId: string }>(`/projects/${encodeURIComponent(id)}`, { method: 'DELETE', body: '{}' }),
@@ -247,7 +247,7 @@ export interface BoardTaskDetail extends BoardTask {
   comments: BoardComment[];
   events: BoardEvent[];
 }
-export interface Project { id: string; name: string; missionId?: string | null; repo?: string | null; createdAt: string; updatedAt: string }
+export interface Project { id: string; name: string; missionId?: string | null; repo?: string | null; general?: boolean; createdAt: string; updatedAt: string }
 export interface GitHubStatus { connected: boolean; app: { appId: number; slug: string; name: string; htmlUrl: string; owner: string | null } | null; installUrl: string | null; installations: { id: number; account: string; selection: string; repos: string[] }[]; error?: string | null }
 export interface PodSeat { id: string; from: string; description: string }
 export interface LearningItem { id: string; seat: string; from: string; kind: 'skill' | 'memory'; path: string; change: 'added' | 'modified'; text: string; decision: 'apply' | 'drop' | null }

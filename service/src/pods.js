@@ -118,6 +118,7 @@ export class Pods {
       await this.#hermes(['profile', 'describe', seat.id, '--text', `${seat.description || seat.from} (pod ${name})`.slice(0, 200)]);
     }
     await this.syncRoster(pod);
+    await this.board?.projects?.scopeBoard(pod.slug).catch(() => null);
     pod.baseline = await this.#python(SNAPSHOT_SCRIPT, { seats: members.map((seat) => seat.id) });
     await this.update((pods) => { pods.push(pod); });
     return pod;

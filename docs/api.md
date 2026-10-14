@@ -28,10 +28,10 @@ Tasks are Hermes kanban tasks on the CEO's board, run by the dispatcher inside t
 Statuses are the board's: `triage`, `todo`, `ready`, `running`, `blocked`, `review`, `done`, `archived`.
 
 - `GET /tasks` returns `{ tasks: [{ id, number, ref, title, body, status, assignee, createdBy, createdAt, startedAt, completedAt, lastError }] }`, newest first.
-- `POST /tasks` takes `{ title, body?, assignee?, parents? }` and returns the created task. `assignee` is a seat id; `parents` are tasks this one waits on.
+- `POST /tasks` takes `{ title, project, body?, assignee?, parents? }` and returns the created task. `project` is a Waypoint project id and is required; without it the request fails with `400`. When it is omitted but `parents` is set, the task inherits the first parent's project. `assignee` is a seat id; `parents` are tasks this one waits on.
 - `GET /tasks/:ref` adds `latestSummary`, `parents`, `children` (`{ id, ref, title, status, assignee }`), `comments` (`{ author, body, at }`), and `events` (`{ kind, at, runId, detail }`).
 - `POST /tasks/:ref/comments` takes `{ text }`. On a task in `review` it requests changes, which sends the task back to its seat. On a blocked task it adds the comment and unblocks it. Otherwise it adds a comment the seat sees on its next pass.
-- `POST /tasks/:ref/actions` takes `{ action }`: `complete` (optional `summary`), `archive` (also archives follow-ups still waiting on the task, so archiving never starts them), `block` (optional `reason`), `unblock`, or `assign` (`assignee`, or `null` to unassign).
+- `POST /tasks/:ref/actions` takes `{ action }`: `complete` (optional `summary`), `archive` (also archives follow-ups still waiting on the task, so archiving never starts them), `block` (optional `reason`), `unblock`, `assign` (`assignee`, or `null` to unassign), or `project` (`project`, a Waypoint project id) to move a task into a project. Moving only changes the task's project; a task that hasn't started yet and belongs to a project with a repo also gets its own worktree.
 
 Review is the user's approval gate. Waypoint sets the CEO's `kanban.review_dispatch` to `false`, so no agent picks up a task in `review`. Every seat gets a `waypoint-seat` skill, synced into its profile and added to its `skills.auto_load` whenever seats are listed, so every session starts with it. It tells the seat to own the handoff: create the step that should follow approval as a child task assigned to the best seat, then hand in with `kanban_request_review` and a plain-language summary: the outcome first, then "To test: ..." with steps the user can try in the app, and "On approval: ..." when something follows. The child stays in `todo` until its parent is done. For a peer check before the user sees it, the seat creates a review task for that peer, links its own task to wait on it, and blocks with kind `dependency`. That puts its task in `todo` (not the inbox) until the review is done, then the seat resumes with the review result and hands in.
 
@@ -172,7 +172,7 @@ Missions have a workflow `status`: `backlog`, `todo`, `in_progress`, `in_review`
 
 ## Projects
 
-`GET /projects` returns `{ "projects": [...] }` sorted by name. `POST /projects` takes `{ name, missionId?, repo? }` (name 1–80 characters, unique ignoring case; `missionId` must be a stored mission; `repo` is `owner/name` on GitHub) and returns the project with its `project_<uuid>` id. `GET`, `PATCH`, and `DELETE /projects/:id` read, update, and remove one project.
+`GET /projects` returns `{ "projects": [...] }` sorted by name. `POST /projects` takes `{ name, missionId?, repo? }` (name 1–80 characters, unique ignoring case; `missionId` must be a stored mission; `repo` is `owner/name` on GitHub) and returns the project with its `project_<uuid>` id. `GET`, `PATCH`, and `DELETE /projects/:id` read, update, and remove one project. A `General` project (`general: true`, no repo) always exists for work without a repository and can't be deleted.
 
 ## Error shape
 
@@ -195,7 +195,7 @@ Errors are structured and omit stack traces and secrets:
 
 ### Projects on the board
 
-A Waypoint project with a GitHub repo gets a matching Hermes project (slug `wp-<id>`). Waypoint clones the repo into the CEO container at `/opt/data/repos/<owner>/<name>` and runs `hermes project create`. It does this when the project is created or its repo changes, and for existing projects when the CEO starts. `POST /tasks` accepts `project` (a Waypoint project id) and creates the task with `--project <slug>`, so the seat works in its own git worktree and branch of that repo. Tasks report `projectId` (the Waypoint project). The CEO's `list_projects` bridge tool returns `hermesProject` so it can pass `project` to `kanban_create`.
+Every Waypoint project gets a matching Hermes project (slug `wp-<id>`). For a project with a GitHub repo, Waypoint clones the repo into the CEO container at `/opt/data/repos/<owner>/<name>` and makes it the project's folder; a project without a repo has no folder. It does this when the project is created or its repo changes, and for existing projects when the CEO starts. The Hermes projects are copied into every seat's profile so seats can name them too. `POST /tasks` creates the task with `--project <slug>`, so in a project with a repo the seat works in its own git worktree and branch of that repo. The main board and every pod board are bound to the General project, so a task created directly in Hermes without a project (by the CEO or a seat) still lands in General rather than nowhere, and `kanban_create` from a seat inherits the seat's own task's project. Tasks made before this rule show as Unassigned in the app until they are moved into a project. Tasks report `projectId` (the Waypoint project). The CEO's `list_projects` bridge tool returns `hermesProject` so it can pass `project` to `kanban_create`.
 
 ### Developer mode
 

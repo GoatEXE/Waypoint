@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { api, type BoardTask, type OrgSeat } from '../api';
+import { api, type BoardTask, type OrgSeat, type Project } from '../api';
 import { taskLabel } from '../taskQueueModel';
 import { useStore } from '../store';
 
@@ -27,6 +27,16 @@ export function AssigneeSelect({ value, seats, disabled, onChange }: { value: st
     <select className="input" value={value} disabled={disabled} onChange={e => onChange(e.target.value)}>
       <option value="">Unassigned</option>
       {seats.map(seat => <option key={seat.id} value={seat.id} title={seat.description || undefined}>{seat.id}</option>)}
+    </select>
+  );
+}
+
+export function ProjectSelect({ value, projects, placeholder, disabled, onChange }: { value: string; projects: Project[]; placeholder: string; disabled?: boolean; onChange: (value: string) => void }) {
+  const ordered = [...projects].sort((a, b) => Number(!!b.general) - Number(!!a.general));
+  return (
+    <select className="input" value={value} disabled={disabled} onChange={e => onChange(e.target.value)}>
+      {!value && <option value="">{placeholder}</option>}
+      {ordered.map(p => <option key={p.id} value={p.id}>{p.repo ? `${p.name} · ${p.repo}` : p.general ? `${p.name} · no repository` : p.name}</option>)}
     </select>
   );
 }
