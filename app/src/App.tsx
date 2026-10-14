@@ -22,9 +22,10 @@ import { PodDialog } from './components/PodDialog';
 import { PodView } from './views/PodView';
 import { SeatView } from './views/SeatView';
 import { HelpView } from './views/HelpView';
+import { ProfileView } from './views/ProfileView';
 import { OrgChartView } from './views/OrgChartView';
 import { GitHubCallbackView } from './views/GitHubCallbackView';
-import { OrgSetupView } from './views/OrgSetupView';
+import { OrgSetupView, UserSetupView } from './views/OrgSetupView';
 
 function View() {
   const r = parseRoute(useLocation().pathname);
@@ -44,6 +45,7 @@ function View() {
     case 'connectors': return <ConnectorsView />;
     case 'settings': return <SettingsView />;
     case 'help': return <HelpView />;
+    case 'profile': return <ProfileView />;
     default: return (
       <div className="page" style={{ maxWidth: 920, gap: 12 }}>
         <div className="eyebrow">NOT FOUND</div>
@@ -60,8 +62,9 @@ export function App() {
 
   useEffect(() => { mainRef.current?.scrollTo(0, 0); }, [pathname]);
 
-  if (!state.org.loaded) return null;
+  if (!state.org.loaded || !state.user.loaded) return null;
   if (!state.org.configured && !state.org.error) return <OrgSetupView />;
+  if (!state.user.configured && !state.user.error && !state.org.error) return <UserSetupView />;
 
   return (
     <div className="app">

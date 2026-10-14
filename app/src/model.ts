@@ -1,20 +1,20 @@
 import * as D from './data';
 import type { InboxItem, Project, ProjectId, Status, Task, TaskStatus, Seat, SeatStatus, TrailStep } from './data';
 
-export const ACC = 'oklch(0.72 0.14 252)';
+export const ACC = 'var(--acc)';
 
 export interface StatusStyle { l: string; bg: string; bd: string; c: string }
 const ST: Record<Status, StatusStyle> = {
-  done: { l: 'Done', bg: '#9a9ea6', bd: '#9a9ea6', c: '#8a8e97' },
-  running: { l: 'Running', bg: ACC, bd: ACC, c: '#c9ccd2' },
-  review: { l: 'In review', bg: 'transparent', bd: ACC, c: '#c9ccd2' },
-  blocked: { l: 'Blocked', bg: 'transparent', bd: '#e6e7ea', c: '#e6e7ea' },
-  queued: { l: 'Queued', bg: 'transparent', bd: '#4a4e56', c: '#6b6f78' },
-  decision: { l: 'Needs decision', bg: 'transparent', bd: ACC, c: 'oklch(0.8 0.12 252)' },
-  passed: { l: 'Passed', bg: ACC, bd: ACC, c: '#c9ccd2' },
-  failed: { l: 'Failed', bg: 'transparent', bd: '#e6e7ea', c: '#e6e7ea' },
-  superseded: { l: 'Superseded', bg: 'transparent', bd: '#4a4e56', c: '#6b6f78' },
-  stopped: { l: 'Stopped', bg: 'transparent', bd: '#4a4e56', c: '#6b6f78' },
+  done: { l: 'Done', bg: 'var(--muted)', bd: 'var(--muted)', c: 'var(--muted)' },
+  running: { l: 'Running', bg: ACC, bd: ACC, c: 'var(--text-3)' },
+  review: { l: 'In review', bg: 'transparent', bd: ACC, c: 'var(--text-3)' },
+  blocked: { l: 'Blocked', bg: 'transparent', bd: 'var(--text)', c: 'var(--text)' },
+  queued: { l: 'Queued', bg: 'transparent', bd: 'var(--quiet)', c: 'var(--faint)' },
+  decision: { l: 'Needs decision', bg: 'transparent', bd: ACC, c: 'var(--acc-text)' },
+  passed: { l: 'Passed', bg: ACC, bd: ACC, c: 'var(--text-3)' },
+  failed: { l: 'Failed', bg: 'transparent', bd: 'var(--text)', c: 'var(--text)' },
+  superseded: { l: 'Superseded', bg: 'transparent', bd: 'var(--quiet)', c: 'var(--faint)' },
+  stopped: { l: 'Stopped', bg: 'transparent', bd: 'var(--quiet)', c: 'var(--faint)' },
 };
 export const st = (k: Status): StatusStyle => ST[k] ?? ST.queued;
 

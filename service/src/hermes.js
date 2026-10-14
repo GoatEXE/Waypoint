@@ -6,6 +6,7 @@ import { badRequest, conflict, lifecycleError, notFound, timeout as timeoutError
 import { ensureSharedAuthVolume, assertSharedAuthImage, sharedAuthMount } from './authVolume.js';
 import { guardDockerExecArgs, guardPrompt } from './hostDisconnectGuard.js';
 import { ONBOARDING_SKILL, ONBOARDING_SKILL_NAME } from './onboardingSkill.js';
+import { seedCeoUserProfile } from './user.js';
 import { activityDetail, applyStreamEvent, finalActivity, normalizeActivity, publicActivity, pushActivity, streamLineReader } from './activity.js';
 
 export const HERMES_IMAGE_DIGEST = 'nousresearch/hermes-agent@sha256:d4da4a40cd7a28aba983775d9fd31d94cbf153eeb0cb9e844d6d0f612b7c24db';
@@ -59,6 +60,7 @@ export class HermesRuntime {
     this.nativeAuthInflight = new Map();
     this.skillMutationLock = Promise.resolve();
     this.organization = null;
+    this.users = null;
     this.liveTurn = null;
   }
 
@@ -350,6 +352,14 @@ export class HermesRuntime {
   async prepareCeoHome() {
     await this.seedCeoHome();
     await this.ensureCeoSettings();
+    if (this.users) await seedCeoUserProfile(this, this.users, this.logger);
+  }
+
+  async seedUserProfile() {
+    if (!this.users) return null;
+    const inspected = await this.inspect({ allowMissing: true });
+    if (!inspected.exists || !inspected.state.running) return null;
+    return seedCeoUserProfile(this, this.users, this.logger);
   }
 
   async seedCeoHome() {

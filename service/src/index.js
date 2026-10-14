@@ -6,6 +6,8 @@ import { createLogger } from './logger.js';
 import { OrgStore } from './store.js';
 import { HermesRuntime } from './hermes.js';
 import { OrganizationStore } from './organization.js';
+import { UserStore } from './user.js';
+import { ProfileData } from './profileData.js';
 import { GitHubConnector } from './github.js';
 import { HermesPortal } from './hermesPortal.js';
 import { OrgSeats } from './orgSeats.js';
@@ -25,6 +27,9 @@ export async function createApp(env = process.env) {
   const organization = new OrganizationStore(config.dataDir);
   const hermes = new HermesRuntime(config, logger);
   hermes.organization = organization;
+  const users = new UserStore(config.dataDir);
+  hermes.users = users;
+  const profileData = new ProfileData({ hermes });
   const github = new GitHubConnector({ config });
   const portal = new HermesPortal({ config, hermes, logger });
   const orgSeats = new OrgSeats({ config, hermes });
@@ -42,7 +47,7 @@ export async function createApp(env = process.env) {
       .catch((error) => logger.warn('hermes_reconcile_skipped', { message: error.message }));
   }
 
-  const context = { config, store, organization, hermes, board, pods, github, portal, orgSeats, seatFeedback, projectSync, devMode, logger };
+  const context = { config, store, organization, users, profileData, hermes, board, pods, github, portal, orgSeats, seatFeedback, projectSync, devMode, logger };
   const server = http.createServer(createHandler(context));
   const bridgeServer = http.createServer(createBridgeHandler(context));
   return { ...context, server, bridgeServer };

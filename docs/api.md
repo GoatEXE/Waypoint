@@ -41,6 +41,19 @@ The inbox lists tasks in `review` (with the handoff summary and the follow-ups t
 
 Host-only control routes for the organization profile created during first-run setup. `GET` returns `{ "configured": false, "organization": null }` until one is saved; the app shows its setup flow in that state. `PUT` accepts any of `name` (1–80 characters), `key` (task prefix, 2–6 uppercase letters or digits starting with a letter), `ceoName` (1–40 characters), and `logo` (a base64 PNG, JPEG, WebP, or GIF data URL up to 256 KB, or `null` to remove it). Creating the organization requires `name`; `key` defaults to the first three letters of the name and `ceoName` to `CEO`. Omitted fields keep their saved values. A changed name or CEO name is written into the running CEO's bridge skill as its identity.
 
+## `GET /user` and `PUT /user`
+
+The person running Waypoint. `GET` returns `{ "configured": false, "user": null }` until saved; the app asks for a name before the workspace opens. `PUT` accepts `name` (1–60 characters, required the first time) and `about` (optional, up to 280 characters) and returns `{ configured, user: { name, about, seed, createdAt, updatedAt } }`. The first save is added to the CEO's `USER.md` through Hermes' own memory store (`tools.memory_tool.load_on_disk_store().apply_batch('user', ...)`), so its character limit and safety scan apply. `seed.state` is `pending` until the CEO is running, then `done`, or `failed` with Hermes' reason (for example a full `USER.md`). It is seeded once; later edits don't append again.
+
+
+## `GET /user/usage?tz=<minutes>`
+
+Per-day usage across the CEO and every seat, read-only from each Hermes `state.db` and every kanban board. `tz` is the browser's `getTimezoneOffset()` so days follow the user's calendar. Returns `{ available, days: [{ day, tasks, sessions, input, output, cacheRead, cacheWrite, cost, costSessions, costUnknown, agents }], agents, billing: { apiKey, subscription, providers }, unreadable }`. Cost is only counted for API-key routes; subscription sign-ins (`billing_mode = subscription_included`, Codex, Claude OAuth) never carry a cost. `available` is false while the CEO is stopped.
+
+## `GET /user/memory` and `PUT /user/memory`
+
+The CEO's USER.md as Hermes memory entries: `{ available, entries, used, limit, enabled }`. `PUT` takes `{ entries, base }`, where `base` is the list you loaded; it returns 409 if USER.md changed since, and 400 if the entries exceed Hermes' `user_char_limit` or fail its content scan. Writes go through Hermes' own memory store, so locking and the file format match the agent's.
+
 ## `GET /healthz`
 
 Returns service health and dependency-neutral process status.
