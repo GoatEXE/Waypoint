@@ -87,6 +87,17 @@ test('CEO threads list General first, then every board task as a thread by lates
     assert.deepEqual(body.threads.map((t) => [t.threadId, t.title, t.ref, t.messageCount]), [['general', 'General', null, 4], ['t_aaaaaaaa', 'Older task', 'SUN-1', 2], ['t_bbbbbbbb', 'Newer task', 'SUN-2', 0]]);
   } finally { await stop(app.server, app.bridgeServer); }
 });
+test('DELETE /hermes/ceo/threads/:id deletes a task thread', async () => {
+  const app = await start();
+  try {
+    const seen = [];
+    app.hermes.deleteCeoThread = async (id) => { seen.push(id); return { deleted: true, threadId: id }; };
+    const response = await fetch(`${app.base}/hermes/ceo/threads/t_aaaaaaaa`, { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: '{}' });
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { deleted: true, threadId: 't_aaaaaaaa' });
+    assert.deepEqual(seen, ['t_aaaaaaaa']);
+  } finally { await stop(app.server, app.bridgeServer); }
+});
 test('Hermes skill HTTP routes expose all skills, safe detail, and toggle errors', async () => {
   const app = await start();
   try {

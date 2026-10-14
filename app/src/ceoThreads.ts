@@ -24,13 +24,21 @@ export const paneTaskView = (value: unknown): 'thread' | 'ceo' => value === 'ceo
 
 export const isTaskThread = (threadId: string) => /^t_[0-9a-f]{6,32}$/.test(threadId);
 
-export const SWITCHER_LIMIT = 8;
-
-export function talkedTaskThreads(threads: CeoThread[], limit = SWITCHER_LIMIT) {
-  const talked = threads
+export function talkedTaskThreads(threads: CeoThread[]) {
+  return threads
     .filter(t => isTaskThread(t.threadId) && t.messageCount > 0)
     .sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
-  return { shown: talked.slice(0, limit), hidden: Math.max(0, talked.length - limit) };
+}
+
+export const paneCeoList = (value: unknown) => value === true;
+
+export function deleteThreadCopy(name: string, ceoName: string) {
+  return {
+    title: `Delete the ${name} thread?`,
+    body: `Your messages with ${ceoName} in this thread are removed from Waypoint and its Hermes session is archived. The task itself stays on the board.`,
+    cta: 'Delete thread',
+    busy: 'Deleting…',
+  };
 }
 
 export function visibleTaskThreads(tasks: CeoThread[], showAll: boolean) {

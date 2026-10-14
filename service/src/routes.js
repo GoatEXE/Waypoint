@@ -108,6 +108,8 @@ async function route(request, url, { config, store, organization, users, profile
   if (method === 'PUT' && match) return { body: await hermes.setSkillEnabled(decodeRouteParam(match[1]), await readBody(request)) };
   if (method === 'GET' && pathname === '/hermes/ceo/conversation') return { body: await hermes.ceoConversation(url.searchParams.get('threadId') || undefined) };
   if (method === 'GET' && pathname === '/hermes/ceo/threads') return { body: await ceoThreads(board, hermes) };
+  const ceoThreadMatch = pathname.match(/^\/hermes\/ceo\/threads\/([^/]+)$/);
+  if (method === 'DELETE' && ceoThreadMatch) return { body: await hermes.deleteCeoThread(decodeRouteParam(ceoThreadMatch[1])) };
   if (method === 'POST' && pathname === '/hermes/ceo/messages') {
     const body = await readBody(request);
     const threadId = body?.threadId || undefined;

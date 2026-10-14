@@ -634,3 +634,39 @@ test('CEO home seed installs the onboarding skill and lists it as a Waypoint ski
   const script = String(calls[0].args.at(-1));
   assert.ok(script.includes("os.path.join(home,'skills','waypoint-onboarding')"));
 });
+
+test('deleting a CEO task thread archives its Hermes session, clears the transcript, and starts the next chat fresh', async () => {
+  const next = new FakeChild();
+  const { hermes, calls, spawns, dir } = await conversationHermes([next]);
+  const threadId = 't_1a2b3c4d';
+  await hermes.writeCeoConversation({ sessionId: 'sess_task1', messages: [{ role: 'user', text: 'Hi', at: '2026-10-08T00:00:00.000Z', status: 'sent' }] }, threadId);
+  await assert.rejects(hermes.deleteCeoThread('general'), /General/);
+  await assert.rejects(hermes.deleteCeoThread('../etc'), /threadId/);
+  assert.deepEqual(await hermes.deleteCeoThread(threadId), { deleted: true, threadId });
+  const sessionCalls = calls.filter((c) => c.args.includes('sessions')).map((c) => c.args.slice(c.args.indexOf('sessions') + 1));
+  assert.equal(sessionCalls[0][0], 'rename');
+  assert.equal(sessionCalls[0][1], 'sess_task1');
+  assert.match(sessionCalls[0][2], /^waypoint-ceo-t_1a2b3c4d-deleted-/);
+  assert.deepEqual(sessionCalls[1], ['archive', '--title', sessionCalls[0][2], '--yes']);
+  await assert.rejects(fs.access(path.join(dir, 'ceo-threads', `${threadId}.json`)));
+  assert.deepEqual((await hermes.listCeoThreads()).threads.map((t) => t.threadId), ['general']);
+  const turn = hermes.sendCeoMessage({ message: 'Again.', threadId });
+  await waitFor(() => spawns.length === 1);
+  const name = spawns[0][spawns[0].indexOf('--continue') + 1];
+  assert.notEqual(name, `waypoint-ceo-${threadId}`);
+  assert.match(name, /^waypoint-ceo-t_1a2b3c4d-\d{14}-/);
+  next.stdout.emit('data', '{"type":"result","session_id":"sess_task2","text":"Fresh."}\n');
+  next.emit('close', 0);
+  await turn;
+});
+
+test('deleting a CEO thread is refused while a turn is running', async () => {
+  const child = new FakeChild();
+  const { hermes, spawns } = await conversationHermes([child]);
+  const turn = hermes.sendCeoMessage({ message: 'Busy.', threadId: 't_1a2b3c4d' });
+  await waitFor(() => spawns.length === 1);
+  await assert.rejects(hermes.deleteCeoThread('t_1a2b3c4d'), /working/);
+  child.stdout.emit('data', '{"type":"result","session_id":"sess_x","text":"Done."}\n');
+  child.emit('close', 0);
+  await turn;
+});
