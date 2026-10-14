@@ -4,6 +4,8 @@ import { api, pendingLearning, type BoardTask, type BoardTaskDetail } from '../a
 import { ConfirmPanel } from '../components/ConfirmPanel';
 import { TaskRefText } from '../components/TaskRefText';
 import { PullRequestPreview } from '../components/PullRequestPreview';
+import { PrPicker } from '../components/PrPicker';
+import { needsPrLink, prNeededFrom, type PrNeeded } from '../prLinkModel';
 import { confirmCopy, inboxPrimary } from '../taskActionsModel';
 import { needsYou, taskLabel } from '../taskQueueModel';
 import { WorkspaceHead } from '../components/ui';
@@ -17,12 +19,19 @@ function InboxItem({ task, onDone }: { task: BoardTask; onDone: () => Promise<vo
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [confirming, setConfirming] = useState(false);
+  const [prNeeded, setPrNeeded] = useState<PrNeeded | null>(null);
   const ref = taskLabel(task);
   const act = async (action: () => Promise<unknown>) => {
     setBusy(true); setError('');
-    try { await action(); await onDone(); }
-    catch (cause) { setError(errorText(cause)); setBusy(false); }
+    try { await action(); setPrNeeded(null); await onDone(); }
+    catch (cause) {
+      const need = prNeededFrom(cause);
+      if (need) setPrNeeded(need);
+      else setError(errorText(cause));
+      setBusy(false);
+    }
   };
+  const approve = (pr?: string) => act(() => api.taskAction(ref, { action: 'complete', summary: 'Approved by the user.', ...(pr ? { pr } : {}) }));
   const seat = task.assignee || 'the seat';
   const review = task.status === 'review';
   const [detail, setDetail] = useState<BoardTaskDetail | null>(null);
@@ -39,6 +48,7 @@ function InboxItem({ task, onDone }: { task: BoardTask; onDone: () => Promise<vo
       </div>
       {handoff && <div className="inbox-handoff"><TaskRefText text={handoff} /></div>}
       {review && detail?.pullRequest && <PullRequestPreview url={detail.pullRequest} />}
+      {detail && needsPrLink(detail) && !prNeeded && <div role="status" style={{ fontSize: 12.5, color: 'var(--muted)' }}>{seat} hasn't linked a pull request for {detail.prRepo}. Approving will ask you to pick or paste it.</div>}
       {review && next.length > 0 && (
         <div className="stack" style={{ gap: 4, fontSize: 12.5 }}>
           <span style={{ color: 'var(--faint)' }}>On approval</span>
@@ -47,7 +57,9 @@ function InboxItem({ task, onDone }: { task: BoardTask; onDone: () => Promise<vo
           ))}
         </div>
       )}
-      {writing ? (
+      {prNeeded ? (
+        <PrPicker need={prNeeded} busy={busy} onCancel={() => setPrNeeded(null)} onApprove={pr => void approve(pr)} />
+      ) : writing ? (
         <div className="stack" style={{ gap: 8 }}>
           <textarea className="input" rows={3} autoFocus value={text} maxLength={2000} disabled={busy} placeholder={review ? `What should ${seat} change?` : `Answer ${seat}`} onChange={e => setText(e.target.value)} />
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
@@ -61,7 +73,7 @@ function InboxItem({ task, onDone }: { task: BoardTask; onDone: () => Promise<vo
       ) : inboxPrimary(task.status) === 'approve' ? (
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
           <button className="btn btn-ghost sm" disabled={busy} onClick={() => setWriting(true)}>Request changes</button>
-          <button className="btn btn-primary sm" disabled={busy} onClick={() => void act(() => api.taskAction(ref, { action: 'complete', summary: 'Approved by the user.' }))}>Approve</button>
+          <button className="btn btn-primary sm" disabled={busy} onClick={() => void approve()}>Approve</button>
         </div>
       ) : (
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>

@@ -17,7 +17,8 @@ Review is the user's approval gate, and you own the handoff into it.
 2. Hand your task in with kanban_request_review. The summary is what the user reads, so write it for a person, not a log:
    - Lead with the answer or outcome in one or two plain sentences. Use a short list only for several separate findings. Leave out commit hashes, file counts, and process details unless the user asked for them.
    - "To test:" gives steps the user can do themselves, in the app or on GitHub (for example "Archive any task; it should ask first."). Give shell commands only when there is no other way to check. If there is nothing to try, leave this out.
-   - "On approval:" says what happens next and who does it. Leave it out when nothing follows. If your work is a pull request, also pass metadata {"published_pr": "<full PR URL>"} so approval can verify it.
+   - "On approval:" says what happens next and who does it. Leave it out when nothing follows.
+   - If the task has a repository completion contract (kanban_show lists completion_contract as OWNER/REPO or a PR URL), open the pull request first and pass metadata {"published_pr": "<full PR URL>"} on kanban_request_review. Approval verifies that exact PR, so a hand-in without it is sent back to you.
 
 If a peer should check your work before the user sees it, create a review task for that seat with kanban_create, make your task wait on it with kanban_link (the review task is the parent), and end your run with kanban_block using kind "dependency". Your task resumes when the review is done, with the reviewer's result in your context; address it, then hand in as above.
 

@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { badRequest, lifecycleError, notFound, runtimeFailure } from './errors.js';
+import { AppError, badRequest, lifecycleError, notFound, runtimeFailure } from './errors.js';
 import { activityDetail } from './activity.js';
 
 const TASK_ID_RE = /^t_[0-9a-f]{6,32}$/;
@@ -34,16 +34,53 @@ export function taskPullRequest(detail) {
   return urls[0] || null;
 }
 
+export function prContract(task) {
+  const contract = task?.completion_contract;
+  return typeof contract === 'string' && contract && contract !== 'local-only' ? contract : null;
+}
+
+export function contractRepo(contract) {
+  if (!contract) return null;
+  const match = contract.match(/^https:\/\/github\.com\/([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)\/pull\/[1-9][0-9]*$/);
+  return match ? match[1] : contract;
+}
+
+export function matchesContract(url, contract) {
+  if (typeof url !== 'string' || !contract) return false;
+  if (url === contract) return true;
+  const repo = contractRepo(contract);
+  return repo !== contract ? false : new RegExp(`^https://github\\.com/${repo.replace(/[.]/g, '\\.')}/pull/[1-9][0-9]*$`, 'i').test(url);
+}
+
 export function publishedPr(detail) {
-  const contract = detail?.task?.completion_contract;
-  if (typeof contract !== 'string' || !contract || contract === 'local-only') return null;
+  const contract = prContract(detail?.task);
+  if (!contract) return null;
   const handoffs = [...(detail.events || [])].reverse().map((event) => event.payload || {});
   const candidates = [
     ...handoffs.map((payload) => payload.metadata?.published_pr).filter((url) => typeof url === 'string'),
     ...[detail.latest_summary, ...handoffs.map((payload) => payload.summary)].flatMap((value) => (typeof value === 'string' ? value.match(PR_URL_RE) || [] : [])),
   ];
-  return candidates.find((url) => url === contract || url.toLowerCase().startsWith(`https://github.com/${contract.toLowerCase()}/pull/`)) || null;
+  return candidates.find((url) => matchesContract(url, contract)) || null;
 }
+
+export function prCandidates(detail) {
+  const contract = prContract(detail?.task);
+  if (!contract) return [];
+  const texts = [detail.latest_summary, ...(detail.events || []).map((event) => event.payload?.summary), ...(detail.comments || []).map((comment) => comment.body), detail.task?.body];
+  const urls = texts.flatMap((value) => (typeof value === 'string' ? value.match(PR_URL_RE) || [] : []));
+  return [...new Set(urls.filter((url) => matchesContract(url, contract)))];
+}
+
+export const PR_BOUNCE_NOTE = 'Waypoint: this task is tied to a GitHub repository, so approval needs its pull request. Hand in again with kanban_request_review and metadata {"published_pr": "<full PR URL>"}. If you have not opened the PR yet, open it first. If this work has no PR, say so in your summary and hand in again; the user will decide.';
+
+export const PR_BOUNCE_AUTHOR = 'waypoint';
+
+export function needsPrBounce(detail) {
+  if (detail?.task?.status !== 'review' || !prContract(detail.task) || publishedPr(detail)) return false;
+  return !(detail.comments || []).some((comment) => comment.author === PR_BOUNCE_AUTHOR && comment.body === PR_BOUNCE_NOTE);
+}
+
+const prMissing = (message, details) => new AppError(409, 'pr_missing', message, details);
 
 export function boardSlug(value) {
   const result = String(value || '').trim();
@@ -202,11 +239,54 @@ export class KanbanBoard {
     const prefix = await this.prefix();
     const tasks = [];
     for (const slug of slugs) {
-      const rows = await this.run(['list'], { board: slug });
+      let rows = await this.run(['list'], { board: slug });
+      if (await this.bounceUnlinkedReviews(rows, slug)) rows = await this.run(['list'], { board: slug });
       const numbers = await this.numberAll(rows.map((task) => task.id).sort(), slug);
       tasks.push(...rows.map((task) => this.summary(task, numbers, prefix, slug, projects)));
     }
     return { tasks: tasks.sort((a, b) => (b.number || 0) - (a.number || 0)) };
+  }
+
+  async bounceUnlinkedReviews(rows, board) {
+    this.prChecked ||= new Set();
+    let bounced = false;
+    for (const row of rows) {
+      if (row.status !== 'review') this.prChecked.delete(row.id);
+      if (row.status !== 'review' || !prContract(row) || this.prChecked.has(row.id)) continue;
+      try {
+        const detail = await this.run(['show', row.id], { board });
+        if (needsPrBounce(detail) && !(await this.foundPr(detail)).pr) {
+          await this.run(['comment', '--author', PR_BOUNCE_AUTHOR, row.id, PR_BOUNCE_NOTE], { json: false, board });
+          await this.run(['reopen-review', row.id], { json: false, board });
+          bounced = true;
+        }
+        else this.prChecked.add(row.id);
+      } catch { this.prChecked.add(row.id); }
+    }
+    return bounced;
+  }
+
+  async branchPullRequests(detail) {
+    const repo = contractRepo(prContract(detail?.task));
+    const branch = detail?.task?.branch_name;
+    if (!this.github || !repo || !branch) return [];
+    try {
+      const { token } = await this.github.repoToken(repo);
+      const result = await this.github.request(`/repos/${repo}/pulls?state=all&per_page=10&head=${encodeURIComponent(`${repo.split('/')[0]}:${branch}`)}`, { token });
+      return result.ok && Array.isArray(result.body) ? result.body.map((pr) => pr.html_url).filter((url) => matchesContract(url, prContract(detail.task))) : [];
+    } catch { return []; }
+  }
+
+  async prChoices(detail) {
+    return [...new Set([...prCandidates(detail), ...await this.branchPullRequests(detail)])].slice(0, 10);
+  }
+
+  async foundPr(detail) {
+    if (!prContract(detail?.task)) return { pr: null, candidates: [] };
+    const linked = publishedPr(detail);
+    if (linked) return { pr: linked, candidates: [linked] };
+    const candidates = await this.prChoices(detail);
+    return { pr: candidates.length === 1 ? candidates[0] : null, candidates };
   }
 
   async show(ref) {
@@ -214,6 +294,7 @@ export class KanbanBoard {
     const [detail, rows, runs] = await Promise.all([this.run(['show', id], { board }), this.run(['list'], { board }), this.run(['runs', id], { board }).catch(() => [])]);
     const numbers = await this.numberAll([id, ...(detail.parents || []), ...(detail.children || [])], board);
     const prefix = await this.prefix();
+    const found = await this.foundPr(detail);
     const byId = new Map(rows.map((task) => [task.id, task]));
     const link = (taskId) => {
       const task = byId.get(taskId);
@@ -222,7 +303,9 @@ export class KanbanBoard {
     return {
       ...this.summary(detail.task, numbers, prefix, board, await this.projectMap()),
       latestSummary: detail.latest_summary || '',
-      pullRequest: taskPullRequest(detail),
+      pullRequest: found.pr || taskPullRequest(detail),
+      prRepo: contractRepo(prContract(detail.task)),
+      prLinked: found.pr,
       runs: (Array.isArray(runs) ? runs : []).map((run) => ({ id: run.id, profile: run.profile || null, status: run.status || null, outcome: run.outcome || null, startedAt: toIso(run.started_at), endedAt: toIso(run.ended_at), summary: run.summary || '' })),
       parents: (detail.parents || []).map(link),
       children: (detail.children || []).map(link),
@@ -296,12 +379,18 @@ export class KanbanBoard {
     const action = String(input.action || '');
     if (action === 'complete') {
       const detail = await this.run(['show', id], { board });
-      const pr = publishedPr(detail);
+      const contract = prContract(detail.task);
+      const chosen = typeof input.pr === 'string' ? input.pr.trim() : '';
+      if (chosen && !matchesContract(chosen, contract)) throw badRequest(contract ? `pr must be a pull request URL in ${contractRepo(contract)}` : 'this task does not need a pull request');
+      const found = chosen ? { pr: chosen, candidates: [] } : await this.foundPr(detail);
+      const pr = found.pr;
+      if (contract && !pr) throw prMissing(`${detail.task.assignee || 'The seat'} didn't link a pull request. Pick or paste the PR for ${contractRepo(contract)} to approve.`, { repo: contractRepo(contract), candidates: found.candidates });
       const args = ['complete', '--summary', text(input.summary, 'summary', 500, { required: false }) || 'Marked done by the user.'];
       if (pr) args.push('--metadata', JSON.stringify({ published_pr: pr }));
       try { await this.run([...args, id], on); }
       catch (error) {
         const reason = (await this.run(['show', id], { board }).catch(() => null))?.task?.last_failure_error;
+        if (contract && /published_pr/i.test(String(reason || ''))) throw prMissing(`GitHub doesn't accept ${pr} for this task. Pick or paste the PR for ${contractRepo(contract)}.`, { repo: contractRepo(contract), candidates: await this.prChoices(detail) });
         throw reason ? lifecycleError(`Hermes did not complete the task: ${String(reason).slice(0, 300)}`) : error;
       }
     }

@@ -41,6 +41,7 @@ export async function createApp(env = process.env) {
   const devMode = new DevMode({ config, logger });
   board.projects = projectSync;
   board.store = store;
+  board.github = github;
   if (config.hermes.autoStart) {
     void hermes.reconcileStartup()
       .then((result) => { logger.info('hermes_reconciled', { action: result.action, executed: result.executed, state: result.status?.state, running: result.status?.running }); if (result.status?.running) void projectSync.syncAll(); })
