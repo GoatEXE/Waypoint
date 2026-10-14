@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { BoardTask } from '../src/api.ts';
-import { filterByStatus, groupTasks, needsYou, toggleStatusFilter } from '../src/taskQueueModel.ts';
+import { filterByStatus, groupTasks, needsYou, projectName, toggleStatusFilter } from '../src/taskQueueModel.ts';
 
 function task(number: number, fields: Partial<BoardTask> = {}): BoardTask {
   return { id: `t_${number}`, number, ref: `ORT-${number}`, title: `Task ${number}`, body: '', status: 'todo', assignee: null, createdBy: null, createdAt: null, startedAt: null, completedAt: null, lastError: null, ...fields };
@@ -25,4 +25,12 @@ test('status filter hides archived by default and collapses to all when every st
 test('needsYou lists review and blocked tasks only', () => {
   const tasks = [task(1, { status: 'review' }), task(2, { status: 'running' }), task(3, { status: 'blocked' })];
   assert.deepEqual(needsYou(tasks).map(t => t.ref), ['ORT-1', 'ORT-3']);
+});
+
+test('tasks group by project and old project-less tasks show as Unassigned', () => {
+  const projects = [{ id: 'project_site', name: 'Site' }, { id: 'project_general', name: 'General' }];
+  const tasks = [task(1), task(2, { projectId: 'project_site' }), task(3, { projectId: 'project_general' }), task(4, { projectId: 'project_gone' })];
+  assert.deepEqual(groupTasks(tasks, 'project', projects).map(g => [g.label, g.tasks.map(t => t.ref)]), [['General', ['ORT-3']], ['Site', ['ORT-2']], ['Unassigned', ['ORT-1', 'ORT-4']]]);
+  assert.equal(projectName(tasks[1], projects), 'Site');
+  assert.equal(projectName(tasks[0], projects), null);
 });

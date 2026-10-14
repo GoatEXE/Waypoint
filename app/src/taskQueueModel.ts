@@ -1,4 +1,4 @@
-import type { BoardStatus, BoardTask } from './api';
+import type { BoardStatus, BoardTask, Project } from './api';
 
 export const STATUSES: { id: BoardStatus; label: string }[] = [
   { id: 'triage', label: 'Triage' },
@@ -11,11 +11,18 @@ export const STATUSES: { id: BoardStatus; label: string }[] = [
   { id: 'archived', label: 'Archived' },
 ];
 
-export type GroupBy = 'status' | 'assignee';
+export type GroupBy = 'status' | 'assignee' | 'project';
 export const GROUP_BY: { id: GroupBy; label: string }[] = [
   { id: 'status', label: 'Status' },
   { id: 'assignee', label: 'Assignee' },
+  { id: 'project', label: 'Project' },
 ];
+
+export const NO_PROJECT = 'Unassigned';
+
+export function projectName(task: Pick<BoardTask, 'projectId'>, projects: Pick<Project, 'id' | 'name'>[]): string | null {
+  return projects.find(p => p.id === task.projectId)?.name || null;
+}
 
 export interface TaskGroup { key: string; label: string; tasks: BoardTask[] }
 
@@ -49,13 +56,14 @@ export function filterByStatus(tasks: BoardTask[], filter: BoardStatus[]): Board
   return filter.length ? tasks.filter(t => filter.includes(t.status)) : tasks.filter(t => t.status !== 'archived');
 }
 
-export function groupTasks(tasks: BoardTask[], by: GroupBy): TaskGroup[] {
+export function groupTasks(tasks: BoardTask[], by: GroupBy, projects: Pick<Project, 'id' | 'name'>[] = []): TaskGroup[] {
   const sorted = [...tasks].sort(byNumber);
   if (by === 'status') return STATUSES.map(s => ({ key: s.id, label: s.label, tasks: sorted.filter(t => t.status === s.id) })).filter(g => g.tasks.length);
   const groups = new Map<string, TaskGroup>();
   for (const task of sorted) {
-    const key = task.assignee || '';
-    if (!groups.has(key)) groups.set(key, { key, label: task.assignee || 'Unassigned', tasks: [] });
+    const name = by === 'project' ? projectName(task, projects) : task.assignee;
+    const key = name ? (by === 'project' ? task.projectId! : name) : '';
+    if (!groups.has(key)) groups.set(key, { key, label: name || (by === 'project' ? NO_PROJECT : 'Unassigned'), tasks: [] });
     groups.get(key)!.tasks.push(task);
   }
   return [...groups.values()].sort((a, b) => Number(!a.key) - Number(!b.key) || a.label.localeCompare(b.label));

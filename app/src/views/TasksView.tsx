@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, type BoardStatus, type BoardTask, type OrgSeat } from '../api';
 import { WorkspaceHead } from '../components/ui';
-import { TaskFields, emptyDraft, useQueueData, type TaskDraft } from '../components/TaskFields';
-import { GROUP_BY, STATUSES, filterByStatus, groupTasks, savedStatusFilter, statusLabel, taskLabel, toggleStatusFilter, type GroupBy } from '../taskQueueModel';
+import { ProjectSelect, TaskFields, emptyDraft, useQueueData, type TaskDraft } from '../components/TaskFields';
+import { GROUP_BY, STATUSES, filterByStatus, groupTasks, projectName, savedStatusFilter, statusLabel, taskLabel, toggleStatusFilter, type GroupBy } from '../taskQueueModel';
 import { useStore } from '../store';
 import { errorText } from '../runtimeHealth';
 
@@ -18,10 +18,11 @@ function loadPrefs(): ViewPrefs {
   } catch { return { layout: 'list', groupBy: 'status', statuses: [] }; }
 }
 
-function TaskMeta({ task }: { task: BoardTask }) {
+function TaskMeta({ task, project }: { task: BoardTask; project?: string | null }) {
   return (
     <span className="task-meta">
       {task.board !== 'default' && <span className="task-pill mono">{task.board.replace(/^pod-/, '')}</span>}
+      {project !== undefined && <span className={'task-pill' + (project ? '' : ' warn')} title={project ? 'Project' : 'Not in a project yet. Open the task to move it into one.'}>{project || 'No project'}</span>}
       {task.lastError && <span className="task-pill warn">error</span>}
       <span className="task-owner">{task.assignee || 'Unassigned'}</span>
     </span>
@@ -30,7 +31,7 @@ function TaskMeta({ task }: { task: BoardTask }) {
 
 export function TasksView() {
   const nav = useNavigate();
-  const { flash } = useStore();
+  const { state, flash } = useStore();
   const { tasks, seats, loading, error, reload } = useQueueData();
   const [prefs, setPrefs] = useState(loadPrefs);
   const [creating, setCreating] = useState(false);
@@ -71,7 +72,7 @@ export function TasksView() {
         <div className="empty">No tasks match this filter. <button type="button" className="btn sm btn-ghost" onClick={showAll}>Show all</button></div>
       )}
 
-      {prefs.layout === 'list' && groupTasks(shown, prefs.groupBy).map(group => (
+      {prefs.layout === 'list' && groupTasks(shown, prefs.groupBy, state.projects).map(group => (
         <section key={group.key || 'none'} className="stack" style={{ gap: 6 }}>
           <div className="task-group-head" data-status={prefs.groupBy === 'status' ? group.key : undefined}>{prefs.groupBy === 'status' && <span className="status-dot" />}<span>{group.label}</span><span className="task-count">{group.tasks.length}</span></div>
           <div className="task-list">
@@ -80,7 +81,7 @@ export function TasksView() {
                 <span className="task-ref">{taskLabel(task)}</span>
                 <span className="task-title">{task.title}</span>
                 {prefs.groupBy !== 'status' && <span className="task-pill status" data-status={task.status}>{statusLabel(task.status)}</span>}
-                <TaskMeta task={task} />
+                <TaskMeta task={task} project={prefs.groupBy === 'project' ? undefined : projectName(task, state.projects)} />
               </button>
             ))}
           </div>
@@ -98,7 +99,7 @@ export function TasksView() {
                   <div key={task.id} className="task-card" onClick={() => open(task)}>
                     <span className="task-ref">{taskLabel(task)}</span>
                     <span className="task-title">{task.title}</span>
-                    <TaskMeta task={task} />
+                    <TaskMeta task={task} project={projectName(task, state.projects)} />
                   </div>
                 ))}
               </div>
@@ -121,8 +122,10 @@ export function NewTaskDialog({ tasks, seats, board, initial, initialProject = '
 }) {
   const [draft, setDraft] = useState<TaskDraft>({ ...emptyDraft, ...initial });
   const { state } = useStore();
-  const repoProjects = state.projects.filter(p => p.repo);
   const [project, setProject] = useState(initialProject);
+  const chosen = state.projects.find(p => p.id === project);
+  const parentProject = tasks.find(t => t.id === draft.parents[0])?.projectId || '';
+  useEffect(() => { if (!project && parentProject) setProject(parentProject); }, [project, parentProject]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -133,9 +136,9 @@ export function NewTaskDialog({ tasks, seats, board, initial, initialProject = '
   }, [busy, onClose]);
 
   const submit = async () => {
-    if (!draft.title.trim() || busy) return;
+    if (!draft.title.trim() || !project || busy) return;
     setBusy(true); setError('');
-    try { onCreated(await api.createTask({ title: draft.title.trim(), body: draft.body.trim(), assignee: draft.assignee || null, parents: draft.parents, ...(board ? { board } : {}), ...(project ? { project } : {}) })); }
+    try { onCreated(await api.createTask({ title: draft.title.trim(), body: draft.body.trim(), assignee: draft.assignee || null, parents: draft.parents, project, ...(board ? { board } : {}) })); }
     catch (e) { setError(errorText(e)); setBusy(false); }
   };
 
@@ -148,17 +151,14 @@ export function NewTaskDialog({ tasks, seats, board, initial, initialProject = '
           <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Goes straight onto the board{board ? ` of pod ${board}` : ''}. If you assign a seat, it picks the task up once any parent tasks are done.</div>
         </div>
         <TaskFields draft={draft} onChange={setDraft} tasks={tasks} seats={seats} disabled={busy} />
-        {!board && <label className="field"><span className="field-label">Project</span>
-          <select className="input" value={project} disabled={busy} onChange={e => setProject(e.target.value)}>
-            <option value="">No project</option>
-            {repoProjects.map(p => <option key={p.id} value={p.id}>{p.name} · {p.repo}</option>)}
-          </select>
-          {project && <span className="field-hint">The seat works in its own branch of {repoProjects.find(p => p.id === project)?.repo}.</span>}
-        </label>}
+        <label className="field"><span className="field-label">Project</span>
+          <ProjectSelect value={project} projects={state.projects} placeholder="Pick a project…" disabled={busy} onChange={setProject} />
+          <span className="field-hint">{chosen?.repo ? `The seat works in its own branch of ${chosen.repo}.` : chosen ? 'No repository: the seat works in a scratch folder.' : 'Every task belongs to a project. Use General for work without a repository.'}</span>
+        </label>
         {error && <div role="alert" className="form-error">{error}</div>}
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
           <button type="button" className="btn btn-ghost" disabled={busy} onClick={onClose}>Cancel</button>
-          <button type="submit" className="btn btn-primary" disabled={busy || !draft.title.trim()}>{busy ? 'Adding…' : 'Add task'}</button>
+          <button type="submit" className="btn btn-primary" disabled={busy || !draft.title.trim() || !project}>{busy ? 'Adding…' : 'Add task'}</button>
         </div>
       </form>
     </div>

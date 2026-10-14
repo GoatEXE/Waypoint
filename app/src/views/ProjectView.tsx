@@ -87,8 +87,8 @@ export function ProjectView({ id }: { id: string }) {
         <div className="stack danger-zone" style={{ gap: 12 }}>
           <div className="section-title">Danger zone</div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 13, color: 'var(--muted)', flex: 1 }}>Deleting removes the project from Waypoint. The GitHub repository and its tasks stay.</span>
-            {confirmDelete
+            <span style={{ fontSize: 13, color: 'var(--muted)', flex: 1 }}>{project.general ? `${project.name} holds work without a repository, so it can't be deleted.` : 'Deleting removes the project from Waypoint. The GitHub repository and its tasks stay.'}</span>
+            {project.general ? null : confirmDelete
               ? <span style={{ display: 'flex', gap: 8 }}><button className="btn btn-ghost" disabled={deleting} onClick={() => setConfirmDelete(false)}>Cancel</button><button className="btn btn-primary" disabled={deleting} onClick={() => void remove()}>{deleting ? 'Deleting…' : `Delete ${project.name}`}</button></span>
               : <button className="btn btn-ghost danger" type="button" onClick={() => setConfirmDelete(true)}>Delete project</button>}
           </div>
@@ -117,7 +117,7 @@ export function ProjectView({ id }: { id: string }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <div className="section-title">Tasks</div>
           <StatusCounts tasks={tasks} />
-          <button className="btn btn-ghost sm" style={{ marginLeft: 'auto' }} disabled={!project.repo} title={project.repo ? undefined : 'Add a GitHub repository first'} onClick={() => setAdding(true)}>Add task</button>
+          <button className="btn btn-ghost sm" style={{ marginLeft: 'auto' }} onClick={() => setAdding(true)}>Add task</button>
         </div>
         <ProjectTaskList tasks={tasks} limit={50} />
       </section>

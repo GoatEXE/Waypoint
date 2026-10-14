@@ -24,6 +24,7 @@ export async function createApp(env = process.env) {
   const logger = createLogger({ serviceName: config.serviceName, level: config.logLevel });
   const store = new OrgStore(config.dataDir);
   await store.ensure();
+  await store.ensureGeneralProject();
   const organization = new OrganizationStore(config.dataDir);
   const hermes = new HermesRuntime(config, logger);
   hermes.organization = organization;

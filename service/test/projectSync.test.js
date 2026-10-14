@@ -38,7 +38,27 @@ test('a project with a repo is cloned and becomes a Hermes project once', async 
   await sync.ensure(PROJECT);
   assert.equal(calls.length, before);
   assert.deepEqual(await sync.byHermesId(), { p_abc123: PROJECT.id });
-  assert.equal(await sync.ensure({ ...PROJECT, repo: null }), null);
+  assert.equal(await sync.ensure(null), null);
+});
+
+test('a project without a repo still becomes a Hermes project, with no clone', async () => {
+  const { sync, calls } = await setup();
+  const general = { id: 'project_00000000-0000-4000-8000-000000000001', name: 'General', repo: null, general: true };
+  const entry = await sync.ensure(general);
+  assert.deepEqual(entry, { slug: 'wp-0000000000', hermesId: 'p_abc123', repo: null });
+  assert.ok(!calls.some((c) => c.join(' ').includes('gh repo clone')));
+  assert.ok(calls.some((c) => c.join(' ') === 'hermes project create General --slug wp-0000000000'));
+});
+
+test('boards are scoped to General so seats and the CEO never create project-less tasks', async () => {
+  const { sync, calls, store } = await setup();
+  const general = { id: 'project_00000000-0000-4000-8000-000000000001', name: 'General', repo: null, general: true };
+  store.ensureGeneralProject = async () => general;
+  await sync.scopeBoard('default');
+  const scope = calls.find((c) => c[0] === 'python3' && c.includes('default'));
+  assert.deepEqual(scope.slice(-2), ['default', 'p_abc123']);
+  assert.match(scope[2], /if not \(kb\.read_board_metadata/, 'an existing board project is left alone');
+  assert.ok(calls.some((c) => c[0] === 'python3' && c[2].includes("slug LIKE 'wp-%'")), 'projects are copied to every seat');
 });
 
 test('slugs and ids parse predictably', () => {

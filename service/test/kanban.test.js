@@ -5,6 +5,16 @@ import os from 'node:os';
 import path from 'node:path';
 import { KanbanBoard } from '../src/kanban.js';
 
+const GENERAL = { id: 'project_00000000-0000-4000-8000-000000000001', name: 'General', repo: null, general: true };
+const SITE = { id: 'project_00000000-0000-4000-8000-000000000002', name: 'Site', repo: 'acme/site' };
+
+function withProjects(kanban) {
+  const byId = { [GENERAL.id]: GENERAL, [SITE.id]: SITE };
+  kanban.store = { getProject: async (id) => { if (!byId[id]) throw Object.assign(new Error('project not found'), { status: 404 }); return byId[id]; } };
+  kanban.projects = { ensure: async (project) => ({ slug: project.general ? 'wp-general' : 'wp-site', hermesId: project.general ? 'p_general' : 'p_site' }), byHermesId: async () => ({ p_general: GENERAL.id, p_site: SITE.id }) };
+  return kanban;
+}
+
 async function board(statuses, children = {}) {
   const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'waypoint-kanban-'));
   const calls = [];
@@ -16,7 +26,7 @@ async function board(statuses, children = {}) {
     const [verb, ...rest] = kanban;
     if (verb === 'boards') return { code: 0, stdout: JSON.stringify([{ slug: 'default' }]) };
     if (verb === 'list') return { code: 0, stdout: JSON.stringify(Object.keys(statuses).map((id) => ({ id, title: id, status: statuses[id] }))) };
-    if (verb === 'show') return { code: 0, stdout: JSON.stringify({ task: { id: rest[0], title: rest[0], status: statuses[rest[0]] }, comments: [], events: [], parents: [], children: children[rest[0]] || [] }) };
+    if (verb === 'show') return { code: 0, stdout: JSON.stringify({ task: { id: rest[0], title: rest[0], status: statuses[rest[0]], project_id: rest[0] === 't_aaaaaaaa' ? 'p_site' : null }, comments: [], events: [], parents: [], children: children[rest[0]] || [] }) };
     if (verb === 'create') return { code: 0, stdout: JSON.stringify({ id: 't_cccccccc' }) };
     return { code: 0, stdout: '' };
   };
@@ -56,7 +66,8 @@ test('approving a task with a repo contract finds its PR in the handoff', async 
 
 test('a pod board task keeps its board for later reads and actions', async () => {
   const { kanban, calls } = await board({ t_cccccccc: 'review' });
-  const created = await kanban.create({ title: 'Draft the plan', assignee: 'web-builder', board: 'pod-web' });
+  withProjects(kanban);
+  const created = await kanban.create({ title: 'Draft the plan', assignee: 'web-builder', board: 'pod-web', project: GENERAL.id });
   assert.equal(created.board, 'pod-web');
   calls.length = 0;
   await kanban.act(created.ref, { action: 'unblock' });
@@ -179,4 +190,54 @@ test('a single PR opened from the task branch is linked automatically, with no b
   await kanban.act('SUN-1', { action: 'complete', summary: 'Approved by the user.' });
   const complete = calls.find((call) => call[0] === 'complete');
   assert.deepEqual(JSON.parse(complete[complete.indexOf('--metadata') + 1]), { published_pr: 'https://github.com/Acme/Site/pull/21' });
+});
+
+test('every new task needs a project; General covers work without a repository', async () => {
+  const { kanban, calls } = await board({});
+  withProjects(kanban);
+  await assert.rejects(kanban.create({ title: 'Loose end', assignee: 'dev' }), /Pick a project for this task\. Use General/);
+  assert.equal(calls.filter((c) => c[0] === 'create').length, 0, 'nothing reaches Hermes without a project');
+  await kanban.create({ title: 'Write the brief', assignee: 'dev', project: GENERAL.id });
+  await kanban.create({ title: 'Fix the footer', assignee: 'dev', project: SITE.id });
+  const creates = calls.filter((c) => c[0] === 'create');
+  assert.deepEqual(creates.map((c) => c[c.indexOf('--project') + 1]), ['wp-general', 'wp-site']);
+  await assert.rejects(kanban.create({ title: 'x', project: 'project_00000000-0000-4000-8000-00000000ffff' }), /not found/);
+});
+
+test('a project-less task can be moved into a project without losing anything', async () => {
+  const { kanban, calls } = await board({ t_aaaaaaaa: 'todo' });
+  withProjects(kanban);
+  const scripts = [];
+  kanban.hermes.execPython = async (script, input) => { scripts.push({ script, input: JSON.parse(input) }); return { stdout: '{"ok": true, "worktree": true}\n' }; };
+  await kanban.act('t_aaaaaaaa', { action: 'project', project: SITE.id });
+  assert.deepEqual(scripts.map((s) => s.input), [{ task: 't_aaaaaaaa', board: 'default', project: 'p_site' }]);
+  assert.match(scripts[0].script, /UPDATE tasks SET/);
+  assert.doesNotMatch(scripts[0].script, /DELETE/i, 'moving never deletes task data');
+  assert.equal(calls.filter((c) => ['archive', 'create'].includes(c[0])).length, 0);
+  await assert.rejects(kanban.act('t_aaaaaaaa', { action: 'project' }), /Pick a project/);
+  kanban.hermes.execPython = async () => ({ stdout: '{"error": "project_missing"}' });
+  await assert.rejects(kanban.act('t_aaaaaaaa', { action: 'project', project: GENERAL.id }), /does not know this project yet/);
+});
+
+test('the move script only gives a worktree to tasks that have not started', async () => {
+  const { spawnSync } = await import('node:child_process');
+  const source = await fs.readFile(new URL('../src/kanban.js', import.meta.url), 'utf8');
+  const script = source.match(/const MOVE_TASK_SCRIPT = `([\s\S]*?)`;/)[1];
+  assert.match(script, /task\.started_at is None and task\.workspace_kind == 'scratch'/);
+  const python = ['python3', 'python'].find((bin) => spawnSync(bin, ['-c', 'pass'], { stdio: 'ignore' }).status === 0);
+  if (python) assert.equal(spawnSync(python, ['-c', 'import ast,sys; ast.parse(sys.stdin.read())'], { input: script }).status, 0);
+});
+
+test('a follow-up task inherits the project of the task it waits on', async () => {
+  const { kanban, calls } = await board({ t_aaaaaaaa: 'review' });
+  withProjects(kanban);
+  await kanban.list();
+  await kanban.create({ title: 'Ship the fix', assignee: 'dev', parents: ['SUN-1'] });
+  const create = calls.find((c) => c[0] === 'create');
+  assert.equal(create[create.indexOf('--project') + 1], 'p_site');
+  assert.equal(create[create.indexOf('--parent') + 1], 't_aaaaaaaa');
+  calls.length = 0;
+  await kanban.create({ title: 'Docs instead', assignee: 'dev', parents: ['SUN-1'], project: GENERAL.id });
+  const picked = calls.find((c) => c[0] === 'create');
+  assert.equal(picked[picked.indexOf('--project') + 1], 'wp-general', 'an explicit project wins');
 });
