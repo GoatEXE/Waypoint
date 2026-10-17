@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { api, type AppConfig, type HermesStatus, type BoardTask, type Pod, type MissionInput, type OrganizationInput, type OrganizationState, type Project, type UserInput, type UserState } from './api';
+import { api, type AppConfig, type HermesStatus, type BoardTask, type Pod, type Mission, type MissionInput, type OrganizationInput, type OrganizationState, type Project, type UserInput, type UserState } from './api';
 import { createdBoardTask, ceoLiveUpdated, ceoLoadFailed, ceoLoadStarted, ceoLoadSucceeded, ceoSendFailed, ceoSendStarted, ceoSendSucceeded, cleanCeoMessage, emptyCeoState, type CeoState } from './ceoConversation';
 import type { LessonPick } from './data';
 import { liveTasks, type Resolved } from './model';
@@ -18,7 +18,8 @@ export interface AppState {
   picks: Record<string, LessonPick>;
   seat: string;
   podStopped: boolean;
-  missionOpen: boolean;
+  missionOpen: Record<string, boolean>;
+  missionsExpanded: boolean;
   ceo: CeoState;
   ceoThread: string;
   missions: MissionsState;
@@ -37,7 +38,12 @@ export interface AppState {
 }
 
 const STORAGE_KEY = 'waypoint-web';
-const PERSISTED = ['pane', 'missionOpen', 'ceoThread', 'dryRunDismissed'] as const;
+const PERSISTED = ['pane', 'missionOpen', 'missionsExpanded', 'ceoThread', 'dryRunDismissed'] as const;
+
+function cleanMissionOpen(saved: unknown): Record<string, boolean> {
+  if (!saved || typeof saved !== 'object' || Array.isArray(saved)) return {};
+  return Object.fromEntries(Object.entries(saved).filter(([, v]) => typeof v === 'boolean'));
+}
 
 function cleanPane(saved: Partial<AppState>): AppState['pane'] {
   const fallback: AppState['pane'] = { open: window.innerWidth >= 1280, tab: 'ceo', item: null, taskView: 'thread', ceoList: false };
@@ -51,7 +57,7 @@ function initialState(): AppState {
   try { saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'); } catch {   }
   return {
     pane: cleanPane(saved),
-    resolved: {}, picks: {}, seat: '', podStopped: false, missionOpen: Boolean(saved.missionOpen),
+    resolved: {}, picks: {}, seat: '', podStopped: false, missionOpen: cleanMissionOpen(saved.missionOpen), missionsExpanded: saved.missionsExpanded === true,
     ceo: emptyCeoState, ceoThread: typeof saved.ceoThread === 'string' && saved.ceoThread ? saved.ceoThread : 'general', missions: initialMissionsState, projects: [], pods: [], board: [], projectMission: null, org: { loaded: false, configured: false, organization: null }, user: { loaded: false, configured: false, user: null }, runtime: { status: null, error: null, checked: false, starting: false, startError: '' }, config: null, dryRunDismissed: saved.dryRunDismissed === true, modal: null, toast: null, theme: readTheme(window.localStorage),
   };
 }
@@ -160,8 +166,9 @@ function useAppStore() {
     },
 
     createMission: async (input: MissionInput) => {
+      let created: Mission;
       try {
-        await api.createMission(input);
+        created = await api.createMission(input);
       } catch (err) {
         return { ok: false, error: errorText(err) };
       }
@@ -171,7 +178,7 @@ function useAppStore() {
       } catch (err) {
         set(s => ({ missions: missionsLoadFailed(s.missions, errorText(err)) }));
       }
-      return { ok: true };
+      return { ok: true, id: created.id };
     },
     loadCeoConversation: async () => {
       const sendVersion = ceoSendVersionRef.current;

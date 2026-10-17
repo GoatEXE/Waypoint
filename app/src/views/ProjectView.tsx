@@ -7,6 +7,7 @@ import { errorText } from '../runtimeHealth';
 import { ProjectTaskList, StatusCounts } from '../components/ProjectTasks';
 import { projectTasks } from '../projectProgress';
 import { NewTaskDialog } from './TasksView';
+import { missionPath } from '../missionsModel';
 import type { OrgSeat } from '../api';
 
 function ProjectSettings({ project, github, onSaved, onCancel }: { project: Project; github: GitHubStatus | null; onSaved: () => void; onCancel: () => void }) {
@@ -75,7 +76,7 @@ export function ProjectView({ id }: { id: string }) {
   const tasks = projectTasks(state.board, [project.id]);
   const remove = async () => {
     setDeleting(true);
-    try { await api.deleteProject(project.id); await loadProjects(); flash(`Deleted ${project.name}`); nav('/'); }
+    try { await api.deleteProject(project.id); await loadProjects(); flash(`Deleted ${project.name}`); nav(mission ? missionPath(mission.id) : '/'); }
     catch (e) { flash(errorText(e)); setDeleting(false); }
   };
 
@@ -108,7 +109,7 @@ export function ProjectView({ id }: { id: string }) {
           </button>
         </div>
         <div style={{ fontSize: 12.5, color: 'var(--dim)' }}>
-          {mission ? <>Part of <span className="ul" onClick={() => nav('/')}>{mission.title}</span></> : 'Not attached to a mission'}
+          {mission ? <>Part of <span className="ul" onClick={() => nav(missionPath(mission.id))}>{mission.title}</span></> : 'Not attached to a mission'}
           {project.repo && <> · <a href={`https://github.com/${project.repo}`} target="_blank" rel="noreferrer" className="mono">{project.repo}</a></>}
         </div>
       </div>

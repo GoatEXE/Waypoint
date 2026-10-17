@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, type Mission, type MissionStatus } from '../api';
-import { currentMission, MISSION_STATUSES, missionStatusLabel, shortDate } from '../missionsModel';
+import { missionFor, MISSION_STATUSES, missionStatusLabel, shortDate } from '../missionsModel';
 import { useStore } from '../store';
 import { needsYou, taskLabel } from '../taskQueueModel';
 import { errorText } from '../runtimeHealth';
@@ -79,8 +79,8 @@ function MissionEditor({ mission, onDone }: { mission: Mission; onDone: () => vo
   );
 }
 
-export function MissionView() {
-  const { state, openModal, loadMissions } = useStore();
+export function MissionView({ id }: { id?: string }) {
+  const { state, openModal, loadMissions, flash } = useStore();
   const nav = useNavigate();
   const [confirmDelete, setConfirmDelete] = useState<Mission | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -91,7 +91,7 @@ export function MissionView() {
   const waiting = needsYou(state.board);
   const needs = waiting.slice(0, 3);
   const { missions } = state;
-  const mission = currentMission(missions);
+  const mission = missionFor(missions, id);
 
   async function deleteSelectedMission() {
     if (!confirmDelete || deleting) return;
@@ -99,9 +99,10 @@ export function MissionView() {
     setDeleteError('');
     try {
       await api.deleteMission(confirmDelete.id);
-      setDeleted(true);
       setConfirmDelete(null);
       await loadMissions();
+      if (id) { flash('Mission deleted. Its tasks remain on the board.'); nav('/'); return; }
+      setDeleted(true);
     } catch (error) {
       setDeleteError(errorText(error));
     } finally {
@@ -143,6 +144,19 @@ export function MissionView() {
         <p className="mission-lede" role="alert">The Waypoint service did not answer: {missions.error}</p>
         <div style={{ display: 'flex', gap: 10 }}>
           <button className="btn lg btn-primary" onClick={() => void loadMissions()}>Try again</button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!mission && id && missions.missions.length) {
+    return (
+      <div className="page" style={{ maxWidth: 920, paddingTop: 48, gap: 14 }}>
+        <div className="eyebrow">MISSION</div>
+        <h1 className="mission-h1">Mission not found</h1>
+        <p className="mission-lede">This mission may have been deleted. Pick another one from the sidebar.</p>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button className="btn lg btn-primary" onClick={() => nav('/')}>Open first mission</button>
         </div>
       </div>
     );
