@@ -259,9 +259,29 @@ export class OrgStore {
       const id = name.replace(/\.json$/, '');
       if (name.endsWith('.json') && STORED_ID_RE.mission.test(id)) missions.push(await this.getMission(id));
     }
-    return missions.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+    const order = await this.#missionOrder();
+    const rank = (mission) => order.has(mission.id) ? order.get(mission.id) : -1;
+    return missions.sort((a, b) => rank(a) - rank(b) || String(b.createdAt).localeCompare(String(a.createdAt)));
   }
   async listMissions() { return this.readMissions(); }
+  missionOrderPath() { return path.join(this.dataDir, 'mission-order.json'); }
+  async #missionOrder() {
+    const ids = (await readJson(this.missionOrderPath()))?.order;
+    return new Map((Array.isArray(ids) ? ids : []).filter((id) => typeof id === 'string').map((id, index) => [id, index]));
+  }
+  reorderMissions(input) {
+    return this.#serialize('missions', async () => {
+      assertPlainObject(input, 'body');
+      if (!Array.isArray(input.order)) throw badRequest('order must be a list of mission ids');
+      const order = input.order.map((id) => assertStoredId('mission', id));
+      const current = (await this.readMissions()).map((mission) => mission.id);
+      if (new Set(order).size !== order.length || order.length !== current.length || !current.every((id) => order.includes(id))) {
+        throw conflict('missions changed; reload and try again');
+      }
+      await writeJson(this.missionOrderPath(), { order });
+      return this.readMissions();
+    });
+  }
 
   #boardTask(value) {
     const id = String(value || '').trim();

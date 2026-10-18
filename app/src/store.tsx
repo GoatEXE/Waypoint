@@ -180,6 +180,16 @@ function useAppStore() {
       }
       return { ok: true, id: created.id };
     },
+    reorderMissions: async (missions: Mission[]) => {
+      set({ missions: missionsLoadSucceeded(missions) });
+      try {
+        const saved = await api.reorderMissions(missions.map(m => m.id));
+        set({ missions: missionsLoadSucceeded(saved.missions) });
+      } catch (err) {
+        actions.flash(`Couldn't save the new order: ${errorText(err)}`);
+        void actions.loadMissions();
+      }
+    },
     loadCeoConversation: async () => {
       const sendVersion = ceoSendVersionRef.current;
       const thread = ceoThreadRef.current;

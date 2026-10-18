@@ -52,6 +52,7 @@ test('bridge TCP listener serves only POST /bridge/tools, even with a spoofed lo
       { method: 'PUT', path: '/hermes/model', body: '{}' },
       { method: 'POST', path: '/hermes/lifecycle', body: '{"action":"stop"}' },
       { method: 'POST', path: '/missions', body: '{"title":"x"}' },
+      { method: 'PUT', path: '/missions/order', body: '{"order":[]}' },
     ];
     for (const probe of probes) {
       const res = await send(tcp, { ...probe, headers: { ...json, ...spoof } });

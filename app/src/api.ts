@@ -152,6 +152,7 @@ export const api = {
   missions: () => json<{ missions: Mission[] }>('/missions'),
   tasks: () => json<{ tasks: BoardTask[] }>('/tasks'),
   createMission: (body: MissionInput) => json<Mission>('/missions', { method: 'POST', body: JSON.stringify(body) }),
+  reorderMissions: (order: string[]) => json<{ missions: Mission[] }>('/missions/order', { method: 'PUT', body: JSON.stringify({ order }) }),
   updateMission: (id: string, patch: Partial<Pick<Mission, 'title' | 'outcome' | 'target' | 'status'>>) => json<Mission>(`/missions/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(patch) }),
   pods: () => json<{ pods: Pod[] }>('/pods'),
   pod: (name: string) => json<Pod & { tasks: BoardTask[] }>(`/pods/${encodeURIComponent(name)}`),

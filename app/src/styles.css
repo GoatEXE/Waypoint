@@ -155,6 +155,12 @@ button, input, textarea { font-family: inherit; }
 .sb-name { font-family: var(--mono); font-size: 12px; }
 .sb-mission { display: flex; align-items: center; border-radius: 6px; }
 .sb-mission:hover, .sb-mission.active { background: var(--hover); }
+.sb-mission.draggable { cursor: grab; }
+.sb-mission-group { position: relative; }
+.sb-mission-group.dragging { opacity: .45; }
+.sb-mission-group.drop-before::before, .sb-mission-group.drop-after::after { content: ''; position: absolute; left: 8px; right: 8px; height: 2px; border-radius: 1px; background: var(--acc); pointer-events: none; }
+.sb-mission-group.drop-before::before { top: -1px; }
+.sb-mission-group.drop-after::after { bottom: -1px; }
 .sb-caret { width: 24px; height: 30px; flex: none; display: flex; align-items: center; justify-content: center; background: transparent; border: none; color: var(--faint); cursor: pointer; font-size: 10px; padding: 0 0 0 4px; }
 .sb-caret:hover { color: var(--text); }
 .sb-caret span { display: inline-block; transition: transform .15s; }

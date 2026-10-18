@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { api, type Mission } from '../src/api.ts';
-import { initialMissionsState, missionFor, missionPath, missionsLoadFailed, missionsLoadStarted, missionsLoadSucceeded, routeMission, sidebarMissionLabel, visibleMissions } from '../src/missionsModel.ts';
+import { initialMissionsState, missionFor, missionPath, missionsLoadFailed, missionsLoadStarted, missionsLoadSucceeded, moveMission, routeMission, sidebarMissionLabel, visibleMissions } from '../src/missionsModel.ts';
 import { parseRoute } from '../src/routes.ts';
 
 function mission(overrides: Partial<Mission> = {}): Mission {
@@ -94,4 +94,27 @@ test('the viewed mission follows the route, project, or task instead of the firs
   assert.equal(at('/tasks/W-2'), null);
   assert.equal(at('/inbox'), null);
   assert.equal(routeMission(initialMissionsState, parseRoute('/missions/m2'), projects, board), null);
+});
+
+test('moveMission drops a mission before or after another one', () => {
+  const list = ['a', 'b', 'c', 'd'].map(id => mission({ id, title: id }));
+  const ids = (ms: Mission[]) => ms.map(m => m.id).join('');
+  assert.equal(ids(moveMission(list, 'd', 'a', 'before')), 'dabc');
+  assert.equal(ids(moveMission(list, 'a', 'd', 'after')), 'bcda');
+  assert.equal(ids(moveMission(list, 'a', 'c', 'before')), 'bacd');
+  assert.equal(ids(moveMission(list, 'c', 'a', 'after')), 'acbd');
+  assert.equal(moveMission(list, 'a', 'a', 'after'), list);
+  assert.equal(moveMission(list, 'x', 'a', 'before'), list);
+});
+
+test('mission reorder uses PUT /missions/order with the full id list', async () => {
+  let request: { url: string; init?: RequestInit } | undefined;
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    request = { url: String(url), init };
+    return { ok: true, text: async () => JSON.stringify({ missions: [] }) } as Response;
+  }) as typeof fetch;
+  await api.reorderMissions(['mission_2', 'mission_1']);
+  assert.equal(request?.url, '/api/missions/order');
+  assert.equal(request?.init?.method, 'PUT');
+  assert.deepEqual(JSON.parse(String(request?.init?.body)), { order: ['mission_2', 'mission_1'] });
 });

@@ -165,6 +165,7 @@ async function route(request, url, { config, store, organization, users, profile
     const { created, mission } = await store.createMission(await readBody(request), { source: 'app' });
     return { status: created ? 201 : 200, body: mission };
   }
+  if (method === 'PUT' && pathname === '/missions/order') return { body: { missions: await store.reorderMissions(await readBody(request)) } };
   match = pathname.match(/^\/missions\/([^/]+)$/);
   if (method === 'GET' && match) return { body: await store.getMission(match[1]) };
   if (method === 'DELETE' && match) return { body: await store.deleteMission(match[1]) };

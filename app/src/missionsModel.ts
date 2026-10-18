@@ -40,6 +40,15 @@ export function visibleMissions(missions: Mission[], expanded: boolean, activeId
   return { shown, hidden: missions.length - shown.length };
 }
 
+export function moveMission(missions: Mission[], id: string, targetId: string, place: 'before' | 'after'): Mission[] {
+  const moving = missions.find(m => m.id === id);
+  if (!moving || id === targetId || !missions.some(m => m.id === targetId)) return missions;
+  const rest = missions.filter(m => m.id !== id);
+  const at = rest.findIndex(m => m.id === targetId) + (place === 'after' ? 1 : 0);
+  rest.splice(at, 0, moving);
+  return rest;
+}
+
 export function sidebarMissionLabel(s: MissionsState): string {
   if (s.status === 'loading') return 'Loading…';
   if (s.status === 'error') return 'Missions unavailable';

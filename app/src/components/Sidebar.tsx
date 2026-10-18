@@ -10,7 +10,7 @@ import { SeatMark } from './ProviderMark';
 import { DRY_RUN_REASON } from '../dryRun';
 import { runtimeHealth } from '../runtimeHealth';
 import { seatWork } from '../seatModel';
-import { missionPath, routeMission, SIDEBAR_MISSION_LIMIT, sidebarMissionLabel, visibleMissions } from '../missionsModel';
+import { missionPath, moveMission, routeMission, SIDEBAR_MISSION_LIMIT, sidebarMissionLabel, visibleMissions } from '../missionsModel';
 import type { Mission, Project } from '../api';
 import { ceoNameOf } from '../orgModel';
 import { UserMenu } from './UserMenu';
@@ -32,12 +32,14 @@ function AddButton({ onClick, disabledReason }: { onClick: () => void; disabledR
 }
 
 export function Sidebar() {
-  const { state, set, openModal, loadBoard } = useStore();
+  const { state, set, openModal, loadBoard, reorderMissions } = useStore();
   const nav = useNavigate();
   const dryRun = state.config?.dryRun ? DRY_RUN_REASON : undefined;
   const route = useRoute();
   const activeProj = activeProject(route);
   const [seats, setSeats] = useState<OrgSeat[]>([]);
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [dropAt, setDropAt] = useState<{ id: string; place: 'before' | 'after' } | null>(null);
   const shownPods = state.pods.filter(pod => pod.status === 'active' || pendingLearning(pod) > 0);
   const attention = needsYou(state.board).length + state.pods.filter(pod => pendingLearning(pod) > 0).length;
   useEffect(() => {
@@ -69,9 +71,37 @@ export function Sidebar() {
   const missionRow = (m: Mission) => {
     const projects = state.projects.filter(p => p.missionId === m.id);
     const open = isOpen(m.id, m.id === activeMissionId);
+    const canDrag = missions.length > 1;
+    const dropClass = dropAt?.id === m.id && dragId && dragId !== m.id ? ' drop-' + dropAt.place : '';
     return (
-      <div key={m.id} className="sb-mission-group">
-        <div className={'sb-mission' + (route.v === 'mission' && m.id === activeMissionId ? ' active' : '')}>
+      <div
+        key={m.id}
+        className={'sb-mission-group' + (dragId === m.id ? ' dragging' : '') + dropClass}
+        onDragOver={e => {
+          if (!dragId) return;
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'move';
+          const box = e.currentTarget.getBoundingClientRect();
+          const place = e.clientY < box.top + Math.min(box.height, 32) / 2 ? 'before' : 'after';
+          if (dropAt?.id !== m.id || dropAt.place !== place) setDropAt({ id: m.id, place });
+        }}
+        onDrop={e => {
+          e.preventDefault();
+          if (dragId && dropAt) {
+            const next = moveMission(missions, dragId, dropAt.id, dropAt.place);
+            if (next !== missions && next.some((x, i) => x.id !== missions[i].id)) void reorderMissions(next);
+          }
+          setDragId(null);
+          setDropAt(null);
+        }}
+      >
+        <div
+          className={'sb-mission' + (route.v === 'mission' && m.id === activeMissionId ? ' active' : '') + (canDrag ? ' draggable' : '')}
+          draggable={canDrag}
+          title={canDrag ? 'Drag to reorder' : undefined}
+          onDragStart={e => { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', m.title); setDragId(m.id); }}
+          onDragEnd={() => { setDragId(null); setDropAt(null); }}
+        >
           <button className="sb-caret" title={open ? 'Hide projects' : 'Show projects'} aria-expanded={open} onClick={() => toggle(m.id, m.id === activeMissionId)}>
             <span style={{ transform: `rotate(${open ? 90 : 0}deg)` }}>▸</span>
           </button>
