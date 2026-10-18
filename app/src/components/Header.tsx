@@ -1,6 +1,6 @@
 import { useNavigate } from 'react-router-dom';
-import type { BoardTask, Project } from '../api';
-import { currentMission } from '../missionsModel';
+import type { BoardTask, Mission, Project } from '../api';
+import { missionPath, routeMission } from '../missionsModel';
 import { useRoute, type Route } from '../routes';
 import { useStore } from '../store';
 import { PaneGlyph } from './ui';
@@ -10,8 +10,8 @@ interface Crumb { label: string; to: string; mono?: boolean }
 
 const WS: Partial<Record<Route['v'], string>> = { routines: 'Routines', artifacts: 'Artifacts', skills: 'Skills', connectors: 'Connectors', settings: 'Settings', help: 'Help', profile: 'Profile' };
 
-export function crumbsFor(r: Route, missionTitle: string | null, projects: Project[], board: BoardTask[]): Crumb[] {
-  const m: Crumb = { label: missionTitle || 'Workspace', to: '/' };
+export function crumbsFor(r: Route, mission: Pick<Mission, 'id' | 'title'> | null, projects: Project[], board: BoardTask[]): Crumb[] {
+  const m: Crumb = mission ? { label: mission.title, to: missionPath(mission.id) } : { label: 'Workspace', to: '/' };
   const taskCrumbs = (key: string): Crumb[] => {
     const t = board.find(x => x.ref === key || x.id === key);
     return [m, { label: 'Tasks', to: '/tasks' }, { label: t?.ref || key, to: '/tasks/' + encodeURIComponent(key), mono: true }];
@@ -31,7 +31,7 @@ export function Header() {
   const { state, setPane } = useStore();
   const nav = useNavigate();
   const route = useRoute();
-  const crumbs = crumbsFor(route, currentMission(state.missions)?.title || null, state.projects, state.board);
+  const crumbs = crumbsFor(route, routeMission(state.missions, route, state.projects, state.board), state.projects, state.board);
   return (
     <header className="topbar">
       <nav className="crumbs">

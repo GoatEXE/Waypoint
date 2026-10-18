@@ -9,6 +9,7 @@ export interface Route { v: View; id?: string }
 export function parseRoute(path: string): Route {
   const [a, b, c] = path.split('/').filter(Boolean).map(decodeURIComponent);
   if (!a) return { v: 'mission' };
+  if (a === 'missions' && b && !c) return { v: 'mission', id: b };
   if (a === 'projects' && b && !c) return { v: 'project', id: b };
   if (a === 'tasks' && !b) return { v: 'tasks' };
   if (a === 'connectors' && b === 'github' && (c === 'callback' || c === 'installed')) return { v: 'github', id: c };

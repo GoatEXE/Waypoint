@@ -47,3 +47,22 @@ test('deleting a mission moves its projects out of it', async () => {
   assert.equal(projects.find((p) => p.id === b.id).missionId, other.id);
   assert.equal((await store.updateProject(a.id, { missionId: other.id })).missionId, other.id);
 });
+
+test('missions can be reordered and new missions go to the top', async () => {
+  const store = await tempStore();
+  const { mission: a } = await store.createMission({ title: 'A' });
+  const { mission: b } = await store.createMission({ title: 'B' });
+  const { mission: c } = await store.createMission({ title: 'C' });
+  const ids = async () => (await store.listMissions()).map((m) => m.id);
+  const saved = await store.reorderMissions({ order: [a.id, c.id, b.id] });
+  assert.deepEqual(saved.map((m) => m.id), [a.id, c.id, b.id]);
+  assert.deepEqual(await ids(), [a.id, c.id, b.id]);
+  const { mission: d } = await store.createMission({ title: 'D' });
+  assert.equal((await ids())[0], d.id);
+  await store.deleteMission(c.id);
+  assert.deepEqual(await ids(), [d.id, a.id, b.id]);
+  await assert.rejects(store.reorderMissions({ order: [a.id, b.id] }), /missions changed/);
+  await assert.rejects(store.reorderMissions({ order: [a.id, a.id, b.id] }), /missions changed/);
+  await assert.rejects(store.reorderMissions({ order: 'nope' }), /order must be a list/);
+  await assert.rejects(store.reorderMissions({ order: ['../x', a.id, b.id] }), /invalid resource id/);
+});

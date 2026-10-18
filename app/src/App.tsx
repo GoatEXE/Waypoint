@@ -30,7 +30,7 @@ import { OrgSetupView, UserSetupView } from './views/OrgSetupView';
 function View() {
   const r = parseRoute(useLocation().pathname);
   switch (r.v) {
-    case 'mission': return <MissionView />;
+    case 'mission': return <MissionView key={r.id || ''} id={r.id} />;
     case 'project': return <ProjectView id={r.id!} />;
     case 'tasks': return <TasksView />;
     case 'org': return <OrgChartView />;

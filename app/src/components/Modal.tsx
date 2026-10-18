@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { activeProject, useRoute } from '../routes';
-import { currentMission } from '../missionsModel';
+import { missionFor, missionPath, routeMission } from '../missionsModel';
 import { useStore, type ModalKind } from '../store';
 import { api, type OrgSeat } from '../api';
 import { ceoNameOf } from '../orgModel';
@@ -45,8 +45,9 @@ const Hint = ({ children }: { children: React.ReactNode }) => <div style={{ font
 export function Modal({ kind }: { kind: FormKind }) {
   const { state, closeModal, sendCeoMessage, createMission, flash } = useStore();
   const nav = useNavigate();
-  const routeProject = activeProject(useRoute());
-  const mission = currentMission(state.missions);
+  const route = useRoute();
+  const routeProject = activeProject(route);
+  const mission = routeMission(state.missions, route, state.projects, state.board) ?? missionFor(state.missions);
   const missionProjects = state.projects;
   const scopes: [string, string][] = [
     ['none', 'Nothing specific'],
@@ -110,7 +111,7 @@ export function Modal({ kind }: { kind: FormKind }) {
       setError(null);
       const result = await createMission({ title: form.title.trim(), outcome: form.text.trim(), target: form.date });
       setSubmitting(false);
-      if (result.ok) { closeModal(); flash('Mission saved'); }
+      if (result.ok) { closeModal(); flash('Mission saved'); if (result.id) nav(missionPath(result.id)); }
       else setError(result.error || 'Mission was not saved.');
     }
   };

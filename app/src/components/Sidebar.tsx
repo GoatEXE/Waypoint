@@ -10,7 +10,8 @@ import { SeatMark } from './ProviderMark';
 import { DRY_RUN_REASON } from '../dryRun';
 import { runtimeHealth } from '../runtimeHealth';
 import { seatWork } from '../seatModel';
-import { sidebarMissionLabel } from '../missionsModel';
+import { missionPath, moveMission, routeMission, SIDEBAR_MISSION_LIMIT, sidebarMissionLabel, visibleMissions } from '../missionsModel';
+import type { Mission, Project } from '../api';
 import { ceoNameOf } from '../orgModel';
 import { UserMenu } from './UserMenu';
 
@@ -31,12 +32,14 @@ function AddButton({ onClick, disabledReason }: { onClick: () => void; disabledR
 }
 
 export function Sidebar() {
-  const { state, set, openModal, loadBoard } = useStore();
+  const { state, set, openModal, loadBoard, reorderMissions } = useStore();
   const nav = useNavigate();
   const dryRun = state.config?.dryRun ? DRY_RUN_REASON : undefined;
   const route = useRoute();
   const activeProj = activeProject(route);
   const [seats, setSeats] = useState<OrgSeat[]>([]);
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [dropAt, setDropAt] = useState<{ id: string; place: 'before' | 'after' } | null>(null);
   const shownPods = state.pods.filter(pod => pod.status === 'active' || pendingLearning(pod) > 0);
   const attention = needsYou(state.board).length + state.pods.filter(pod => pendingLearning(pod) > 0).length;
   useEffect(() => {
@@ -54,9 +57,70 @@ export function Sidebar() {
   }, [state.missions.missions, loadBoard]);
   const { label: hermesLabel, ready: hermesReady } = runtimeHealth(state.runtime.status, state.runtime.error, state.runtime.checked);
   const missionLabel = sidebarMissionLabel(state.missions);
-  const currentMissionId = state.missions.missions[0]?.id;
-  const missionProjects = state.projects.filter(p => currentMissionId && p.missionId === currentMissionId);
+  const missions = state.missions.status === 'ready' ? state.missions.missions : [];
+  const activeMissionId = routeMission(state.missions, route, state.projects, state.board)?.id ?? null;
+  const { shown: shownMissions, hidden: hiddenMissions } = visibleMissions(missions, state.missionsExpanded, activeMissionId);
   const unfiledProjects = state.projects.filter(p => !p.missionId || !state.missions.missions.some(m => m.id === p.missionId));
+  const isOpen = (key: string, fallback: boolean) => state.missionOpen[key] ?? fallback;
+  const toggle = (key: string, fallback: boolean) => set(s => ({ missionOpen: { ...s.missionOpen, [key]: !(s.missionOpen[key] ?? fallback) } }));
+  const projectRows = (projects: Project[]) => projects.map(p => (
+    <div key={p.id} className={'sb-item' + (activeProj === p.id ? ' active' : '')} onClick={() => nav('/projects/' + p.id)}>
+      <span className="sb-name">{p.name}</span>
+    </div>
+  ));
+  const missionRow = (m: Mission) => {
+    const projects = state.projects.filter(p => p.missionId === m.id);
+    const open = isOpen(m.id, m.id === activeMissionId);
+    const canDrag = missions.length > 1;
+    const dropClass = dropAt?.id === m.id && dragId && dragId !== m.id ? ' drop-' + dropAt.place : '';
+    return (
+      <div
+        key={m.id}
+        className={'sb-mission-group' + (dragId === m.id ? ' dragging' : '') + dropClass}
+        onDragOver={e => {
+          if (!dragId) return;
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'move';
+          const box = e.currentTarget.getBoundingClientRect();
+          const place = e.clientY < box.top + Math.min(box.height, 32) / 2 ? 'before' : 'after';
+          if (dropAt?.id !== m.id || dropAt.place !== place) setDropAt({ id: m.id, place });
+        }}
+        onDrop={e => {
+          e.preventDefault();
+          if (dragId && dropAt) {
+            const next = moveMission(missions, dragId, dropAt.id, dropAt.place);
+            if (next !== missions && next.some((x, i) => x.id !== missions[i].id)) void reorderMissions(next);
+          }
+          setDragId(null);
+          setDropAt(null);
+        }}
+      >
+        <div
+          className={'sb-mission' + (route.v === 'mission' && m.id === activeMissionId ? ' active' : '') + (canDrag ? ' draggable' : '')}
+          draggable={canDrag}
+          title={canDrag ? 'Drag to reorder' : undefined}
+          onDragStart={e => { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', m.title); setDragId(m.id); }}
+          onDragEnd={() => { setDragId(null); setDropAt(null); }}
+        >
+          <button className="sb-caret" title={open ? 'Hide projects' : 'Show projects'} aria-expanded={open} onClick={() => toggle(m.id, m.id === activeMissionId)}>
+            <span style={{ transform: `rotate(${open ? 90 : 0}deg)` }}>▸</span>
+          </button>
+          <div className="sb-mission-link" onClick={() => nav(missionPath(m.id))}>
+            <div className="diamond" />
+            <span className="ellipsis" style={{ fontWeight: 500 }} title={m.title}>{m.title}</span>
+            {projects.length > 0 && <span className="sb-meta">{projects.length}</span>}
+          </div>
+        </div>
+        {open && (
+          <div className="sb-children">
+            {projectRows(projects)}
+            {!projects.length && <div className="sb-item sb-empty">No projects</div>}
+          </div>
+        )}
+      </div>
+    );
+  };
+  const unfiledOpen = isOpen('unfiled', false);
 
   return (
     <aside className="sidebar">
@@ -84,30 +148,33 @@ export function Sidebar() {
         </div>
 
         <div className="sb-section">
-          <div className="sb-label-row"><span className="sb-label">MISSION</span><AddButton onClick={() => openModal('mission')} /></div>
-          <div className={'sb-mission' + (route.v === 'mission' ? ' active' : '')}>
-            <button className="sb-caret" title="Show projects" onClick={() => set(s => ({ missionOpen: !s.missionOpen }))}>
-              <span style={{ transform: `rotate(${state.missionOpen ? 90 : 0}deg)` }}>▸</span>
-            </button>
-            <div className="sb-mission-link" onClick={() => nav('/')}>
-              <div className="diamond" />
-              <span className="ellipsis" style={{ fontWeight: 500 }} title={missionLabel}>{missionLabel}</span>
-              {missionProjects.length > 0 && <span className="sb-meta">{missionProjects.length}</span>}
+          <div className="sb-label-row"><span className="sb-label">{missions.length > 1 ? 'MISSIONS' : 'MISSION'}</span><AddButton onClick={() => openModal('mission')} /></div>
+          {!missions.length && (
+            <div className={'sb-mission' + (route.v === 'mission' ? ' active' : '')}>
+              <div className="sb-mission-link" style={{ paddingLeft: 8 }} onClick={() => nav('/')}>
+                <div className="diamond" />
+                <span className="ellipsis" style={{ fontWeight: 500 }} title={missionLabel}>{missionLabel}</span>
+              </div>
             </div>
-          </div>
-          {state.missionOpen && (
-            <div className="sb-children">
-              {missionProjects.map(p => (
-                <div key={p.id} className={'sb-item' + (activeProj === p.id ? ' active' : '')} onClick={() => nav('/projects/' + p.id)}>
-                  <span className="sb-name">{p.name}</span>
+          )}
+          {shownMissions.map(missionRow)}
+          {(hiddenMissions > 0 || state.missionsExpanded) && missions.length > SIDEBAR_MISSION_LIMIT && (
+            <button className="sb-more" aria-expanded={state.missionsExpanded} onClick={() => set(s => ({ missionsExpanded: !s.missionsExpanded }))}>
+              {state.missionsExpanded ? 'Show less' : `Show ${hiddenMissions} more`}
+            </button>
+          )}
+          {unfiledProjects.length > 0 && (
+            <div className="sb-mission-group">
+              <div className="sb-mission">
+                <button className="sb-caret" title={unfiledOpen ? 'Hide projects' : 'Show projects'} aria-expanded={unfiledOpen} onClick={() => toggle('unfiled', false)}>
+                  <span style={{ transform: `rotate(${unfiledOpen ? 90 : 0}deg)` }}>▸</span>
+                </button>
+                <div className="sb-mission-link sb-unfiled" onClick={() => toggle('unfiled', false)}>
+                  <span className="ellipsis">Not in a mission</span>
+                  <span className="sb-meta">{unfiledProjects.length}</span>
                 </div>
-              ))}
-              {unfiledProjects.length > 0 && <div className="sb-item" style={{ color: 'var(--faint)', cursor: 'default', fontSize: 11 }}>Not in a mission</div>}
-              {unfiledProjects.map(p => (
-                <div key={p.id} className={'sb-item' + (activeProj === p.id ? ' active' : '')} style={{ color: 'var(--muted)' }} onClick={() => nav('/projects/' + p.id)}>
-                  <span className="sb-name">{p.name}</span>
-                </div>
-              ))}
+              </div>
+              {unfiledOpen && <div className="sb-children">{projectRows(unfiledProjects)}</div>}
             </div>
           )}
         </div>
