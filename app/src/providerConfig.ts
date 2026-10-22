@@ -20,7 +20,7 @@ export function authForProvider(status: HermesStatus | null, provider: Provider)
 export function providerReadiness(status: HermesStatus | null, provider: Provider) {
   const auth = authForProvider(status, provider);
   if (!status) return { label: 'Unknown', on: false };
-  if (!status.runtime.running) return { label: status.runtime.state === 'missing' ? 'Container missing' : 'Stopped', on: false };
+  if (!status.runtime.running) return { label: status.runtime.state === 'hermes_unavailable' ? 'Hermes not installed' : 'Stopped', on: false };
   if (auth?.authenticated) return { label: 'Signed in', on: true };
   if (auth?.credentialPresent) return { label: 'Credential saved', on: false };
   if (auth?.native?.state === 'not_checked') return { label: 'Status not checked', on: false };

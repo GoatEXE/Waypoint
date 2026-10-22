@@ -10,10 +10,7 @@ import type { HermesStatus } from '../src/api.ts';
 
 function status(overrides: Partial<HermesStatus> = {}): HermesStatus {
   return {
-    image: 'img',
-    imagePinned: true,
-    containerName: 'waypoint-hermes-ceo',
-    volumeName: 'waypoint-hermes-ceo-home',
+    home: 'C:/waypoint/hermes-home',
     runtime: { state: 'running', running: true },
     model: { configured: true, provider: 'anthropic', default: 'claude-opus-5-5', api_mode: 'anthropic_messages' },
     auth: {
@@ -46,6 +43,6 @@ test('sidebar does not call authenticated native status pending', () => {
 test('sidebar tells a down service apart from a down CEO', () => {
   const unreachable = Object.assign(new Error('Waypoint control service is unavailable'), { status: 502, body: { error: { code: 'control_unavailable' } } });
   assert.deepEqual(sidebarHermesSummary(null, true, unreachable), { label: 'Service unreachable', ready: false });
-  assert.deepEqual(sidebarHermesSummary(status({ runtime: { state: 'docker_unavailable', running: false } }), true), { label: 'Docker not running', ready: false });
+  assert.deepEqual(sidebarHermesSummary(status({ runtime: { state: 'hermes_unavailable', running: false } }), true), { label: 'Hermes not installed', ready: false });
   assert.deepEqual(sidebarHermesSummary(status({ runtime: { state: 'exited', running: false } }), true), { label: 'CEO stopped', ready: false });
 });

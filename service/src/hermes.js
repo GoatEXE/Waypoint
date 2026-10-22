@@ -2,14 +2,11 @@ import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { badRequest, conflict, lifecycleError, notFound, timeout as timeoutError, runtimeFailure, ceoStopped, modelNotConnected } from './errors.js';
-import { ensureSharedAuthVolume, assertSharedAuthImage, sharedAuthMount } from './authVolume.js';
-import { guardDockerExecArgs, guardPrompt } from './hostDisconnectGuard.js';
+import { badRequest, conflict, lifecycleError, notFound, timeout as timeoutError, runtimeFailure, ceoStopped, modelNotConnected, hermesMissing } from './errors.js';
+import { createHermesHost, killTree } from './hermesHost.js';
 import { ONBOARDING_SKILL, ONBOARDING_SKILL_NAME } from './onboardingSkill.js';
 import { seedCeoUserProfile } from './user.js';
 import { activityDetail, applyStreamEvent, finalActivity, normalizeActivity, publicActivity, pushActivity, streamLineReader } from './activity.js';
-
-export const HERMES_IMAGE_DIGEST = 'nousresearch/hermes-agent@sha256:d4da4a40cd7a28aba983775d9fd31d94cbf153eeb0cb9e844d6d0f612b7c24db';
 
 const CEO_SETTINGS = [['approvals.single_query_mode', 'approve'], ['kanban.review_dispatch', 'false']];
 const ALLOWED_PROVIDERS = new Set(['openai-codex', 'anthropic', 'openai-api', 'openai']);
@@ -28,7 +25,6 @@ const API_MODE_DEFAULTS = {
 const API_KEY_ENV = { anthropic: 'ANTHROPIC_API_KEY', openai: 'OPENAI_API_KEY', 'openai-api': 'OPENAI_API_KEY' };
 const MODEL_RE = /^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,127}$/;
 const API_MODE_RE = /^[a-z][a-z0-9_-]{0,31}$/;
-const LABEL_NS = 'com.waypoint.hermes';
 const ANSI_RE = /\x1b\[[0-9;]*m/g;
 const MODEL_CATALOG_TTL_MS = 5 * 60 * 1000;
 const AUTH_STATUS_TTL_MS = 30 * 1000;
@@ -46,6 +42,13 @@ const WAYPOINT_SKILLS = new Set(['waypoint-ceo-bridge', ONBOARDING_SKILL_NAME]);
 const LOCKED_SKILLS = new Set(['waypoint-ceo-bridge', 'hermes-agent']);
 const MAX_SKILLS = 500;
 const MAX_SKILL_FILES = 80;
+const GATEWAY_READY_ATTEMPTS = 40;
+const GATEWAY_READY_DELAY_MS = 500;
+const GATEWAY_PID_SCRIPT = `import logging, sys
+logging.disable(logging.CRITICAL)
+from gateway.status import get_running_pid
+sys.stdout.write('\\n' + str(get_running_pid() or 0) + '\\n')`;
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export class HermesRuntime {
   constructor(config, logger = undefined, runner = defaultRunner, spawner = defaultSpawner) {
@@ -53,6 +56,7 @@ export class HermesRuntime {
     this.logger = logger;
     this.runner = runner;
     this.spawner = spawner;
+    this.host = createHermesHost(config);
     this.logins = new Map();
     this.modelCatalogCache = new Map();
     this.modelCatalogInflight = new Map();
@@ -64,27 +68,29 @@ export class HermesRuntime {
     this.liveTurn = null;
   }
 
-  get image() { return this.config.hermes.image || HERMES_IMAGE_DIGEST; }
-  get containerName() { return this.config.hermes.containerName; }
-  get volumeName() { return this.config.hermes.volumeName; }
+  runHermes(args, options = {}) {
+    const command = this.host.hermes(args);
+    return this.runner(command.command, command.args, { ...options, ...command.options });
+  }
+
+  spawnHermes(command, options = {}) {
+    return this.spawner(command.command, command.args, { ...options, ...command.options });
+  }
 
   async status(options = {}) {
     let inspected;
     try { inspected = await this.inspect({ allowMissing: true }); }
     catch (error) {
-      if (error?.code !== 'docker_unavailable') throw error;
-      inspected = { exists: false, dockerDown: true };
+      if (error?.code !== 'hermes_unavailable') throw error;
+      inspected = { exists: false, unavailable: error.code };
     }
-    const runtime = inspected.exists ? inspected.state : { state: inspected.dockerDown ? 'docker_unavailable' : 'missing', running: false };
+    const runtime = inspected.exists ? inspected.state : { state: inspected.unavailable || 'missing', running: false };
     const details = inspected.exists && runtime.running
       ? await this.readSafeState().catch((error) => ({ ...defaultSafeState(), diagnostics: { configAvailable: false, message: safeMessage(error.message) } }))
-      : { ...defaultSafeState(), diagnostics: { configAvailable: false, message: inspected.dockerDown ? "Docker isn't running." : 'Hermes CEO container is not running.' } };
+      : { ...defaultSafeState(), diagnostics: { configAvailable: false, message: inspected.unavailable ? "Hermes isn't installed." : 'Hermes CEO is not running.' } };
     if (inspected.exists && runtime.running) await this.attachNativeAuthStatus(details, { fresh: options.nativeAuth === 'fresh' });
     return {
-      image: this.image,
-      imagePinned: this.image.includes('@sha256:'),
-      containerName: this.containerName,
-      volumeName: this.volumeName,
+      home: this.host.home,
       runtime,
       model: details.model,
       auth: details.auth,
@@ -123,7 +129,7 @@ export class HermesRuntime {
     return this.withSkillMutationLock(async () => {
       const inspected = await this.inspect({ allowMissing: true });
       const runtime = inspected.exists ? inspected.state : { state: 'missing', running: false };
-      if (!runtime.running) throw lifecycleError('Hermes CEO container must be running before changing skill availability.', { state: runtime.state });
+      if (!runtime.running) throw lifecycleError('The Hermes CEO must be running before changing skill availability.', { state: runtime.state });
       const result = await this.execPython(SET_SKILL_ENABLED_SCRIPT, JSON.stringify({ name, enabled: input.enabled }), { outputLimitBytes: 512 * 1024 });
       const parsed = parseSkillPayload(result.stdout, 'Hermes skill update returned an unexpected shape');
       if (parsed.ok !== true || !Array.isArray(parsed.skills)) {
@@ -205,7 +211,7 @@ export class HermesRuntime {
     const inspected = await this.inspect({ allowMissing: true });
     if (!inspected.exists || !inspected.state.running) throw ceoStopped();
     const title = `waypoint-ceo-${threadId}-deleted-${new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14)}-${randomUUID().slice(0, 8)}`;
-    const exec = (args) => this.runner('docker', ['exec', '--user', 'hermes', this.containerName, 'hermes', 'sessions', ...args], { timeoutMs: 30000 });
+    const exec = (args) => this.runHermes(['sessions', ...args], { timeoutMs: 30000 });
     const renamed = await exec(['rename', sessionId, title]);
     if (renamed.code !== 0) {
       if (/no session/i.test(`${renamed.stdout || ''}${renamed.stderr || ''}`)) return;
@@ -345,8 +351,8 @@ export class HermesRuntime {
 
   async runCeoChat(message, sessionId, threadId = GENERAL_THREAD, onEvent = undefined) {
     const conversationName = sessionId ? '' : await this.ensureCeoConversationName(threadId);
-    const args = buildCeoChatArgs(this.containerName, sessionId, this.config.hermes, conversationName);
-    const child = this.spawner('docker', args, { timeoutMs: this.config.hermes.ceoTurnTimeoutMs });
+    const args = buildCeoChatArgs(this.host.home, sessionId, this.config.hermes, conversationName);
+    const child = this.spawnHermes(this.host.hermes(args), { timeoutMs: this.config.hermes.ceoTurnTimeoutMs });
     return runCeoChatChild(child, message, { timeoutMs: this.config.hermes.ceoTurnTimeoutMs, outputLimitBytes: this.config.hermes.ceoOutputLimitBytes, onEvent });
   }
 
@@ -354,37 +360,6 @@ export class HermesRuntime {
     return this.start();
   }
 
-  async start() {
-    await assertSharedAuthImage(this.config, this.runner, this.image);
-    await ensureSharedAuthVolume(this.config, this.runner);
-    const inspected = await this.inspect({ allowMissing: true });
-    if (inspected.exists) {
-      if (this.config.sharedAuth?.enabled) {
-        const mounts = inspected.state.mounts;
-        const auth = Array.isArray(mounts) ? mounts.find((item) => item.Destination === this.config.sharedAuth.mountPath) : null;
-        const home = Array.isArray(mounts) ? mounts.find((item) => item.Destination === '/opt/data') : null;
-        if (!Array.isArray(mounts) || mounts.length !== 2 || !home || home.Type !== 'volume' || home.Name !== this.volumeName || !auth || auth.Type !== 'volume' || auth.Name !== this.config.sharedAuth.volumeName || auth.RW !== true || inspected.state.image !== this.image) throw lifecycleError('existing CEO container needs migration to the shared provider volume');
-      }
-      if (inspected.state.running) { await this.prepareCeoHome(); return { action: 'start', executed: false, status: inspected.state }; }
-      await this.runDocker(['start', this.containerName]);
-      await this.prepareCeoHome();
-      return { action: 'start', executed: true, status: { state: 'running', running: true } };
-    }
-    await this.ensureVolume();
-    const args = [
-      'run', '-d', '--name', this.containerName, '--restart', 'unless-stopped',
-      '--mount', `type=volume,source=${this.volumeName},target=/opt/data`,
-      ...(sharedAuthMount(this.config) ? ['--mount', sharedAuthMount(this.config)] : []),
-      '--label', `${LABEL_NS}.owned=true`,
-      '--label', `${LABEL_NS}.role=ceo`,
-      '--label', `${LABEL_NS}.component=runtime`,
-      this.image,
-      'gateway', 'run',
-    ];
-    await this.runDocker(args);
-    await this.prepareCeoHome();
-    return { action: 'start', executed: true, status: { state: 'running', running: true } };
-  }
 
   async prepareCeoHome() {
     await this.seedCeoHome();
@@ -402,7 +377,7 @@ export class HermesRuntime {
   async seedCeoHome() {
     const org = await this.organization?.get();
     const payload = { bridgeBaseUrl: this.config.bridge.baseUrl, bridgeToken: this.config.bridge.token, onboardingSkill: ONBOARDING_SKILL, organization: org ? { name: org.name, ceoName: org.ceoName } : null };
-    await this.execPython(WRITE_CEO_HOME_SCRIPT, JSON.stringify(payload), { user: 'root' });
+    await this.execPython(WRITE_CEO_HOME_SCRIPT, JSON.stringify(payload));
   }
 
   async refreshCeoIdentity() {
@@ -415,22 +390,15 @@ export class HermesRuntime {
   async ensureCeoSettings() {
     const changed = [];
     for (const [key, value] of CEO_SETTINGS) {
-      const get = await this.runner('docker', ['exec', '--user', 'hermes', this.containerName, 'hermes', 'config', 'get', key], { timeoutMs: 30000 });
+      const get = await this.runHermes(['config', 'get', key], { timeoutMs: 30000 });
       if (get.code === 0 && String(get.stdout || '').trim().toLowerCase() === value) continue;
-      const set = await this.runner('docker', ['exec', '--user', 'hermes', this.containerName, 'hermes', 'config', 'set', key, value], { timeoutMs: 30000 });
+      const set = await this.runHermes(['config', 'set', key, value], { timeoutMs: 30000 });
       if (set.code !== 0) throw lifecycleError('Hermes CEO settings could not be configured.', { setting: key });
       changed.push(key);
     }
     return { changed };
   }
 
-  async stop() {
-    const inspected = await this.inspect({ allowMissing: true });
-    if (!inspected.exists) return { action: 'stop', executed: false, status: { state: 'missing', running: false } };
-    if (!inspected.state.running) return { action: 'stop', executed: false, status: inspected.state };
-    await this.runDocker(['stop', this.containerName]);
-    return { action: 'stop', executed: true, status: { state: 'exited', running: false } };
-  }
 
   async saveModel(input) {
     const model = normalizeModel(input);
@@ -451,7 +419,7 @@ export class HermesRuntime {
     let inspected;
     try { inspected = await this.inspect({ allowMissing: true }); }
     catch (error) { return fallback(safeMessage(error.message || 'Hermes runtime inspection failed.')); }
-    if (!inspected.exists || !inspected.state.running) return fallback('Hermes CEO container is not running; using the verified native curated fallback bundled with Waypoint.');
+    if (!inspected.exists || !inspected.state.running) return fallback('Hermes CEO is not running; using the verified native curated fallback bundled with Waypoint.');
     return this.refreshModelCatalog(requested).catch((error) => fallback(safeMessage(error.message || 'Native Hermes model catalog could not be read.')));
   }
 
@@ -508,11 +476,11 @@ export class HermesRuntime {
     }
     await this.start();
     const id = `login_${randomUUID()}`;
-    const args = ['exec', '-i', '--user', 'hermes', this.containerName, 'hermes', 'auth', 'add', provider, '--type', 'oauth', '--timeout', String(this.config.hermes.loginTimeoutSeconds)];
+    const args = ['auth', 'add', provider, '--type', 'oauth', '--timeout', String(this.config.hermes.loginTimeoutSeconds)];
     if (provider === 'openai-codex') {
       if (flow === 'browser') args.push('--browser'); else args.push('--no-browser');
     } else args.push('--no-browser');
-    const child = this.spawner('docker', args);
+    const child = this.spawnHermes(this.host.hermes(args, { stdin: true }));
     const login = { id, provider, flow, state: 'pending', authUrl: '', userCode: '', outputBuffer: '', requiresCode: provider === 'anthropic', startedAt: new Date().toISOString(), updatedAt: new Date().toISOString(), message: 'Waiting for provider authorization.' };
     this.logins.set(id, login);
     const onData = (chunk) => this.consumeLoginOutput(login, chunk);
@@ -594,27 +562,7 @@ export class HermesRuntime {
     delete login.child;
   }
 
-  async ensureVolume() {
-    await this.runDocker(['volume', 'create', '--label', `${LABEL_NS}.owned=true`, '--label', `${LABEL_NS}.role=ceo-home`, this.volumeName]);
-  }
 
-  async inspect({ allowMissing = false } = {}) {
-    const label = `${LABEL_NS}.owned`;
-    const format = `{"owned":"{{ index .Config.Labels \"${label}\" }}","id":"{{.Id}}","state":"{{.State.Status}}","running":{{.State.Running}},"image":"{{.Config.Image}}","mounts":{{json .Mounts}}}`;
-    const result = await this.runner('docker', ['inspect', '--format', format, this.containerName]);
-    if (result.code !== 0) {
-      if (allowMissing && /No such object|No such container/i.test(result.stderr || '')) return { exists: false };
-      if (!/No such object|No such container/i.test(result.stderr || '')) {
-        const failure = runtimeFailure(result);
-        if (failure) throw failure;
-      }
-      throw lifecycleError('Hermes CEO container cannot be inspected as Waypoint-owned', { containerName: this.containerName, code: result.code });
-    }
-    let parsed;
-    try { parsed = JSON.parse(result.stdout.trim()); } catch { throw lifecycleError('docker inspect returned an unexpected Hermes shape'); }
-    if (parsed.owned !== 'true') throw lifecycleError('refusing to operate on container without Waypoint Hermes ownership label', { containerName: this.containerName });
-    return { exists: true, state: { id: parsed.id, state: parsed.state, running: Boolean(parsed.running), image: parsed.image, mounts: parsed.mounts } };
-  }
 
   async readSafeState() {
     const result = await this.execPython(READ_STATE_SCRIPT, '');
@@ -641,7 +589,7 @@ export class HermesRuntime {
     if (!options.fresh) return { checked: false, authenticated: false, state: 'not_checked', message: 'Native auth status was not checked on this fast status request.' };
     if (this.nativeAuthInflight.has(provider)) return this.nativeAuthInflight.get(provider);
     const promise = (async () => {
-      const result = await this.runner('docker', ['exec', '--user', 'hermes', this.containerName, 'hermes', 'auth', 'status', provider], { timeoutMs: 20000 });
+      const result = await this.runHermes(['auth', 'status', provider], { timeoutMs: 20000 });
       const text = stripAnsi(`${result.stdout || ''}\n${result.stderr || ''}`);
       let status;
       if (result.code !== 0) status = { checked: false, authenticated: false, state: 'unknown', message: 'Native auth status unavailable.' };
@@ -657,16 +605,47 @@ export class HermesRuntime {
   }
 
   async execPython(script, input, options = {}) {
-    const user = options.user || 'hermes';
-    const result = await this.runner('docker', ['exec', '-i', '--user', user, this.containerName, 'python3', '-c', script], { input, timeoutMs: options.timeoutMs || 30000, outputLimitBytes: options.outputLimitBytes });
+    const command = this.host.python(script, options.args || []);
+    const result = await this.runner(command.command, command.args, { ...command.options, input, timeoutMs: options.timeoutMs || 30000, outputLimitBytes: options.outputLimitBytes });
     if (result.code !== 0) throw runtimeFailure(result) || lifecycleError('Hermes command failed', { code: result.code });
     return result;
   }
 
-  async runDocker(args) {
-    const result = await this.runner('docker', args, { timeoutMs: 60000 });
-    if (result.code !== 0) throw runtimeFailure(result) || lifecycleError('docker command failed', { code: result.code });
-    return result;
+  async inspect() {
+    const command = this.host.python(GATEWAY_PID_SCRIPT);
+    const probe = await this.runner(command.command, command.args, { ...command.options, timeoutMs: 300000 });
+    if (probe.code !== 0) {
+      if (probe.code === 127 || /No module named/i.test(probe.stderr || '')) throw hermesMissing();
+      throw lifecycleError('Hermes gateway status could not be read', { code: probe.code });
+    }
+    const pid = Number.parseInt(String(probe.stdout || '').trim().split('\n').pop(), 10);
+    const running = Number.isInteger(pid) && pid > 0;
+    return { exists: true, state: { state: running ? 'running' : 'exited', running, ...(running ? { pid } : {}) } };
+  }
+
+  async start() {
+    await fs.mkdir(this.host.home, { recursive: true });
+    this.host.installShims();
+    const inspected = await this.inspect();
+    if (inspected.state.running) { await this.prepareCeoHome(); return { action: 'start', executed: false, status: inspected.state }; }
+    await this.seedCeoHome();
+    const child = this.spawnHermes(this.host.hermesDetached(['gateway', 'run', '--replace', '--quiet']));
+    child.on?.('error', (error) => this.logger?.warn?.('hermes_gateway_spawn_failed', { message: safeMessage(error.message) }));
+    child.unref?.();
+    for (let attempt = 0; attempt < GATEWAY_READY_ATTEMPTS; attempt += 1) {
+      const state = (await this.inspect()).state;
+      if (state.running) { await this.prepareCeoHome(); return { action: 'start', executed: true, status: state }; }
+      await delay(GATEWAY_READY_DELAY_MS);
+    }
+    throw lifecycleError('Hermes gateway did not start. Run `hermes gateway run` with HERMES_HOME set to the Waypoint Hermes home to see why.', { home: this.host.home });
+  }
+
+  async stop() {
+    const inspected = await this.inspect();
+    if (!inspected.state.running) return { action: 'stop', executed: false, status: inspected.state };
+    await this.runHermes(['gateway', 'stop'], { timeoutMs: 60000 });
+    if ((await this.inspect()).state.running) killTree({ pid: inspected.state.pid, kill: (signal) => process.kill(inspected.state.pid, signal) });
+    return { action: 'stop', executed: true, status: { state: 'exited', running: false } };
   }
 }
 
@@ -866,7 +845,7 @@ except Exception as e:
  out['diagnostics']={'configAvailable': False, 'message':'Hermes config could not be read.'}
 env={}
 try:
- for line in open(os.path.join('/opt/data','.env'),encoding='utf-8'):
+ for line in open(os.path.join(os.environ['HERMES_HOME'],'.env'),encoding='utf-8'):
   if '=' in line and not line.lstrip().startswith('#'):
    k,v=line.rstrip('\n').split('=',1); env[k]=v
 except Exception:
@@ -900,8 +879,9 @@ else:
 cfg['model']=model
 save_config(cfg)
 import os
-os.makedirs('/opt/data/waypoint',exist_ok=True)
-json.dump(payload,open('/opt/data/waypoint/model-settings.json','w',encoding='utf-8'),indent=2)
+home=os.environ['HERMES_HOME']
+os.makedirs(os.path.join(home,'waypoint'),exist_ok=True)
+json.dump(payload,open(os.path.join(home,'waypoint','model-settings.json'),'w',encoding='utf-8'),indent=2)
 print(json.dumps({'ok':True}))
 `;
 
@@ -1049,15 +1029,14 @@ function threadSummary(id, conversation) {
   const last = spoken.at(-1);
   return { threadId: id, messageCount: spoken.length, updatedAt: last?.at || null, lastText: last ? last.text.slice(0, 120) : '' };
 }
-function buildCeoChatArgs(containerName, sessionId, hermesConfig, conversationName = '') {
-  const timeoutSeconds = Math.max(1, Math.ceil(hermesConfig.ceoTurnTimeoutMs / 1000));
-  const args = ['exec', '-i', '--user', 'hermes', containerName, 'timeout', '--kill-after=2s', `${timeoutSeconds}s`, 'hermes', 'chat', '--query-file', '-', '--format', 'stream-json'];
+function buildCeoChatArgs(home, sessionId, hermesConfig, conversationName = '') {
+  const args = ['chat', '--query-file', '-', '--format', 'stream-json'];
   if (sessionId) args.push('--resume', sessionId, '--no-restore-cwd');
   else args.push('--continue', CEO_CONVERSATION_NAME_RE.test(conversationName) ? conversationName : freshCeoConversationName(), '--create-if-missing');
-  args.push('--source', 'tool', '--skills', 'waypoint-ceo-bridge', '--in', '/opt/data', '--run-budget', String(hermesConfig.ceoRunBudgetSeconds), '--max-turns', String(hermesConfig.ceoMaxTurns));
+  args.push('--source', 'tool', '--skills', 'waypoint-ceo-bridge', '--in', home, '--run-budget', String(hermesConfig.ceoRunBudgetSeconds), '--max-turns', String(hermesConfig.ceoMaxTurns));
   return args;
 }
-export function runCeoChatChild(child, message, { timeoutMs, outputLimitBytes, guardHostDisconnect = false, onEvent = undefined }) {
+export function runCeoChatChild(child, message, { timeoutMs, outputLimitBytes, onEvent = undefined }) {
   return new Promise((resolve, reject) => {
     let stdout = '';
     const emitLines = onEvent ? streamLineReader(onEvent, outputLimitBytes) : () => {};
@@ -1090,8 +1069,7 @@ export function runCeoChatChild(child, message, { timeoutMs, outputLimitBytes, g
     child.stdin?.on?.('error', () => {});
     child.on?.('error', () => finish(reject, lifecycleError('Hermes CEO turn could not be started.')));
     child.on?.('close', (code, signal) => {
-      if (timedOut) return finish(reject, timeoutError('Hermes CEO turn outcome is unknown because the Docker exec client exceeded its outer timeout. Do not automatically retry; refresh the conversation before sending a follow-up.', outcomeDetails({ timedOut: true })));
-      if ([124, 137].includes(code)) return finish(reject, timeoutError('Hermes CEO turn outcome is unknown because it exceeded the in-container timeout. Do not automatically retry; refresh the conversation before sending a follow-up.', outcomeDetails({ timedOut: true, code })));
+      if (timedOut) return finish(reject, timeoutError('Hermes CEO turn outcome is unknown because it exceeded its timeout. Do not automatically retry; refresh the conversation before sending a follow-up.', outcomeDetails({ timedOut: true })));
       if (code !== 0) return finish(reject, lifecycleError('Hermes CEO turn outcome is unknown because Hermes exited before Waypoint could confirm completion. Do not automatically retry; refresh the conversation before sending a follow-up.', outcomeDetails({ code: Number.isInteger(code) ? code : 1, signal: signal || undefined })));
       try {
         const parsed = parseCeoStreamJson(stdout);
@@ -1099,8 +1077,8 @@ export function runCeoChatChild(child, message, { timeoutMs, outputLimitBytes, g
         finish(resolve, parsed);
       } catch (error) { finish(reject, error); }
     });
-    child.stdin?.write?.(guardHostDisconnect ? guardPrompt(message) : message);
-    if (!guardHostDisconnect) child.stdin?.end?.();
+    child.stdin?.write?.(message);
+    child.stdin?.end?.();
   });
 }
 function parseCeoStreamJson(stdout) {
@@ -1309,80 +1287,56 @@ sys.stdout.write('\n'+json.dumps(out)+'\n')
 `;
 
 const WRITE_CEO_HOME_SCRIPT = String.raw`
-import json, os, pwd, grp
+import json, os
 p=json.loads(open(0,encoding='utf-8').read() or '{}')
-home='/opt/data'
-def hermes_ids():
- try:
-  u=pwd.getpwnam('hermes')
-  return u.pw_uid,u.pw_gid
- except Exception:
-  st=os.stat(home)
-  return st.st_uid,st.st_gid
-uid,gid=hermes_ids()
-def safe_chown(path):
- try: os.chown(path,uid,gid)
- except PermissionError: raise
- except Exception: pass
+home=os.environ['HERMES_HOME']
 def safe_chmod(path,mode):
  try: os.chmod(path,mode)
  except Exception: pass
 os.makedirs(home,exist_ok=True)
-safe_chown(home)
 os.makedirs(os.path.join(home,'skills','waypoint-ceo'),exist_ok=True)
 os.makedirs(os.path.join(home,'waypoint'),exist_ok=True)
 for d in [os.path.join(home,'skills'), os.path.join(home,'skills','waypoint-ceo'), os.path.join(home,'waypoint')]:
- safe_chown(d); safe_chmod(d,0o700)
+ safe_chmod(d,0o700)
 soul_path=os.path.join(home,'SOUL.md')
 if not os.path.exists(soul_path) or os.path.getsize(soul_path)==0:
  soul="# Waypoint CEO profile\n\nYou are the Waypoint CEO agent. The user directs strategy and approvals. Your role is to hire seats, delegate work to them on the task board, keep it moving, and report evidence. Seats execute implementation work; do not perform project tasks yourself unless the user explicitly asks.\n\nUse the Waypoint bridge only for mission and project records. Do not request or print provider credentials.\n"
  open(soul_path,'w',encoding='utf-8').write(soul)
-safe_chown(soul_path); safe_chmod(soul_path,0o600)
-skill="---\nname: waypoint-ceo-bridge\ndescription: Use for Waypoint organization work: seats, the task board, missions, and projects.\n---\n\n# Waypoint CEO\n\nYou run this organization. The user directs strategy and approvals; you delegate and keep work moving. Seats do the work.\n\n## Seats\nSeats are Hermes profiles in your own install (\"hermes profile list\"). To hire a seat, create a profile (--clone-from the most similar existing seat to copy its skills, or start fresh) and describe it with \"hermes profile describe <id> --text\". Ask the user before hiring unless their request says you may.\n\n## Work goes on the board\nDelegate work as kanban tasks assigned to the best seat (\"hermes kanban create ... --assignee <seat>\"). The gateway's dispatcher starts them; follow progress with \"hermes kanban show\". Keep discussion on the task's comments: the user follows the same thread in Waypoint. Quick questions you can answer yourself do not need a task. Seats hand finished work to the user for approval (review) and queue the next step as a child task that starts once the user approves; you do not need to move work along after review. The user sees tasks by ref (for example SUN-3); the bridge tool list_tasks {} maps refs to board ids. Call tasks by their ref when you talk to the user.\n\n## Pods\nA pod is a team for one piece of work: its own board (pod-<name>) and clones of the seats it needs (<name>-<seat>), each told who its podmates are so they can work together through tasks and comments. Use a pod when a piece of work needs several seats working closely together; use the main board for single-seat work. Create one with the bridge tool create_pod { name, purpose, seats: [seat ids], durable? }, give it work with \"hermes kanban --board pod-<name> create ... --assignee <name>-<seat>\", and close it with close_pod { pod } when the work is done unless it is durable. list_pods {} shows pods and their seats. Ask the user before creating a pod unless their request says you may.\n\n## Missions and projects\nThe Waypoint bridge endpoint and token are in /opt/data/waypoint/bridge.json; never print the token. POST { \"tool\": \"...\", \"args\": { ... } } with Authorization: Bearer <token>.\n- list_missions {}, create_mission { title, outcome?, target?, taskId? }, link_mission { missionId, taskId }, update_mission { missionId, status } with status backlog, todo, in_progress, in_review, done, or canceled.\n- list_projects {}, create_project { name, missionId?, repo? } where repo is owner/name on GitHub.\nEvery task belongs to a project. Each project has a Hermes project (hermesProject in list_projects, for example wp-1a2b3c4d5e). Create every task with --project <hermesProject> (kanban_create: project): pick the project the work is for, use General for work with no repository, and ask the user when you can't tell which project fits. In a project with a repo the seat works in its own git worktree of that repo. Tasks a seat creates inherit its project. hermesProject is null for a minute after the project is created while it is set up.\ntaskId is a board task id such as t_1a2b3c4d.\n"
+safe_chmod(soul_path,0o600)
+skill="---\nname: waypoint-ceo-bridge\ndescription: Use for Waypoint organization work: seats, the task board, missions, and projects.\n---\n\n# Waypoint CEO\n\nYou run this organization. The user directs strategy and approvals; you delegate and keep work moving. Seats do the work.\n\n## Seats\nSeats are Hermes profiles in your own install (\"hermes profile list\"). To hire a seat, create a profile (--clone-from the most similar existing seat to copy its skills, or start fresh) and describe it with \"hermes profile describe <id> --text\". Ask the user before hiring unless their request says you may.\n\n## Work goes on the board\nDelegate work as kanban tasks assigned to the best seat (\"hermes kanban create ... --assignee <seat>\"). The gateway's dispatcher starts them; follow progress with \"hermes kanban show\". Keep discussion on the task's comments: the user follows the same thread in Waypoint. Quick questions you can answer yourself do not need a task. Seats hand finished work to the user for approval (review) and queue the next step as a child task that starts once the user approves; you do not need to move work along after review. The user sees tasks by ref (for example SUN-3); the bridge tool list_tasks {} maps refs to board ids. Call tasks by their ref when you talk to the user.\n\n## Pods\nA pod is a team for one piece of work: its own board (pod-<name>) and clones of the seats it needs (<name>-<seat>), each told who its podmates are so they can work together through tasks and comments. Use a pod when a piece of work needs several seats working closely together; use the main board for single-seat work. Create one with the bridge tool create_pod { name, purpose, seats: [seat ids], durable? }, give it work with \"hermes kanban --board pod-<name> create ... --assignee <name>-<seat>\", and close it with close_pod { pod } when the work is done unless it is durable. list_pods {} shows pods and their seats. Ask the user before creating a pod unless their request says you may.\n\n## Missions and projects\nThe Waypoint bridge endpoint and token are in {bridge_path}; never print the token. POST { \"tool\": \"...\", \"args\": { ... } } with Authorization: Bearer <token>.\n- list_missions {}, create_mission { title, outcome?, target?, taskId? }, link_mission { missionId, taskId }, update_mission { missionId, status } with status backlog, todo, in_progress, in_review, done, or canceled.\n- list_projects {}, create_project { name, missionId?, repo? } where repo is owner/name on GitHub.\nEvery task belongs to a project. Each project has a Hermes project (hermesProject in list_projects, for example wp-1a2b3c4d5e). Create every task with --project <hermesProject> (kanban_create: project): pick the project the work is for, use General for work with no repository, and ask the user when you can't tell which project fits. In a project with a repo the seat works in its own git worktree of that repo. Tasks a seat creates inherit its project. hermesProject is null for a minute after the project is created while it is set up.\ntaskId is a board task id such as t_1a2b3c4d.\n"
 org=p.get('organization') or {}
 if org.get('name'):
  skill += "\n## Identity\nYour name is %s. You are the CEO of the organization %s. Use this name when introducing yourself.\n" % (str(org.get('ceoName') or 'CEO'), json.dumps(str(org['name']), ensure_ascii=False))
 if p.get('onboardingSkill'):
  onboarding_dir=os.path.join(home,'skills','waypoint-onboarding')
  os.makedirs(onboarding_dir,exist_ok=True)
- safe_chown(onboarding_dir); safe_chmod(onboarding_dir,0o700)
+ safe_chmod(onboarding_dir,0o700)
  onboarding_path=os.path.join(onboarding_dir,'SKILL.md')
  open(onboarding_path,'w',encoding='utf-8').write(p['onboardingSkill'])
- safe_chown(onboarding_path); safe_chmod(onboarding_path,0o600)
+ safe_chmod(onboarding_path,0o600)
 skill_path=os.path.join(home,'skills','waypoint-ceo','SKILL.md')
 open(skill_path,'w',encoding='utf-8').write(skill)
-safe_chown(skill_path); safe_chmod(skill_path,0o600)
+safe_chmod(skill_path,0o600)
 ceo_home=os.path.join(home,'home')
 os.makedirs(ceo_home,exist_ok=True)
-safe_chown(ceo_home); safe_chmod(ceo_home,0o700)
+safe_chmod(ceo_home,0o700)
 gitconfig=os.path.join(ceo_home,'.gitconfig')
 if not os.path.lexists(gitconfig):
  open(gitconfig,'w',encoding='utf-8').write('[user]\n\tname = ceo (Waypoint)\n\temail = ceo@waypoint.local\n')
- safe_chown(gitconfig); safe_chmod(gitconfig,0o600)
+ safe_chmod(gitconfig,0o600)
 bridge={'baseUrl':p.get('bridgeBaseUrl',''), 'token':p.get('bridgeToken','')}
 path=os.path.join(home,'waypoint','bridge.json')
 open(path,'w',encoding='utf-8').write(json.dumps(bridge,indent=2))
-os.chmod(path,0o600)
-safe_chown(path)
-for rel in ['config.yaml','.env','sessions','history','backups','backups/config']:
- fp=os.path.join(home,rel)
- if os.path.exists(fp):
-  safe_chown(fp)
-  if os.path.isdir(fp): safe_chmod(fp,0o700)
-backups=os.path.join(home,'backups')
-if os.path.isdir(backups):
- for root, dirs, files in os.walk(backups):
-  safe_chown(root); safe_chmod(root,0o700)
-  for name in dirs:
-   fp=os.path.join(root,name); safe_chown(fp); safe_chmod(fp,0o700)
-  for name in files:
-   fp=os.path.join(root,name); safe_chown(fp); safe_chmod(fp,0o600)
+safe_chmod(path,0o600)
 print(json.dumps({'ok':True}))
 `;
 
+function spawnOptions(options = {}) {
+  return { stdio: options.stdio || ['pipe', 'pipe', 'pipe'], env: options.env, windowsHide: options.windowsHide, detached: options.detached };
+}
 function defaultRunner(command, args, options = {}) {
   return new Promise((resolve) => {
-    const child = spawn(command, args, { stdio: ['pipe', 'pipe', 'pipe'] });
+    const child = spawn(command, args, spawnOptions(options));
     let stdout = '';
     let stderr = '';
     const limit = options.outputLimitBytes || 8192;
@@ -1392,9 +1346,11 @@ function defaultRunner(command, args, options = {}) {
     child.on('close', (code) => resolve({ code: code ?? 1, stdout, stderr }));
     if (options.input) child.stdin.write(options.input);
     child.stdin.end();
-    if (options.timeoutMs) setTimeout(() => { if (!child.killed) child.kill('SIGTERM'); }, options.timeoutMs).unref?.();
+    if (options.timeoutMs) setTimeout(() => { if (child.exitCode === null) killTree(child); }, options.timeoutMs).unref?.();
   });
 }
-function defaultSpawner(command, args) {
-  return spawn(command, args, { stdio: ['pipe', 'pipe', 'pipe'] });
+function defaultSpawner(command, args, options = {}) {
+  const child = spawn(command, args, spawnOptions(options));
+  if (!options.detached) child.kill = (signal) => { killTree(child, signal); return true; };
+  return child;
 }

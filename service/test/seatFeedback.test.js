@@ -7,6 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { SeatFeedback, buildSeatChatArgs } from '../src/seatFeedback.js';
 import { loadConfig } from '../src/config.js';
+import { fakeHermes } from './fakeHermes.js';
 
 class FakeChild extends EventEmitter {
   constructor() {
@@ -21,20 +22,19 @@ class FakeChild extends EventEmitter {
 
 async function setup(assignee = 'dev') {
   const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'waypoint-feedback-'));
-  const config = loadConfig({ DATA_DIR: dataDir }, dataDir);
+  const config = loadConfig({ HERMES_PYTHON: 'python', DATA_DIR: dataDir }, dataDir);
   const spawns = [];
-  const hermes = {
-    containerName: 'waypoint-hermes-ceo',
+  const hermes = fakeHermes({
     spawner: (command, args) => {
       const child = new FakeChild();
-      spawns.push({ args, child });
+      spawns.push({ command, args, child });
       setImmediate(() => {
         child.stdout.emit('data', '{"type":"result","session_id":"s1","text":"Noted. I saved: always run the tests first."}\n');
         child.emit('close', 0);
       });
       return child;
     },
-  };
+  });
   const notes = [];
   const board = { show: async () => ({ id: 't_abc123', ref: 'WP-4', title: 'Fix login', assignee, latestSummary: 'Fixed it.' }), note: async (...args) => { notes.push(args); } };
   return { feedback: new SeatFeedback({ config, hermes, board }), spawns, notes };
@@ -46,7 +46,7 @@ test('feedback runs a chat on the assigned seat and keeps the thread', async () 
   assert.equal(result.messages.at(-1).role, 'seat');
   assert.match(result.messages.at(-1).text, /saved/);
   const args = spawns[0].args;
-  assert.deepEqual(args.slice(args.lastIndexOf('hermes'), args.lastIndexOf('hermes') + 4), ['hermes', '-p', 'dev', 'chat']);
+  assert.deepEqual([spawns[0].command, ...args.slice(0, 3)], ['hermes', '-p', 'dev', 'chat']);
   assert.ok(args.includes('waypoint-feedback-t_abc123'));
   assert.match(spawns[0].child.input, /feedback on task WP-4 "Fix login"/);
   await feedback.send('dev', 'WP-4', { message: 'Thanks.' });

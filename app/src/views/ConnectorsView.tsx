@@ -219,7 +219,7 @@ export function ConnectorsView() {
             {activeGroup.methods.map(method => <button key={method.id} className={activeMethod.id === method.id ? 'on' : ''} onClick={() => setMethodByGroup(current => ({ ...current, [activeGroup.id]: method.id }))}>{method.label}</button>)}
           </div>
 
-          {!runtimeRunning && <div className="empty" style={{ padding: 12, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}><span>{status?.runtime.state === 'docker_unavailable' ? "Docker isn't running. Start Docker Desktop, then retry." : 'Sign-in needs the CEO running.'}</span>{status?.runtime.state !== 'docker_unavailable' && <StartCeoButton />}</div>}
+          {!runtimeRunning && <div className="empty" style={{ padding: 12, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}><span>{status?.runtime.state === 'hermes_unavailable' ? "Hermes isn't installed. Install Hermes (or set HERMES_BIN), then retry." : 'Sign-in needs the CEO running.'}</span>{status?.runtime.state !== 'hermes_unavailable' && <StartCeoButton />}</div>}
 
           <div className="provider-method-card stack" style={{ gap: 12 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -267,7 +267,7 @@ export function ConnectorsView() {
 
 function groupReadiness(status: HermesStatus | null, group: ProviderGroup) {
   if (!status) return { label: 'Unknown', on: false };
-  if (!status.runtime.running) return { label: status.runtime.state === 'missing' ? 'Container missing' : 'Stopped', on: false };
+  if (!status.runtime.running) return { label: status.runtime.state === 'hermes_unavailable' ? 'Hermes not installed' : 'Stopped', on: false };
   const statuses = group.methods.map(method => providerReadiness(status, method.provider));
   if (statuses.some(item => item.on)) return { label: 'Connected', on: true };
   if (statuses.some(item => item.label === 'Credential saved')) return { label: 'Credential saved', on: false };

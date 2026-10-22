@@ -1,47 +1,47 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { EventEmitter } from 'node:events';
 import { HermesRuntime } from '../src/hermes.js';
 import { loadConfig } from '../src/config.js';
 import { runtimeFailure } from '../src/errors.js';
 
-const DOCKER_DOWN = 'Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?';
-const WINDOWS_DOWN = 'error during connect: Get "http://%2F%2F.%2Fpipe%2FdockerDesktopLinuxEngine/v1.47/containers/json": open //./pipe/dockerDesktopLinuxEngine: The system cannot find the file specified.';
+async function config() {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'waypoint-health-'));
+  return loadConfig({ HERMES_PYTHON: 'python', DATA_DIR: dir }, dir);
+}
 
-test('Docker and stopped-CEO CLI failures map to plain errors', () => {
-  assert.equal(runtimeFailure({ stderr: DOCKER_DOWN }).code, 'docker_unavailable');
-  assert.equal(runtimeFailure({ stderr: WINDOWS_DOWN }).code, 'docker_unavailable');
-  assert.equal(runtimeFailure({ stderr: 'spawn docker ENOENT' }).code, 'docker_unavailable');
-  assert.equal(runtimeFailure({ stderr: 'Error response from daemon: container abc is not running' }).code, 'ceo_stopped');
-  assert.equal(runtimeFailure({ stderr: 'Error: No such container: waypoint-hermes-ceo' }).code, 'ceo_stopped');
-  assert.equal(runtimeFailure({ stderr: 'task t_1 not found' }), null);
-  assert.equal(runtimeFailure({ stderr: DOCKER_DOWN }).message.includes('daemon'), false);
+test('a missing Hermes command maps to a plain error', () => {
+  assert.equal(runtimeFailure({ code: 127, stderr: 'spawn hermes ENOENT' }).code, 'hermes_unavailable');
+  assert.match(runtimeFailure({ code: 127, stderr: 'spawn hermes ENOENT' }).message, /Install Hermes/);
+  assert.equal(runtimeFailure({ code: 1, stderr: 'task t_1 not found' }), null);
 });
 
-test('CEO status resolves to docker_unavailable instead of failing when Docker is down', async () => {
-  const runner = async () => ({ code: 1, stdout: '', stderr: DOCKER_DOWN });
-  const hermes = new HermesRuntime(loadConfig({}, '/tmp'), undefined, runner);
+test('CEO status resolves to hermes_unavailable instead of failing when Hermes is missing', async () => {
+  const runner = async () => ({ code: 127, stdout: '', stderr: 'spawn hermes ENOENT' });
+  const hermes = new HermesRuntime(await config(), undefined, runner);
   const status = await hermes.status({ nativeAuth: 'fresh' });
-  assert.deepEqual(status.runtime, { state: 'docker_unavailable', running: false });
-  await assert.rejects(hermes.start(), (error) => error.code === 'docker_unavailable');
+  assert.deepEqual(status.runtime, { state: 'hermes_unavailable', running: false });
+  await assert.rejects(hermes.start(), (error) => error.code === 'hermes_unavailable');
 });
 
-test('commands against a stopped CEO report ceo_stopped', async () => {
-  const runner = async (_command, args) => args[0] === 'inspect'
-    ? { code: 0, stdout: '{"owned":"true","id":"c1","state":"exited","running":false}\n', stderr: '' }
-    : { code: 1, stdout: '', stderr: 'Error response from daemon: container c1 is not running' };
-  const hermes = new HermesRuntime(loadConfig({}, '/tmp'), undefined, runner);
-  await assert.rejects(hermes.execPython('print(1)', ''), (error) => error.code === 'ceo_stopped');
-});
-
-test('lifecycle start route starts the CEO', async () => {
+test('lifecycle start route starts the CEO gateway', async () => {
   const calls = [];
-  const runner = async (_command, args) => {
-    calls.push(args);
-    if (args[0] === 'inspect') return { code: 1, stdout: '', stderr: 'No such object: waypoint-hermes-ceo' };
+  let running = false;
+  const runner = async (command, args) => {
+    calls.push([command, ...args]);
+    if (command === 'python' && String(args.at(-1)).includes('get_running_pid')) return { code: 0, stdout: `\n${running ? 4242 : 0}\n`, stderr: '' };
     return { code: 0, stdout: '{"ok":true}\n', stderr: '' };
   };
-  const hermes = new HermesRuntime(loadConfig({}, '/tmp'), undefined, runner);
+  const spawner = (command, args) => {
+    calls.push([command, ...args]);
+    running = true;
+    return Object.assign(new EventEmitter(), { unref() {} });
+  };
+  const hermes = new HermesRuntime(await config(), undefined, runner, spawner);
   const result = await hermes.lifecycle('start');
   assert.equal(result.executed, true);
-  assert.ok(calls.some((args) => args[0] === 'run'));
+  assert.ok(calls.some((call) => call.join(' ') === 'hermes gateway run --replace --quiet'));
 });

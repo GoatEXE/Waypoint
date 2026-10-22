@@ -61,7 +61,7 @@ test('seeding records a Hermes refusal and stays pending when the CEO is unreach
 
   const other = await tempUsers();
   await other.update({ name: 'Ada' });
-  const offline = { execPython: async () => { throw new Error('container stopped'); } };
+  const offline = { execPython: async () => { throw new Error('Hermes stopped'); } };
   assert.equal((await seedCeoUserProfile(offline, other)).seed.state, 'pending');
 });
 
@@ -69,11 +69,11 @@ test('preparing the CEO home seeds a pending user profile', async () => {
   const users = await tempUsers();
   await users.update({ name: 'Ada' });
   const scripts = [];
-  const runner = async (_command, args) => {
-    if (args[0] === 'exec' && args.includes('python3')) { scripts.push(String(args.at(-1))); return { code: 0, stdout: '{"ok": true}\n', stderr: '' }; }
+  const runner = async (command, args) => {
+    if (command === 'python') { scripts.push(String(args.at(-1))); return { code: 0, stdout: '{"ok": true}\n', stderr: '' }; }
     return { code: 0, stdout: 'approve\n', stderr: '' };
   };
-  const hermes = new HermesRuntime(loadConfig({}, '/tmp'), undefined, runner);
+  const hermes = new HermesRuntime(loadConfig({ HERMES_PYTHON: 'python', }, '/tmp'), undefined, runner);
   hermes.users = users;
   await hermes.prepareCeoHome();
   assert.ok(scripts.includes(SEED_USER_SCRIPT));

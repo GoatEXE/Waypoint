@@ -1,6 +1,6 @@
 import type { HermesStatus } from './api';
 
-export type RuntimeCause = 'checking' | 'service' | 'docker' | 'ceo-missing' | 'ceo-stopped' | 'setup' | 'ready';
+export type RuntimeCause = 'checking' | 'service' | 'hermes' | 'ceo-missing' | 'ceo-stopped' | 'setup' | 'ready';
 
 export interface RuntimeHealth {
   cause: RuntimeCause;
@@ -14,7 +14,7 @@ export interface RuntimeHealth {
 const CAUSES: Record<RuntimeCause, Omit<RuntimeHealth, 'cause'>> = {
   checking: { label: 'Checking CEO…', message: 'Checking the CEO…', next: '', ready: false, canStart: false },
   service: { label: 'Service unreachable', message: "The Waypoint service isn't answering.", next: 'Start it with npm start, then retry.', ready: false, canStart: false },
-  docker: { label: 'Docker not running', message: "Docker isn't running.", next: 'Start Docker Desktop, then retry.', ready: false, canStart: false },
+  hermes: { label: 'Hermes not installed', message: "Hermes isn't installed.", next: 'Install Hermes (or set HERMES_BIN), then retry.', ready: false, canStart: false },
   'ceo-missing': { label: 'CEO not created', message: "The CEO hasn't been created yet.", next: 'Start the CEO to create it.', ready: false, canStart: true },
   'ceo-stopped': { label: 'CEO stopped', message: 'The CEO is stopped.', next: 'Start the CEO, then retry.', ready: false, canStart: true },
   setup: { label: 'CEO setup needed', message: 'The CEO needs a model.', next: 'Connect a model in Settings.', ready: false, canStart: false },
@@ -29,7 +29,7 @@ export function errorCode(error: unknown): string | null {
 
 export function causeOfError(error: unknown): RuntimeCause | null {
   const code = errorCode(error);
-  if (code === 'docker_unavailable') return 'docker';
+  if (code === 'hermes_unavailable') return 'hermes';
   if (code === 'ceo_stopped') return 'ceo-stopped';
   if (code === 'control_unavailable' || error instanceof TypeError) return 'service';
   const status = (error as { status?: unknown } | null)?.status;
@@ -48,7 +48,7 @@ function authReady(status: HermesStatus) {
 export function runtimeCause(status: HermesStatus | null, error: unknown, checked: boolean): RuntimeCause {
   if (!status) return checked ? causeOfError(error) || 'service' : 'checking';
   if (!status.runtime.running) {
-    if (status.runtime.state === 'docker_unavailable') return 'docker';
+    if (status.runtime.state === 'hermes_unavailable') return 'hermes';
     return status.runtime.state === 'missing' ? 'ceo-missing' : 'ceo-stopped';
   }
   const auth = authReady(status);
@@ -66,7 +66,7 @@ export function healthFor(cause: RuntimeCause): RuntimeHealth {
 }
 
 export function isRuntimeOutage(cause: RuntimeCause) {
-  return cause === 'service' || cause === 'docker' || cause === 'ceo-missing' || cause === 'ceo-stopped';
+  return cause === 'service' || cause === 'hermes' || cause === 'ceo-missing' || cause === 'ceo-stopped';
 }
 
 export function errorText(error: unknown): string {
@@ -85,9 +85,9 @@ export function rawErrorText(error: unknown): string {
 export const START_TIMEOUT_MS = 90000;
 
 export function startFailureText(error: unknown, timedOut: boolean): string {
-  if (timedOut) return "The CEO didn't start within 90 seconds. Check that Docker Desktop is running, then retry.";
+  if (timedOut) return "The CEO didn't start within 90 seconds. Check that Hermes is installed, then retry.";
   const cause = causeOfError(error);
-  if (cause === 'docker') return "Docker isn't running. Start Docker Desktop, then retry.";
+  if (cause === 'hermes') return "Hermes isn't installed. Install Hermes (or set HERMES_BIN), then retry.";
   if (cause === 'service') return "The Waypoint service isn't answering. Start it with npm start, then retry.";
   return `The CEO couldn't start: ${error instanceof Error ? error.message : String(error)}`;
 }

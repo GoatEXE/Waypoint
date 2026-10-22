@@ -31,9 +31,10 @@ const SEAT_PROVIDERS = { 'openai-codex': 'codex_responses', anthropic: 'anthropi
 const FILES = { soul: 'SOUL.md', memory: 'memories/MEMORY.md', user: 'memories/USER.md' };
 
 export const SEAT_PROFILE_SCRIPT = String.raw`
-import json, os, sys, yaml
+import json, os, sys
+import hermes_yaml as yaml
 p = json.loads(sys.stdin.read() or '{}')
-home = os.path.join('/opt/data/profiles', p['id'])
+home = os.path.join(os.environ['HERMES_HOME'], 'profiles', p['id'])
 if not os.path.isdir(home):
     print(json.dumps({'ok': False, 'error': 'not_found'})); sys.exit(0)
 files = p.get('files', {})
@@ -62,9 +63,10 @@ print(json.dumps(out))
 `;
 
 export const LIST_SEATS_SCRIPT = String.raw`
-import json, os, sys, yaml
+import json, os, sys
+import hermes_yaml as yaml
 skill = json.loads(sys.stdin.read() or '{}').get('skill', '')
-root = '/opt/data/profiles'
+root = os.path.join(os.environ['HERMES_HOME'], 'profiles')
 def sync_skill(home):
     folder = os.path.join(home, 'skills', 'waypoint-seat')
     path = os.path.join(folder, 'SKILL.md')
@@ -87,7 +89,7 @@ def text(value):
 seats = []
 for name in sorted(os.listdir(root)) if os.path.isdir(root) else []:
     home = os.path.join(root, name)
-    if not os.path.isfile(os.path.join(home, 'config.yaml')):
+    if not any(os.path.isfile(os.path.join(home, name)) for name in ('config.yaml', 'profile.yaml')):
         continue
     if skill:
         sync_skill(home)
@@ -102,7 +104,7 @@ print(json.dumps({'seats': seats}))
 export const WRITE_SOUL_SCRIPT = String.raw`
 import json, os, sys
 p = json.loads(sys.stdin.read())
-path = os.path.join('/opt/data/profiles', p['id'], 'SOUL.md')
+path = os.path.join(os.environ['HERMES_HOME'], 'profiles', p['id'], 'SOUL.md')
 with open(path, 'w', encoding='utf-8') as handle:
     handle.write(p['soul'])
 os.chmod(path, 0o600)
@@ -194,7 +196,7 @@ export class OrgSeats {
   }
 
   async #hermes(args) {
-    const result = await this.hermes.runner('docker', ['exec', '--user', 'hermes', this.hermes.containerName, 'hermes', ...args], { timeoutMs: 60000, outputLimitBytes: 16 * 1024 });
+    const result = await this.hermes.runHermes(args, { timeoutMs: 60000, outputLimitBytes: 16 * 1024 });
     if (result.code !== 0) throw runtimeFailure(result) || lifecycleError(`hermes ${args.filter((arg) => !arg.includes(' ')).slice(0, 3).join(' ')} failed`, { code: result.code });
     return result;
   }

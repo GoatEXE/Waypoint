@@ -7,7 +7,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-const helperDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'docker', 'auth-image');
+const helperDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'src');
 const python = ['python3', 'python'].find((bin) => spawnSync(bin, ['-c', 'import sys; sys.exit(0 if sys.version_info >= (3, 9) else 1)'], { stdio: 'ignore' }).status === 0);
 
 async function fakeBridge(handler) {

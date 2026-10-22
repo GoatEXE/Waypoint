@@ -1,8 +1,8 @@
+import { existsSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { lifecycleError, runtimeFailure } from './errors.js';
 
-const REPOS_ROOT = '/opt/data/repos';
 
 const SCOPE_BOARD_SCRIPT = `import sys
 from hermes_cli import kanban_db as kb
@@ -15,9 +15,9 @@ from hermes_cli import projects_db as pdb
 with pdb.connect_closing() as src:
     projects = [dict(r) for r in src.execute("SELECT * FROM projects WHERE slug LIKE 'wp-%'")]
     folders = [dict(r) for r in src.execute("SELECT f.* FROM project_folders f JOIN projects p ON p.id = f.project_id WHERE p.slug LIKE 'wp-%'")]
-root = Path('/opt/data/profiles')
+root = Path(os.environ['HERMES_HOME']) / 'profiles'
 for home in sorted(root.iterdir()) if root.is_dir() else []:
-    if not home.is_dir() or not (home / 'config.yaml').exists():
+    if not home.is_dir() or not ((home / 'config.yaml').exists() or (home / 'profile.yaml').exists()):
         continue
     with pdb.connect_closing(db_path=home / 'projects.db') as dst:
         with pdb.write_txn(dst):
@@ -34,9 +34,6 @@ export function hermesSlug(projectId) {
   return `wp-${hex}`;
 }
 
-export function repoPath(repo) {
-  return `${REPOS_ROOT}/${repo}`;
-}
 
 export function parseProjectId(text) {
   return String(text || '').match(/\[(p_[0-9a-f]+)\]/)?.[1] || null;
@@ -58,9 +55,27 @@ export class ProjectSync {
   }
 
   async exec(args, timeoutMs = 120000) {
-    const result = await this.hermes.runner('docker', ['exec', '--user', 'hermes', this.hermes.containerName, ...args], { timeoutMs, outputLimitBytes: 64 * 1024 });
+    return this.#check(args, await this.hermes.runHermes(args, { timeoutMs, outputLimitBytes: 64 * 1024 }));
+  }
+
+  async python(script, args = []) {
+    return this.#check(['python'], await this.hermes.execPython(script, '', { args, timeoutMs: 120000, outputLimitBytes: 64 * 1024 }));
+  }
+
+  async clone(folder, repo) {
+    if (existsSync(path.join(folder, '.git'))) return;
+    await fs.mkdir(path.dirname(folder), { recursive: true });
+    const command = this.hermes.host.gh(['repo', 'clone', repo, folder, '--', '--quiet']);
+    this.#check(['gh', 'repo', 'clone'], await this.hermes.runner(command.command, command.args, { ...command.options, timeoutMs: 300000, outputLimitBytes: 64 * 1024 }));
+  }
+
+  #check(args, result) {
     if (result.code !== 0) throw runtimeFailure(result) || lifecycleError(`${args.slice(0, 3).join(' ')} failed`, { code: result.code });
     return String(result.stdout || '');
+  }
+
+  repoPath(repo) {
+    return path.join(this.hermes.host.home, 'repos', ...repo.split('/'));
   }
 
   ensure(project) {
@@ -74,15 +89,15 @@ export class ProjectSync {
     const slug = hermesSlug(project.id);
     const known = (await this.read())[project.id];
     if (known?.repo === project.repo && known.hermesId) return known;
-    const folder = project.repo ? repoPath(project.repo) : null;
-    if (folder) await this.exec(['sh', '-c', 'test -d "$1/.git" || gh repo clone "$2" "$1" -- --quiet', 'sh', folder, project.repo], 300000);
-    let shown = await this.exec(['hermes', 'project', 'show', slug]).catch(() => '');
+    const folder = project.repo ? this.repoPath(project.repo) : null;
+    if (folder) await this.clone(folder, project.repo);
+    let shown = await this.exec(['project', 'show', slug]).catch(() => '');
     if (!shown) {
-      await this.exec(['hermes', 'project', 'create', project.name, ...(folder ? [folder] : []), '--slug', slug]);
-      shown = await this.exec(['hermes', 'project', 'show', slug]);
+      await this.exec(['project', 'create', project.name, ...(folder ? [folder] : []), '--slug', slug]);
+      shown = await this.exec(['project', 'show', slug]);
     } else if (folder && !shown.includes(folder)) {
-      await this.exec(['hermes', 'project', 'add-folder', slug, folder]);
-      await this.exec(['hermes', 'project', 'set-primary', slug, folder]);
+      await this.exec(['project', 'add-folder', slug, folder]);
+      await this.exec(['project', 'set-primary', slug, folder]);
     }
     const hermesId = parseProjectId(shown);
     if (!hermesId) throw lifecycleError('Hermes did not report a project id');
@@ -109,13 +124,13 @@ export class ProjectSync {
   async mirror({ ifStaleMs = 0 } = {}) {
     if (ifStaleMs && Date.now() - (this.mirroredAt || 0) < ifStaleMs) return;
     this.mirroredAt = Date.now();
-    await this.exec(['python3', '-c', MIRROR_SCRIPT]).catch((error) => this.logger?.warn?.('hermes_project_mirror_failed', { message: error.message }));
+    await this.python(MIRROR_SCRIPT).catch((error) => this.logger?.warn?.('hermes_project_mirror_failed', { message: error.message }));
   }
 
   async scopeBoard(board) {
     const entry = await this.ensure(await this.store.ensureGeneralProject());
     if (!entry) return null;
-    await this.exec(['python3', '-c', SCOPE_BOARD_SCRIPT, board, entry.hermesId]);
+    await this.python(SCOPE_BOARD_SCRIPT, [board, entry.hermesId]);
     await this.mirror();
     return entry;
   }

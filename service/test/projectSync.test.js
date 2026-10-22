@@ -6,34 +6,36 @@ import path from 'node:path';
 import { ProjectSync, hermesSlug, parseProjectId } from '../src/projectSync.js';
 import { KanbanBoard } from '../src/kanban.js';
 import { loadConfig } from '../src/config.js';
+import { fakeHermes } from './fakeHermes.js';
 
 const PROJECT = { id: 'project_1a2b3c4d-0000-4000-8000-000000000000', name: 'Goat Ops', repo: 'goat/ops' };
 
 async function setup({ exists = false } = {}) {
   const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'waypoint-projects-'));
-  const config = loadConfig({ DATA_DIR: dataDir }, dataDir);
+  const config = loadConfig({ HERMES_PYTHON: 'python', DATA_DIR: dataDir }, dataDir);
   const calls = [];
   let created = exists;
-  const hermes = {
-    containerName: 'ceo',
-    runner: async (_cmd, args) => {
-      const inner = args.slice(4);
+  const repo = path.join(config.hermes.home, 'repos', 'goat', 'ops');
+  const hermes = fakeHermes({
+    home: config.hermes.home,
+    runner: async (command, args) => {
+      const inner = command === 'hermes' ? ['hermes', ...args] : args[0] === '-X' ? ['python', ...args.slice(2)] : ['gh', ...args.slice(2)];
       calls.push(inner);
-      if (inner[0] === 'hermes' && inner[2] === 'show') return created ? { code: 0, stdout: `${inner[3]}  [p_abc123]\n  primary: /opt/data/repos/goat/ops\n  folders:\n    * /opt/data/repos/goat/ops\n`, stderr: '' } : { code: 1, stdout: '', stderr: 'no such project' };
+      if (inner[0] === 'hermes' && inner[2] === 'show') return created ? { code: 0, stdout: `${inner[3]}  [p_abc123]\n  primary: ${repo}\n  folders:\n    * ${repo}\n`, stderr: '' } : { code: 1, stdout: '', stderr: 'no such project' };
       if (inner[0] === 'hermes' && inner[2] === 'create') created = true;
       return { code: 0, stdout: '', stderr: '' };
     },
-  };
+  });
   const store = { listProjects: async () => [PROJECT], getProject: async () => PROJECT };
-  return { sync: new ProjectSync({ config, hermes, store }), calls, config, hermes, store };
+  return { sync: new ProjectSync({ config, hermes, store }), calls, config, hermes, store, repo };
 }
 
 test('a project with a repo is cloned and becomes a Hermes project once', async () => {
-  const { sync, calls } = await setup();
+  const { sync, calls, repo } = await setup();
   const entry = await sync.ensure(PROJECT);
   assert.deepEqual(entry, { slug: 'wp-1a2b3c4d00', hermesId: 'p_abc123', repo: 'goat/ops' });
-  assert.ok(calls[0].join(' ').includes('gh repo clone'));
-  assert.ok(calls.some((c) => c.join(' ') === 'hermes project create Goat Ops /opt/data/repos/goat/ops --slug wp-1a2b3c4d00'));
+  assert.ok(calls[0].join(' ').includes('gh repo clone goat/ops'));
+  assert.ok(calls.some((c) => c.join(' ') === `hermes project create Goat Ops ${repo} --slug wp-1a2b3c4d00`));
   const before = calls.length;
   await sync.ensure(PROJECT);
   assert.equal(calls.length, before);
@@ -55,10 +57,10 @@ test('boards are scoped to General so seats and the CEO never create project-les
   const general = { id: 'project_00000000-0000-4000-8000-000000000001', name: 'General', repo: null, general: true };
   store.ensureGeneralProject = async () => general;
   await sync.scopeBoard('default');
-  const scope = calls.find((c) => c[0] === 'python3' && c.includes('default'));
+  const scope = calls.find((c) => c[0] === 'python' && c.includes('default'));
   assert.deepEqual(scope.slice(-2), ['default', 'p_abc123']);
   assert.match(scope[2], /if not \(kb\.read_board_metadata/, 'an existing board project is left alone');
-  assert.ok(calls.some((c) => c[0] === 'python3' && c[2].includes("slug LIKE 'wp-%'")), 'projects are copied to every seat');
+  assert.ok(calls.some((c) => c[0] === 'python' && c[2].includes("slug LIKE 'wp-%'")), 'projects are copied to every seat');
 });
 
 test('slugs and ids parse predictably', () => {

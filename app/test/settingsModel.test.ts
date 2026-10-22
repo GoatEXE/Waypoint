@@ -5,10 +5,7 @@ import type { HermesStatus } from '../src/api.ts';
 
 function statusWithSavedModel(provider: string, defaultModel: string): HermesStatus {
   return {
-    image: 'img',
-    imagePinned: true,
-    containerName: 'waypoint-hermes-ceo',
-    volumeName: 'waypoint-hermes-ceo-home',
+    home: 'C:/waypoint/hermes-home',
     runtime: { state: 'running', running: true },
     model: { configured: true, provider, default: defaultModel, base_url: '', api_mode: DEFAULTS['openai-codex'].api_mode },
     auth: {},

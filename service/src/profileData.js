@@ -3,7 +3,7 @@ import { badRequest, conflict, lifecycleError } from './errors.js';
 export const USAGE_SCRIPT = String.raw`
 import glob, json, os, sqlite3, sys
 p = json.loads(sys.stdin.read() or '{}')
-home = '/opt/data'
+home = os.environ['HERMES_HOME']
 offset = int(p.get('tzOffsetMinutes') or 0) * 60
 METERED = {'openai-api', 'openai', 'openrouter'}
 SUBSCRIPTION = {'openai-codex'}

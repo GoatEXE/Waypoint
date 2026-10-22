@@ -4,6 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { KanbanBoard } from '../src/kanban.js';
+import { fakeHermes } from './fakeHermes.js';
 
 const GENERAL = { id: 'project_00000000-0000-4000-8000-000000000001', name: 'General', repo: null, general: true };
 const SITE = { id: 'project_00000000-0000-4000-8000-000000000002', name: 'Site', repo: 'acme/site' };
@@ -30,7 +31,7 @@ async function board(statuses, children = {}) {
     if (verb === 'create') return { code: 0, stdout: JSON.stringify({ id: 't_cccccccc' }) };
     return { code: 0, stdout: '' };
   };
-  const kanban = new KanbanBoard({ config: { dataDir }, hermes: { runner, containerName: 'ceo' }, organization: { get: async () => ({ key: 'SUN' }) } });
+  const kanban = new KanbanBoard({ config: { dataDir }, hermes: fakeHermes({ runner }), organization: { get: async () => ({ key: 'SUN' }) } });
   return { kanban, calls };
 }
 
@@ -108,7 +109,7 @@ function contractBoard({ status = 'review', summary = 'Done.', metadata, comment
 async function contractKanban(options) {
   const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'waypoint-kanban-'));
   const { calls, runner, current } = contractBoard(options);
-  const kanban = new KanbanBoard({ config: { dataDir }, hermes: { runner, containerName: 'ceo' }, organization: { get: async () => ({ key: 'SUN' }) } });
+  const kanban = new KanbanBoard({ config: { dataDir }, hermes: fakeHermes({ runner }), organization: { get: async () => ({ key: 'SUN' }) } });
   return { kanban, calls, current };
 }
 
