@@ -7,15 +7,18 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-REAL_GH = os.environ.get('WAYPOINT_REAL_GH', '/opt/gh/bin/gh')
+REAL_GH = os.environ.get('WAYPOINT_REAL_GH', 'gh')
 REPO_RE = re.compile(r'^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$')
 REMOTE_RE = re.compile(r'github\.com[:/]+([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+?)(?:\.git)?/?$')
 NO_TOKEN = {'--version', 'version', 'help', '--help', '-h', 'completion'}
 
 
 def bridge_config():
-    home = Path(os.environ.get('HERMES_HOME') or '/opt/data')
-    for path in (home / 'waypoint' / 'messaging.json', home / 'waypoint' / 'bridge.json', Path('/opt/data/waypoint/bridge.json')):
+    home = Path(os.environ.get('HERMES_HOME') or '.')
+    paths = [home / 'waypoint' / 'messaging.json', home / 'waypoint' / 'bridge.json']
+    if os.environ.get('WAYPOINT_BRIDGE_FILE'):
+        paths.append(Path(os.environ['WAYPOINT_BRIDGE_FILE']))
+    for path in paths:
         if path.is_file():
             config = json.loads(path.read_text(encoding='utf-8'))
             if config.get('baseUrl') and config.get('token'):
@@ -82,6 +85,8 @@ def run_gh(args):
     if args and args[0] not in NO_TOKEN:
         env['GH_TOKEN'] = repo_token(gh_repo(args))['token']
         env['GH_PROMPT_DISABLED'] = '1'
+    if os.name == 'nt':
+        sys.exit(subprocess.run([REAL_GH, *args], env=env).returncode)
     os.execve(REAL_GH, [REAL_GH, *args], env)
 
 

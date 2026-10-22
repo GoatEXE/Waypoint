@@ -23,9 +23,8 @@ ${rating ? `They rated it ${RATING_TEXT[rating]}.\n` : ''}Talk it through with t
 User: ${message}`;
 }
 
-export function buildSeatChatArgs(containerName, seat, sessionName, hermesConfig) {
-  const timeoutSeconds = Math.max(1, Math.ceil(hermesConfig.ceoTurnTimeoutMs / 1000));
-  return ['exec', '-i', '--user', 'hermes', containerName, 'timeout', '--kill-after=2s', `${timeoutSeconds}s`, 'hermes', '-p', seat, 'chat', '--query-file', '-', '--format', 'stream-json', '--continue', sessionName, '--create-if-missing', '--source', 'tool', '--in', '/opt/data', '--max-turns', String(hermesConfig.ceoMaxTurns)];
+export function buildSeatChatArgs(home, seat, sessionName, hermesConfig) {
+  return ['-p', seat, 'chat', '--query-file', '-', '--format', 'stream-json', '--continue', sessionName, '--create-if-missing', '--source', 'tool', '--in', home, '--max-turns', String(hermesConfig.ceoMaxTurns)];
 }
 
 export class SeatFeedback {
@@ -76,8 +75,8 @@ export class SeatFeedback {
       const stored = await this.read(seat, task.id);
       const prompt = stored.messages.length ? message : feedbackPrompt(seat, task, message, rating);
       await this.board.note?.(task.id, 'user', feedbackLine(seat, rating, message)).catch(() => undefined);
-      const args = buildSeatChatArgs(this.hermes.containerName, seat, `waypoint-feedback-${task.id}`, this.config.hermes);
-      const child = this.hermes.spawner('docker', args, { timeoutMs: this.config.hermes.ceoTurnTimeoutMs });
+      const args = buildSeatChatArgs(this.hermes.host.home, seat, `waypoint-feedback-${task.id}`, this.config.hermes);
+      const child = this.hermes.spawnHermes(this.hermes.host.hermes(args), { timeoutMs: this.config.hermes.ceoTurnTimeoutMs });
       const result = await runCeoChatChild(child, prompt, {
         timeoutMs: this.config.hermes.ceoTurnTimeoutMs,
         outputLimitBytes: this.config.hermes.ceoOutputLimitBytes,

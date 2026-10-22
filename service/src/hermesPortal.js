@@ -1,5 +1,4 @@
 import net from 'node:net';
-import { spawn } from 'node:child_process';
 import { badRequest, conflict, lifecycleError } from './errors.js';
 
 const DASHBOARD_PORT = 9119;
@@ -7,38 +6,14 @@ const SEAT_ID_RE = /^[a-z][a-z0-9-]{1,30}$/;
 const READY_ATTEMPTS = 60;
 const READY_DELAY_MS = 500;
 
-export const PORTAL_RELAY_SCRIPT = String.raw`
-import os, socket, sys, threading
-s = socket.create_connection(('127.0.0.1', int(sys.argv[1])), timeout=10)
-s.settimeout(None)
-def up():
-    try:
-        while True:
-            data = os.read(0, 65536)
-            if not data: break
-            s.sendall(data)
-    finally:
-        try: s.shutdown(socket.SHUT_WR)
-        except OSError: pass
-threading.Thread(target=up, daemon=True).start()
-while True:
-    data = s.recv(65536)
-    if not data: break
-    os.write(1, data)
-`;
-
-const READY_SCRIPT = `import urllib.request,sys
-try: sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:${DASHBOARD_PORT}/', timeout=2).status == 200 else 1)
-except Exception: sys.exit(1)`;
-
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export class HermesPortal {
-  constructor({ config, hermes, logger = undefined, spawner = spawn, readyDelayMs = READY_DELAY_MS }) {
+  constructor({ config, hermes, logger = undefined, readyDelayMs = READY_DELAY_MS, dashboardPort = DASHBOARD_PORT }) {
+    this.dashboardPort = dashboardPort;
     this.config = config;
     this.hermes = hermes;
     this.logger = logger;
-    this.spawner = spawner;
     this.readyDelayMs = readyDelayMs;
     this.active = null;
     this.server = null;
@@ -64,9 +39,8 @@ export class HermesPortal {
       return this.status();
     }
     await this.#close('switched');
-    await this.#exec(target, ['hermes', 'dashboard', '--stop'], 20000);
-    const start = await this.hermes.runner('docker', ['exec', '-d', '--user', 'hermes', target.containerName, 'hermes', ...(target.profile ? ['-p', target.profile] : []), 'dashboard', '--no-open', '--skip-build', '--port', String(DASHBOARD_PORT), '--host', '127.0.0.1'], { timeoutMs: 20000, outputLimitBytes: 4096 });
-    if (start.code !== 0) throw lifecycleError('Hermes dashboard could not be started', { target: target.target });
+    await this.#stopDashboard();
+    await this.#startDashboard(target);
     await this.#waitReady(target);
     await this.#listen();
     this.active = { ...target, openedAt: new Date().toISOString() };
@@ -88,7 +62,7 @@ export class HermesPortal {
       await new Promise((resolve) => server.close(() => resolve()));
     }
     if (previous) {
-      await this.#exec(previous, ['hermes', 'dashboard', '--stop'], 20000).catch(() => undefined);
+      await this.#stopDashboard().catch(() => undefined);
       this.logger?.info?.('hermes_portal_closed', { target: previous.target, reason });
     }
     return this.status();
@@ -98,27 +72,42 @@ export class HermesPortal {
     const target = String(input || '');
     if (target === 'ceo') {
       const inspected = await this.hermes.inspect({ allowMissing: true });
-      if (!inspected.exists || !inspected.state.running) throw conflict('Hermes CEO container must be running to open its dashboard.');
-      return { target, containerName: this.hermes.containerName, profile: null };
+      if (!inspected.exists || !inspected.state.running) throw conflict('The Hermes CEO must be running to open its dashboard.');
+      return { target, profile: null };
     }
     if (!SEAT_ID_RE.test(target)) throw badRequest('target must be ceo or a seat id');
     const inspected = await this.hermes.inspect({ allowMissing: true });
-    if (!inspected.exists || !inspected.state.running) throw conflict('Hermes CEO container must be running to open a seat dashboard.');
-    return { target, containerName: this.hermes.containerName, profile: target };
+    if (!inspected.exists || !inspected.state.running) throw conflict('The Hermes CEO must be running to open a seat dashboard.');
+    return { target, profile: target };
   }
 
-  async #exec(target, command, timeoutMs) {
-    return this.hermes.runner('docker', ['exec', '--user', 'hermes', target.containerName, ...command], { timeoutMs, outputLimitBytes: 4096 });
+  #stopDashboard() {
+    return this.hermes.runHermes(['dashboard', '--stop'], { timeoutMs: 20000, outputLimitBytes: 4096 });
+  }
+
+  async #startDashboard(target) {
+    const command = this.hermes.host.hermesDetached([...(target.profile ? ['-p', target.profile] : []), 'dashboard', '--no-open', '--skip-build', '--port', String(this.dashboardPort), '--host', '127.0.0.1']);
+    const child = this.hermes.spawnHermes(command);
+    child.on?.('error', () => undefined);
+    child.unref?.();
+  }
+
+  #ready() {
+    return fetch(`http://127.0.0.1:${this.dashboardPort}/`, { signal: AbortSignal.timeout(2000) }).then((response) => response.status === 200, () => false);
   }
 
   async #waitReady(target) {
     for (let attempt = 0; attempt < READY_ATTEMPTS; attempt += 1) {
-      const probe = await this.#exec(target, ['python3', '-c', READY_SCRIPT], 10000);
-      if (probe.code === 0) return;
+      if (await this.#ready()) return;
       await delay(this.readyDelayMs);
     }
-    await this.#exec(target, ['hermes', 'dashboard', '--stop'], 20000).catch(() => undefined);
+    await this.#stopDashboard().catch(() => undefined);
     throw lifecycleError('Hermes dashboard did not become ready', { target: target.target });
+  }
+
+  #upstream() {
+    const socket = net.connect(this.dashboardPort, '127.0.0.1');
+    return { input: socket, output: socket, events: socket, kill: () => socket.destroy() };
   }
 
   async #listen() {
@@ -137,21 +126,21 @@ export class HermesPortal {
     if (!active) { socket.destroy(); return; }
     this.sockets.add(socket);
     this.#touch();
-    const child = this.spawner('docker', ['exec', '-i', '--user', 'hermes', active.containerName, 'python3', '-c', PORTAL_RELAY_SCRIPT, String(DASHBOARD_PORT)], { stdio: ['pipe', 'pipe', 'ignore'] });
-    socket.pipe(child.stdin);
-    child.stdout.pipe(socket);
+    const upstream = this.#upstream();
+    socket.pipe(upstream.input);
+    upstream.output.pipe(socket);
     let ended = false;
     const end = () => {
       if (ended) return;
       ended = true;
       this.sockets.delete(socket);
       socket.destroy();
-      child.kill();
+      upstream.kill();
       if (this.active) this.#touch();
     };
-    child.on('close', end);
-    child.on('error', end);
-    child.stdin.on('error', end);
+    upstream.events.on('close', end);
+    upstream.events.on('error', end);
+    upstream.input.on('error', end);
     socket.on('close', end);
     socket.on('error', end);
   }

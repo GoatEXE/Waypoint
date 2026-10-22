@@ -3,22 +3,22 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { Writable } from 'node:stream';
 import fs from 'node:fs/promises';
+import { mkdtempSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { HermesRuntime } from '../src/hermes.js';
 import { loadConfig } from '../src/config.js';
 
-function config() { return loadConfig({ HERMES_LOGIN_TIMEOUT_SECONDS: '5' }, '/tmp'); }
+function config() { return loadConfig({ HERMES_PYTHON: 'python', HERMES_LOGIN_TIMEOUT_SECONDS: '5', DATA_DIR: mkdtempSync(path.join(os.tmpdir(), 'waypoint-hermes-')) }, os.tmpdir()); }
+const GATEWAY_RUNNING = { code: 0, stdout: '\n4242\n', stderr: '' };
+const GATEWAY_STOPPED = { code: 0, stdout: '\n0\n', stderr: '' };
+const isGatewayProbe = (command, args) => command === 'python' && String(args.at(-1)).includes('get_running_pid');
+const isHermes = (command, args, ...words) => command === 'hermes' && words.every((word) => args.includes(word));
 function runnerFactory(calls, state = {}) {
   return async (command, args, options = {}) => {
     calls.push({ command, args, input: options.input });
-    if (args[0] === 'inspect') {
-      if (state.missing) return { code: 1, stdout: '', stderr: 'No such object: waypoint-hermes-ceo' };
-      return { code: 0, stdout: '{"owned":"true","id":"c1","state":"running","running":true}\n', stderr: '' };
-    }
-    if (args[0] === 'volume') return { code: 0, stdout: 'waypoint-hermes-ceo-home\n', stderr: '' };
-    if (args[0] === 'run' || args[0] === 'start' || args[0] === 'stop') return { code: 0, stdout: 'ok\n', stderr: '' };
-    if (args[0] === 'exec' && args.includes('python3')) {
+    if (isGatewayProbe(command, args)) return state.missing ? GATEWAY_STOPPED : GATEWAY_RUNNING;
+    if (command === 'python') {
       const script = String(args.at(-1));
       if (script.includes('provider_model_ids')) return { code: 0, stdout: JSON.stringify({ source: 'native-hermes-provider_model_ids', providers: [
         { id: 'openai-codex', label: 'OpenAI Codex', nativeProvider: 'openai-codex', default: 'gpt-6-sol', api_mode: 'codex_responses', source: 'native-hermes', models: ['gpt-6-sol', 'gpt-5.3-codex-spark'] },
@@ -44,27 +44,43 @@ class FakeChild extends EventEmitter {
   kill(signal) { this.killedSignal = signal; this.emit('close', 143, signal); }
 }
 
-test('Hermes start uses pinned image, dedicated volume, and Waypoint labels only', async () => {
+test('start launches the Waypoint home gateway once and seeds the CEO home', async () => {
+  const cfg = config();
   const calls = [];
-  const hermes = new HermesRuntime(config(), undefined, runnerFactory(calls, { missing: true }));
-  await hermes.start();
-  const run = calls.find((c) => c.args[0] === 'run');
-  assert.ok(run.args.includes('nousresearch/hermes-agent@sha256:d4da4a40cd7a28aba983775d9fd31d94cbf153eeb0cb9e844d6d0f612b7c24db'));
-  assert.ok(run.args.includes('type=volume,source=waypoint-hermes-ceo-home,target=/opt/data'));
-  assert.ok(run.args.includes('--label'));
-  assert.equal(run.args.includes('~/.codex'), false);
-  assert.deepEqual(run.args.slice(-2), ['gateway', 'run']);
+  const spawned = [];
+  let running = false;
+  const hermes = new HermesRuntime(cfg, undefined, async (command, args) => {
+    calls.push({ command, args });
+    if (isGatewayProbe(command, args)) return running ? GATEWAY_RUNNING : GATEWAY_STOPPED;
+    return { code: 0, stdout: '{"ok":true}\n', stderr: '' };
+  }, (command, args, options) => {
+    spawned.push({ command, args, options });
+    running = true;
+    return Object.assign(new EventEmitter(), { unref() {} });
+  });
+  const started = await hermes.start();
+  assert.equal(started.executed, true);
+  assert.deepEqual(started.status, { state: 'running', running: true, pid: 4242 });
+  assert.deepEqual(spawned.map((entry) => [entry.command, ...entry.args]), [['hermes', 'gateway', 'run', '--replace', '--quiet']]);
+  assert.equal(spawned[0].options.detached, true);
+  assert.equal(spawned[0].options.env.HERMES_HOME, cfg.hermes.home);
+  assert.ok(calls.some((c) => c.command === 'python' && String(c.args.at(-1)).includes('waypoint-ceo-bridge')), 'CEO home is seeded');
+  assert.equal((await hermes.start()).executed, false);
+  assert.equal(spawned.length, 1, 'a running gateway is reused');
 });
 
-test('startup reconciliation refuses unowned CEO names before creating volumes or containers', async () => {
+test('stop asks the Waypoint home gateway to stop', async () => {
   const calls = [];
-  const hermes = new HermesRuntime(config(), undefined, async (command, args, options = {}) => {
-    calls.push({ command, args, input: options.input });
-    if (args[0] === 'inspect') return { code: 0, stdout: '{"owned":"","id":"c1","state":"exited","running":false}\n', stderr: '' };
+  let running = true;
+  const hermes = new HermesRuntime(config(), undefined, async (command, args) => {
+    calls.push({ command, args });
+    if (isGatewayProbe(command, args)) return running ? GATEWAY_RUNNING : GATEWAY_STOPPED;
+    if (isHermes(command, args, 'gateway', 'stop')) running = false;
     return { code: 0, stdout: '', stderr: '' };
   });
-  await assert.rejects(() => hermes.reconcileStartup(), /ownership label/);
-  assert.equal(calls.some((c) => c.args[0] === 'volume' || c.args[0] === 'run' || c.args[0] === 'start'), false);
+  assert.deepEqual(await hermes.stop(), { action: 'stop', executed: true, status: { state: 'exited', running: false } });
+  assert.ok(calls.some((c) => isHermes(c.command, c.args, 'gateway', 'stop')));
+  assert.equal((await hermes.stop()).executed, false);
 });
 
 test('CEO home preparation sets unattended approvals and human-only review, preserving other config', async () => {
@@ -72,10 +88,10 @@ test('CEO home preparation sets unattended approvals and human-only review, pres
   const settings = { 'approvals.single_query_mode': 'deny', 'kanban.review_dispatch': 'True', 'model.default': 'claude-opus-5-5' };
   const hermes = new HermesRuntime(config(), undefined, async (command, args, options = {}) => {
     calls.push({ command, args, input: options.input });
-    if (args[0] === 'inspect') return { code: 0, stdout: '{"owned":"true","id":"c1","state":"running","running":true}\n', stderr: '' };
-    if (args[0] === 'exec' && args.includes('python3')) return { code: 0, stdout: '{"ok":true}\n', stderr: '' };
-    if (args[0] === 'exec' && args.includes('config') && args.includes('get')) return { code: 0, stdout: `${settings[args.at(-1)]}\n`, stderr: '' };
-    if (args[0] === 'exec' && args.includes('config') && args.includes('set')) {
+    if (isGatewayProbe(command, args)) return GATEWAY_RUNNING;
+    if (command === 'python') return { code: 0, stdout: '{"ok":true}\n', stderr: '' };
+    if (isHermes(command, args, 'config', 'get')) return { code: 0, stdout: `${settings[args.at(-1)]}\n`, stderr: '' };
+    if (isHermes(command, args, 'config', 'set')) {
       settings[args.at(-2)] = args.at(-1);
       return { code: 0, stdout: 'Saved\n', stderr: '' };
     }
@@ -98,13 +114,12 @@ test('model settings and API-key save return sanitized flags and survive runtime
   assert.equal(key.credentialPresent, true);
   assert.equal(key.authenticated, false);
   assert.equal(JSON.stringify(key).includes('sk-ant'), false);
-  const writeCalls = calls.filter((c) => c.args[0] === 'exec');
+  const writeCalls = calls.filter((c) => c.command === 'python');
   assert.ok(writeCalls.some((c) => String(c.input).includes('gpt-5-codex')));
   assert.ok(writeCalls.some((c) => String(c.input).includes('ANTHROPIC_API_KEY')));
 
-  const second = new HermesRuntime(config(), undefined, runnerFactory([]));
-  assert.equal(second.containerName, first.containerName);
-  assert.equal(second.volumeName, first.volumeName);
+  const second = new HermesRuntime(first.config, undefined, runnerFactory([]));
+  assert.equal(second.host.home, first.host.home);
 });
 
 test('model catalog is provider-scoped, native-shaped, and preserves custom model saves', async () => {
@@ -141,10 +156,10 @@ test('model catalog falls back without starting or mutating a stopped runtime', 
   assert.equal(catalog.providers[0].id, 'anthropic');
   assert.equal(catalog.providers[0].api_mode, 'anthropic_messages');
   assert.ok(catalog.providers[0].models.some((m) => m.id === 'claude-fable-5.1'));
-  assert.equal(calls.some((c) => ['run', 'start', 'volume'].includes(c.args[0])), false);
+  assert.equal(calls.some((c) => c.args.includes('gateway')), false);
 });
 
-test('model catalog explicit refresh deduplicates native reads and later cache hits avoid Docker', async () => {
+test('model catalog explicit refresh deduplicates native reads and later cache hits avoid Hermes calls', async () => {
   const calls = [];
   const hermes = new HermesRuntime(config(), undefined, runnerFactory(calls));
   const [one, two] = await Promise.all([
@@ -153,7 +168,7 @@ test('model catalog explicit refresh deduplicates native reads and later cache h
   ]);
   assert.equal(one.providers.length, 3);
   assert.deepEqual(two.providers.map((p) => p.id), one.providers.map((p) => p.id));
-  assert.equal(calls.filter((c) => c.args[0] === 'exec' && String(c.args.at(-1)).includes('provider_model_ids')).length, 1);
+  assert.equal(calls.filter((c) => c.command === 'python' && String(c.args.at(-1)).includes('provider_model_ids')).length, 1);
   calls.length = 0;
   const cached = await hermes.modelCatalog('openai-codex');
   assert.equal(cached.providers.length, 1);
@@ -168,9 +183,9 @@ test('fresh status batches logical native auth providers and cached status avoid
   let maxActiveAuth = 0;
   const hermes = new HermesRuntime(config(), undefined, async (command, args, options = {}) => {
     calls.push({ command, args, input: options.input });
-    if (args[0] === 'inspect') return { code: 0, stdout: '{"owned":"true","id":"c1","state":"running","running":true}\n', stderr: '' };
-    if (args[0] === 'exec' && args.includes('python3')) return { code: 0, stdout: '{}', stderr: '' };
-    if (args[0] === 'exec' && args.includes('hermes') && args.includes('auth') && args.includes('status')) {
+    if (isGatewayProbe(command, args)) return GATEWAY_RUNNING;
+    if (command === 'python') return { code: 0, stdout: '{}', stderr: '' };
+    if (isHermes(command, args, 'auth', 'status')) {
       activeAuth += 1;
       maxActiveAuth = Math.max(maxActiveAuth, activeAuth);
       await new Promise((resolve) => setTimeout(resolve, 25));
@@ -180,20 +195,20 @@ test('fresh status batches logical native auth providers and cached status avoid
     return { code: 0, stdout: 'ok', stderr: '' };
   });
   const fresh = await hermes.status({ nativeAuth: 'fresh' });
-  const authCalls = calls.filter((c) => c.args[0] === 'exec' && c.args.includes('hermes') && c.args.includes('auth') && c.args.includes('status'));
+  const authCalls = calls.filter((c) => isHermes(c.command, c.args, 'auth', 'status'));
   assert.deepEqual(authCalls.map((c) => c.args.at(-1)).sort(), ['anthropic', 'openai-api', 'openai-codex']);
   assert.equal(authCalls.length, 3);
   assert.ok(maxActiveAuth > 1);
   assert.equal(fresh.auth.openai.ready, false);
   calls.length = 0;
   await hermes.status();
-  assert.equal(calls.some((c) => c.args[0] === 'exec' && c.args.includes('hermes') && c.args.includes('auth') && c.args.includes('status')), false);
+  assert.equal(calls.some((c) => isHermes(c.command, c.args, 'auth', 'status')), false);
 });
 
-test('malformed auth and model inputs cannot inject Docker or shell args', async () => {
+test('malformed auth and model inputs cannot inject Hermes or shell args', async () => {
   const calls = [];
   const hermes = new HermesRuntime(config(), undefined, runnerFactory(calls));
-  await assert.rejects(() => hermes.saveModel({ provider: 'openai-codex;docker rm x', default: 'ok' }), /unsupported provider/);
+  await assert.rejects(() => hermes.saveModel({ provider: 'openai-codex;hermes rm x', default: 'ok' }), /unsupported provider/);
   await assert.rejects(() => hermes.saveModel({ provider: 'openai-codex', default: 'bad model; rm -rf /' }), /invalid shape/);
   await assert.rejects(() => hermes.saveApiKey('anthropic', { apiKey: 'short' }), /invalid shape/);
   await assert.rejects(() => hermes.saveApiKey('anthropic', { apiKey: 'sk-ant-secret-value\nOPENAI_API_KEY=injected' }), /invalid shape/);
@@ -244,22 +259,22 @@ test('Anthropic auth output marks real provider rejection terminal and clears st
 });
 
 function readyConversationRunner(calls) {
-  return async (_command, args, options = {}) => {
-    calls.push({ args, input: options.input });
-    if (args[0] === 'inspect') return { code: 0, stdout: '{"owned":"true","id":"c1","state":"running","running":true}\n', stderr: '' };
-    if (args[0] === 'exec' && args.includes('python3')) {
+  return async (command, args, options = {}) => {
+    calls.push({ command, args, input: options.input });
+    if (isGatewayProbe(command, args)) return GATEWAY_RUNNING;
+    if (command === 'python') {
       const script = String(args.at(-1));
       if (script.includes("'model':")) return { code: 0, stdout: JSON.stringify({ model: { configured: true, provider: 'openai-codex', default: 'gpt-6-sol', api_mode: 'codex_responses' }, auth: {} }), stderr: '' };
       return { code: 0, stdout: '{"ok":true}\n', stderr: '' };
     }
-    if (args[0] === 'exec' && args.includes('hermes') && args.includes('auth') && args.includes('status')) return { code: 0, stdout: 'authenticated and ready', stderr: '' };
+    if (isHermes(command, args, 'auth', 'status')) return { code: 0, stdout: 'authenticated and ready', stderr: '' };
     return { code: 0, stdout: 'ok', stderr: '' };
   };
 }
 
 async function conversationHermes(children) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'waypoint-ceo-convo-'));
-  const cfg = loadConfig({ DATA_DIR: dir, HERMES_CEO_TURN_TIMEOUT_SECONDS: '5' }, process.cwd());
+  const cfg = loadConfig({ HERMES_PYTHON: 'python', DATA_DIR: dir, HERMES_CEO_TURN_TIMEOUT_SECONDS: '5' }, process.cwd());
   const calls = [];
   const spawns = [];
   const hermes = new HermesRuntime(cfg, undefined, readyConversationRunner(calls), (_command, args) => {
@@ -283,9 +298,7 @@ test('CEO conversation creates a named Hermes session, persists messages, and re
   const { hermes, spawns, dir } = await conversationHermes([firstChild, secondChild]);
   const first = hermes.sendCeoMessage({ message: 'Say one safe sentence.' });
   await waitFor(() => spawns.length === 1);
-  assert.ok(spawns[0].includes('timeout'));
-  assert.ok(spawns[0].includes('--kill-after=2s'));
-  assert.ok(spawns[0].includes('hermes'));
+  assert.equal(spawns[0][0], 'chat');
   assert.ok(spawns[0].includes('--continue'));
   const firstConversationName = spawns[0][spawns[0].indexOf('--continue') + 1];
   assert.match(firstConversationName, /^waypoint-ceo-[A-Za-z0-9_.:-]+$/);
@@ -420,19 +433,19 @@ test('CEO conversation rejects oversize messages before spawning Hermes', async 
 
 test('bridge token persists across service config reloads', async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'waypoint-bridge-token-'));
-  const one = loadConfig({ DATA_DIR: dir }, process.cwd());
-  const two = loadConfig({ DATA_DIR: dir }, process.cwd());
+  const one = loadConfig({ HERMES_PYTHON: 'python', DATA_DIR: dir }, process.cwd());
+  const two = loadConfig({ HERMES_PYTHON: 'python', DATA_DIR: dir }, process.cwd());
   assert.equal(one.bridge.token, two.bridge.token);
   assert.match(await fs.readFile(path.join(dir, 'bridge-token'), 'utf8'), /^[0-9a-f]+\n$/i);
 });
 
 test('status does not claim provider connected from persisted UI toggles alone', async () => {
-  const hermes = new HermesRuntime(config(), undefined, async (_command, args) => {
-    if (args[0] === 'inspect') return { code: 1, stdout: '', stderr: 'No such object: waypoint-hermes-ceo' };
+  const hermes = new HermesRuntime(config(), undefined, async (command, args) => {
+    if (isGatewayProbe(command, args)) return GATEWAY_STOPPED;
     return { code: 0, stdout: '', stderr: '' };
   });
   const status = await hermes.status();
-  assert.equal(status.runtime.state, 'missing');
+  assert.equal(status.runtime.state, 'exited');
   assert.equal(status.model.configured, false);
   assert.equal(status.auth.anthropic.ready, false);
   assert.equal(status.auth['openai-codex'].ready, false);
@@ -442,11 +455,8 @@ test('status does not claim provider connected from persisted UI toggles alone',
 function skillsRunner(calls, stdout, options = {}) {
   return async (command, args, runOptions = {}) => {
     calls.push({ command, args, options: runOptions });
-    if (args[0] === 'inspect') {
-      if (options.missing) return { code: 1, stdout: '', stderr: 'No such object: waypoint-hermes-ceo' };
-      return { code: 0, stdout: '{"owned":"true","id":"c1","state":"running","running":true}\n', stderr: '' };
-    }
-    if (args[0] === 'exec' && args.includes('python3')) return { code: options.code ?? 0, stdout, stderr: '' };
+    if (isGatewayProbe(command, args)) return options.missing ? GATEWAY_STOPPED : GATEWAY_RUNNING;
+    if (command === 'python') return { code: options.code ?? 0, stdout, stderr: '' };
     return { code: 1, stdout: '', stderr: 'unexpected' };
   };
 }
@@ -464,8 +474,9 @@ test('skills reads the native all-skill inventory and returns sanitized availabi
   ] };
   const hermes = new HermesRuntime(cfg, undefined, skillsRunner(calls, `platform warning\n${JSON.stringify(native)}\n`));
   const inventory = await hermes.skills();
-  const exec = calls.find((c) => c.args[0] === 'exec');
-  assert.deepEqual(exec.args.slice(0, 6), ['exec', '-i', '--user', 'hermes', 'waypoint-hermes-ceo', 'python3']);
+  const exec = calls.find((c) => c.command === 'python' && !isGatewayProbe(c.command, c.args));
+  assert.deepEqual(exec.args.slice(0, 3), ['-X', 'utf8', '-c']);
+  assert.equal(exec.options.env.HERMES_HOME, cfg.hermes.home);
   assert.match(exec.args.at(-1), /get_disabled_skills/);
   assert.ok(exec.options.outputLimitBytes > 8192);
   assert.equal(inventory.available, true);
@@ -489,12 +500,12 @@ test('skills reads the native all-skill inventory and returns sanitized availabi
   assert.deepEqual(Object.keys(codex).sort(), ['category', 'description', 'enabled', 'locked', 'name', 'source', 'waypoint']);
 });
 
-test('skills reports a stopped CEO without exec and fails closed on bad native output', async () => {
+test('skills reports a stopped CEO without reading skills and fails closed on bad native output', async () => {
   const calls = [];
   const stopped = await new HermesRuntime(config(), undefined, skillsRunner(calls, '', { missing: true })).skills();
   assert.equal(stopped.available, false);
   assert.equal(stopped.skills.length, 0);
-  assert.equal(calls.some((c) => c.args[0] === 'exec'), false);
+  assert.equal(calls.some((c) => !isGatewayProbe(c.command, c.args)), false);
   await assert.rejects(() => new HermesRuntime(config(), undefined, skillsRunner([], '{"ok":true,"skills":[{"na')).skills(), /unexpected shape/);
   await assert.rejects(() => new HermesRuntime(config(), undefined, skillsRunner([], '{"ok":false,"error":"ImportError"}')).skills(), /could not list/);
   await assert.rejects(() => new HermesRuntime(config(), undefined, skillsRunner([], '', { code: 1 })).skills(), /Hermes command failed/);
@@ -508,10 +519,10 @@ function mutableSkillsRunner(calls, initialDisabled = ['spike']) {
   ];
   const disabled = new Set(initialDisabled);
   const payload = () => ({ ok: true, skills: all.map((skill) => ({ ...skill, enabled: !disabled.has(skill.name), locked: ['waypoint-ceo-bridge', 'hermes-agent'].includes(skill.name) })) });
-  return async (_command, args, options = {}) => {
-    calls.push({ args, input: options.input });
-    if (args[0] === 'inspect') return { code: 0, stdout: '{"owned":"true","id":"c1","state":"running","running":true}\n', stderr: '' };
-    if (args[0] === 'exec' && args.includes('python3')) {
+  return async (command, args, options = {}) => {
+    calls.push({ command, args, input: options.input });
+    if (isGatewayProbe(command, args)) return GATEWAY_RUNNING;
+    if (command === 'python') {
       const script = String(args.at(-1));
       if (script.includes('save_disabled_skills')) {
         const body = JSON.parse(options.input || '{}');
@@ -541,7 +552,7 @@ test('skill availability toggles native disabled state, validates names, and ser
   await assert.rejects(() => hermes.setSkillEnabled('missing', { enabled: false }), /not found/);
   await assert.rejects(() => hermes.setSkillEnabled('waypoint-ceo-bridge', { enabled: false }), /locked/);
   await assert.rejects(() => hermes.setSkillEnabled('spike', { enabled: 'false' }), /boolean/);
-  const update = calls.find((c) => c.args?.[0] === 'exec' && String(c.args.at(-1)).includes('save_disabled_skills'));
+  const update = calls.find((c) => c.command === 'python' && String(c.args.at(-1)).includes('save_disabled_skills'));
   assert.match(update.args.at(-1), /load_config/);
   assert.match(update.args.at(-1), /save_disabled_skills/);
   assert.equal(String(update.input).includes('../escape'), false);

@@ -17,10 +17,7 @@ function status(authenticatedProvider = '', options: { unchecked?: boolean } = {
   if (authenticatedProvider) auth[authenticatedProvider] = { ...auth[authenticatedProvider], authenticated: true, ready: true, credentialPresent: true, oauthPresent: true };
   if (options.unchecked) auth['openai-codex'] = { ...auth['openai-codex'], native: { checked: false, authenticated: false, state: 'not_checked', message: 'not checked' } };
   return {
-    image: 'img',
-    imagePinned: true,
-    containerName: 'waypoint-hermes-ceo',
-    volumeName: 'waypoint-hermes-ceo-home',
+    home: 'C:/waypoint/hermes-home',
     runtime: { state: 'running', running: true },
     model: { configured: false, provider: '', default: '' },
     auth,

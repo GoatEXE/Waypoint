@@ -204,7 +204,7 @@ export class Pods {
   }
 
   async #hermes(args) {
-    const result = await this.hermes.runner('docker', ['exec', '--user', 'hermes', this.hermes.containerName, 'hermes', ...args], { timeoutMs: 60000, outputLimitBytes: 64 * 1024 });
+    const result = await this.hermes.runHermes(args, { timeoutMs: 60000, outputLimitBytes: 64 * 1024 });
     if (result.code !== 0) {
       const failure = runtimeFailure(result);
       if (failure) throw failure;
@@ -216,10 +216,10 @@ export class Pods {
 }
 
 export const WRITE_ROSTER_SCRIPT = String.raw`
-import json, os, sys, yaml
+import json, os, sys
 p = json.loads(sys.stdin.read())
 for seat in p['seats']:
-    home = os.path.join('/opt/data/profiles', seat)
+    home = os.path.join(os.environ['HERMES_HOME'], 'profiles', seat)
     folder = os.path.join(home, 'skills', 'waypoint-pod')
     os.makedirs(folder, exist_ok=True)
     with open(os.path.join(folder, 'SKILL.md'), 'w', encoding='utf-8') as handle:

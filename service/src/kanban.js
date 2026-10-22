@@ -159,7 +159,7 @@ export class KanbanBoard {
 
   async run(args, { json = true, board = DEFAULT_BOARD, raw = false } = {}) {
     const scoped = board && board !== DEFAULT_BOARD ? ['--board', board, ...args] : args;
-    const result = await this.hermes.runner('docker', ['exec', '--user', 'hermes', this.hermes.containerName, 'hermes', 'kanban', ...scoped, ...(json ? ['--json'] : [])], { timeoutMs: 60000, outputLimitBytes: 4 * 1024 * 1024 });
+    const result = await this.hermes.runHermes(['kanban', ...scoped, ...(json ? ['--json'] : [])], { timeoutMs: 60000, outputLimitBytes: 4 * 1024 * 1024 });
     if (result.code !== 0) {
       const detail = String(result.stderr || result.stdout || '').trim().split('\n').pop().slice(0, 200);
       if (/not found|no such task|unknown task/i.test(detail)) throw notFound('task not found');

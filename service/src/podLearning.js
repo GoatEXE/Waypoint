@@ -1,6 +1,6 @@
 const COMMON = String.raw`
 import hashlib, json, os, sys
-ROOT = '/opt/data/profiles'
+ROOT = os.path.join(os.environ['HERMES_HOME'], 'profiles')
 DELIM = '\n§\n'
 def skill_dirs(profile):
     base = os.path.join(ROOT, profile, 'skills')
@@ -61,7 +61,13 @@ print(json.dumps({'items': items}))
 `;
 
 export const APPLY_SCRIPT = COMMON + String.raw`
-import fcntl, shutil
+import shutil
+try:
+    import fcntl
+    def lock_file(handle): fcntl.flock(handle, fcntl.LOCK_EX)
+except ImportError:
+    import msvcrt
+    def lock_file(handle): msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
 p = json.loads(sys.stdin.read())
 if p['kind'] == 'skill':
     src = os.path.join(ROOT, p['seat'], 'skills', p['path'])
@@ -75,7 +81,7 @@ else:
     os.makedirs(folder, exist_ok=True)
     path = os.path.join(folder, p['path'])
     with os.fdopen(os.open(path + '.lock', os.O_RDWR | os.O_CREAT, 0o600), 'r+') as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+        lock_file(lock)
         current = entries(p['from'], p['path'])
         if p['text'].strip() not in current:
             tmp = os.path.join(folder, '.mem_waypoint')

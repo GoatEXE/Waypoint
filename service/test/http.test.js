@@ -24,8 +24,8 @@ test('healthz, config, and model catalog return sanitized JSON', async () => {
     assert.equal(health.ok, true);
     assert.equal(health.dryRun, true);
     const config = await fetch(`${app.base}/config`).then((r) => r.json());
-    assert.equal(config.hermes.imagePinned, true);
-    assert.equal(Object.keys(config).includes('HERMES_DOCKER_IMAGE'), false);
+    assert.equal(typeof config.hermes.home, 'string');
+    assert.equal(JSON.stringify(config).includes(app.config.bridge.token), false);
     const catalog = await fetch(`${app.base}/hermes/model-catalog?provider=openai-codex`).then((r) => r.json());
     assert.equal(catalog.providers.length, 1);
     assert.equal(catalog.providers[0].id, 'openai-codex');

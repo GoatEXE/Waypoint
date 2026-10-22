@@ -5,14 +5,14 @@ import os from 'node:os';
 import path from 'node:path';
 import { Pods, rosterSkill } from '../src/pods.js';
 import { APPLY_SCRIPT, LEARNING_SCRIPT, SNAPSHOT_SCRIPT } from '../src/podLearning.js';
+import { fakeHermes } from './fakeHermes.js';
 
 test('a pod is a board plus seat clones with a roster; closing it reviews learning before the clones go', async () => {
   const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'waypoint-pods-'));
   const calls = [];
   const learned = { seat: 'web-builder', from: 'builder', kind: 'memory', path: 'MEMORY.md', change: 'added', text: 'The user wants test steps in every handoff.' };
-  const hermes = {
-    containerName: 'ceo',
-    runner: async (_command, args) => { calls.push(args.slice(args.indexOf('ceo') + 2)); return { code: 0, stdout: args.includes('get') ? '- waypoint-seat\n' : '' }; },
+  const hermes = fakeHermes({
+    runner: async (_command, args) => { calls.push(args); return { code: 0, stdout: args.includes('get') ? '- waypoint-seat\n' : '' }; },
     execPython: async (script, input) => {
       const body = JSON.parse(input);
       if (script === SNAPSHOT_SCRIPT) return { stdout: JSON.stringify(Object.fromEntries(body.seats.map((seat) => [seat, { 'pr-checklist': 'base' }]))) };
@@ -21,7 +21,7 @@ test('a pod is a board plus seat clones with a roster; closing it reviews learni
       calls.push(['roster', ...body.seats]);
       return { stdout: '{"ok":true}' };
     },
-  };
+  });
   const orgSeats = { list: async () => ({ seats: [{ id: 'builder', description: 'Builds' }, { id: 'reviewer', description: 'Reviews' }] }) };
   const pods = new Pods({ config: { dataDir, dryRun: false }, hermes, board: {}, orgSeats });
 

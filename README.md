@@ -4,7 +4,7 @@ Waypoint is an early foundation for a Hermes-based delegation system. The reposi
 
 ## Current state
 
-- A containerized Hermes CEO runs the organization. Seats are Hermes profiles in the same install; the user or the CEO hires them.
+- A Hermes CEO runs the organization. It runs on Hermes installed on this computer, with its own Hermes home (`service/runtime/pod/hermes-home`), separate from any Hermes you use yourself. Seats are Hermes profiles in the same install; the user or the CEO hires them.
 - Work is a Hermes kanban board. The gateway dispatcher starts assigned tasks on their seats. Waypoint shows the board, a GitHub-style thread per task, and an inbox of tasks waiting on you.
 - You talk to the CEO directly, in a General thread or a thread per task.
 - Missions and projects (GitHub repositories) are stored by the service and reachable by the CEO through a token-protected bridge.
@@ -13,12 +13,13 @@ Waypoint is an early foundation for a Hermes-based delegation system. The reposi
 Current limits (details in `docs/status-and-limitations.md`):
 
 - `DRY_RUN=true` is the default; set it to `false` for live use.
-- Seats share the CEO's container, credentials, and GitHub access.
+- Seats share the CEO's Hermes install and credentials and run as your user account; GitHub access goes through the Waypoint GitHub App.
+- Pods are boards inside the same install, not separate containers yet.
 - Pods and their learning review are new.
 
 ## Validate
 
-Install dependencies in `service/` and `app/`, then run `npm run check` from the repository root. It checks source comments, service and app behavior, and the app build.
+Install [Hermes](https://hermes-agent.nousresearch.com/docs/getting-started/quickstart) (on Windows: `iex (irm https://hermes-agent.nousresearch.com/install.ps1)`) so `hermes` is on PATH, or set `HERMES_BIN`. Install dependencies in `service/` and `app/`, then run `npm run check` from the repository root. It checks source comments, service and app behavior, and the app build.
 
 ```bash
 npm install --prefix service

@@ -1,19 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { OrgSeats } from '../src/orgSeats.js';
+import { fakeHermes } from './fakeHermes.js';
 
 function seats() {
   const calls = [];
   const writes = [];
-  const hermes = {
-    containerName: 'ceo',
-    runner: async (_cmd, args) => { calls.push(args.slice(4)); return { code: 0, stdout: '', stderr: '' }; },
+  const hermes = fakeHermes({
+    runner: async (command, args) => { calls.push([command, ...args]); return { code: 0, stdout: '', stderr: '' }; },
     execPython: async (script, input) => {
       const p = JSON.parse(input);
       if (p.files) { writes.push(p.write); return { stdout: JSON.stringify({ ok: true, soul: p.write.soul ?? 'soul', memory: '', user: 'u', model: { provider: 'anthropic', default: 'claude-opus-5-5' } }) }; }
       return { stdout: JSON.stringify({ seats: [{ id: 'dev', description: 'Builds things', autoLoad: ['waypoint-seat'] }] }) };
     },
-  };
+  });
   return { orgSeats: new OrgSeats({ config: {}, hermes }), calls, writes };
 }
 

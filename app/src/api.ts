@@ -1,8 +1,5 @@
 export interface HermesStatus {
-  image: string;
-  imagePinned: boolean;
-  containerName: string;
-  volumeName: string;
+  home?: string;
   runtime: { state: string; running: boolean; id?: string };
   model: { configured: boolean; provider: string; default: string; base_url?: string; api_mode?: string };
   auth: Record<string, { credentialPresent: boolean; oauthPresent: boolean; apiKeyPresent: boolean; authenticated: boolean; ready: boolean; native?: { checked: boolean; authenticated: boolean; state: string; message: string } }>;
@@ -200,7 +197,7 @@ export interface UsageDay { day: number; tasks: number; sessions: number; input:
 export interface UsageReport { available: boolean; days: UsageDay[]; agents: string[]; billing: { apiKey: boolean; subscription: boolean; providers: string[] }; unreadable: string[] }
 export interface UserMemory { available: boolean; entries: string[]; used: number; limit: number; enabled: boolean }
 export type OrganizationInput = Partial<Pick<Organization, 'name' | 'key' | 'ceoName' | 'logo'>>
-export interface AppConfig { dryRun: boolean; serviceName?: string; sharedAuth?: { enabled: boolean }; docker?: { imageConfigured?: boolean; imagePinned?: boolean }; hermes?: { imagePinned?: boolean } }
+export interface AppConfig { dryRun: boolean; serviceName?: string; hermes?: { home?: string } }
 export type MissionStatus = 'backlog' | 'todo' | 'in_progress' | 'in_review' | 'done' | 'canceled';
 export interface Mission {
   id: string;
