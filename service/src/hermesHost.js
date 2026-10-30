@@ -120,5 +120,10 @@ function slash(value) {
 export function killTree(child, signal = 'SIGTERM') {
   if (!child?.pid) return;
   if (process.platform === 'win32') spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true });
-  else child.kill(signal);
+  else {
+    try { process.kill(-child.pid, signal); }
+    catch {
+      try { process.kill(child.pid, signal); } catch {   }
+    }
+  }
 }

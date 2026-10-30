@@ -9,9 +9,10 @@
   },
   "scripts": {
     "start": "node --env-file-if-exists=.env src/index.js",
-    "test": "node --test",
+    "test": "node --test \"test/**/*.test.js\"",
     "check": "npm test",
-    "reset": "node --env-file-if-exists=.env scripts/reset.mjs"
+    "reset": "node --env-file-if-exists=.env scripts/reset.mjs",
+    "live-check": "node scripts/live-check.mjs"
   },
   "dependencies": {},
   "devDependencies": {}

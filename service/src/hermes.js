@@ -1125,12 +1125,13 @@ def inventory():
  from hermes_cli.skills_config import get_disabled_skills
  from tools.skills_hub import HubLockFile
  from tools.skills_sync import _read_manifest
- from tools.skills_tool import _find_all_skills
+ import tools.skills_tool as st
+ find_all_skills=getattr(st,'find_all_skills',None) or st._find_all_skills
  hub={e.get('name') for e in HubLockFile().list_installed()}
  builtin=set(_read_manifest())
  disabled=set(get_disabled_skills(load_config()))
  skills=[]
- for s in _find_all_skills(skip_disabled=True):
+ for s in find_all_skills(skip_disabled=True):
   name=s.get('name')
   if not name: continue
   source='hub' if name in hub else ('builtin' if name in builtin else 'local')
@@ -1155,12 +1156,13 @@ def inventory():
  from hermes_cli.skills_config import get_disabled_skills
  from tools.skills_hub import HubLockFile
  from tools.skills_sync import _read_manifest
- from tools.skills_tool import _find_all_skills
+ import tools.skills_tool as st
+ find_all_skills=getattr(st,'find_all_skills',None) or st._find_all_skills
  hub={e.get('name') for e in HubLockFile().list_installed()}
  builtin=set(_read_manifest())
  disabled=set(get_disabled_skills(load_config()))
  skills=[]
- for s in _find_all_skills(skip_disabled=True):
+ for s in find_all_skills(skip_disabled=True):
   name=s.get('name')
   if not name: continue
   source='hub' if name in hub else ('builtin' if name in builtin else 'local')
@@ -1210,20 +1212,33 @@ def inventory():
  from hermes_cli.skills_config import get_disabled_skills
  from tools.skills_hub import HubLockFile
  from tools.skills_sync import _read_manifest
- from tools.skills_tool import _find_all_skills
+ import tools.skills_tool as st
+ find_all_skills=getattr(st,'find_all_skills',None) or st._find_all_skills
  hub={e.get('name') for e in HubLockFile().list_installed()}
  builtin=set(_read_manifest())
  disabled=set(get_disabled_skills(load_config()))
  skills=[]
- for s in _find_all_skills(skip_disabled=True):
+ for s in find_all_skills(skip_disabled=True):
   name=s.get('name')
   if not name: continue
   source='hub' if name in hub else ('builtin' if name in builtin else 'local')
   skills.append({'name':name,'description':s.get('description') or '','category':s.get('category') or '','source':source,'enabled':name not in disabled,'locked':name in LOCKED})
  return skills
+def skill_body(skill_md):
+ text=Path(skill_md).read_text(encoding='utf-8',errors='replace')[:4000]
+ if text.startswith('---'):
+  parts=text.split('---',2)
+  text=parts[2] if len(parts)==3 else ''
+ return text
 def find_skill_root(target):
- from agent.skill_utils import iter_project_skill_files, iter_skill_index_files
  from tools import skills_tool as st
+ catalog=getattr(st,'_skill_catalog',None)
+ if catalog:
+  for entry in catalog(skip_disabled=True):
+   if entry.get('load_name')==target and entry.get('path'):
+    return Path(entry['path']).parent, skill_body(entry['path'])
+  return None, ''
+ from agent.skill_utils import iter_project_skill_files, iter_skill_index_files
  project_dirs, dirs_to_scan, _ = st._skill_search_dirs()
  for scan_dir in dirs_to_scan:
   iterator = iter_project_skill_files if scan_dir in project_dirs else lambda d: iter_skill_index_files(d, 'SKILL.md')
@@ -1332,7 +1347,7 @@ print(json.dumps({'ok':True}))
 `;
 
 function spawnOptions(options = {}) {
-  return { stdio: options.stdio || ['pipe', 'pipe', 'pipe'], env: options.env, windowsHide: options.windowsHide, detached: options.detached };
+  return { stdio: options.stdio || ['pipe', 'pipe', 'pipe'], env: options.env, windowsHide: options.windowsHide, detached: options.detached ?? process.platform !== 'win32' };
 }
 function defaultRunner(command, args, options = {}) {
   return new Promise((resolve) => {
