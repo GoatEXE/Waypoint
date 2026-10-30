@@ -1332,7 +1332,7 @@ print(json.dumps({'ok':True}))
 `;
 
 function spawnOptions(options = {}) {
-  return { stdio: options.stdio || ['pipe', 'pipe', 'pipe'], env: options.env, windowsHide: options.windowsHide, detached: options.detached };
+  return { stdio: options.stdio || ['pipe', 'pipe', 'pipe'], env: options.env, windowsHide: options.windowsHide, detached: options.detached ?? process.platform !== 'win32' };
 }
 function defaultRunner(command, args, options = {}) {
   return new Promise((resolve) => {
