@@ -35,3 +35,7 @@ jobs:
       - run: hermes --version
       - run: npm run live-check
         working-directory: service
+      - name: Stop leftover Hermes processes
+        if: always() && runner.os == 'Windows'
+        shell: pwsh
+        run: Get-Process hermes, python -ErrorAction SilentlyContinue | Stop-Process -Force
